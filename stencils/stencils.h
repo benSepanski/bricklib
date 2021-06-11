@@ -56,6 +56,8 @@ void copy();
 
 void d3pt7();
 
+void d3pt7complex();
+
 void d3cond();
 
 void d3pt13();
