@@ -331,11 +331,15 @@ struct _BrickAccessor<T, Dim<D, BDims...>, Dim<Folds...>, void> {
  */
 
 /// Generic base template, see <a href="structBrick_3_01Dim_3_01BDims_8_8_8_01_4_00_01Dim_3_01Folds_8_8_8_01_4_01_4.html">Brick< Dim< BDims... >, Dim< Folds... > ></a>
-template<typename...>
+template<typename BrickDims, typename VectorFold, bool isComplex = false>
 struct Brick;
 
 /**
  * @brief Brick data structure
+ * @tparam isComplex (default false) true if the elements are complex.
+ *                   In this case, note that complex bricks are represented
+ *                   as an "array-of-structs", i.e. the real-part and imaginary
+ *                   part of each complex element are adjacent in memory.
  * @tparam BDims The brick dimensions
  * @tparam Folds The fold dimensions
  *
@@ -346,14 +350,16 @@ struct Brick;
  * @endcode
  */
 template<
+    bool isComplex,
     unsigned ... BDims,
     unsigned ... Folds>
-struct Brick<Dim<BDims...>, Dim<Folds...> > {
-  typedef Brick<Dim<BDims...>, Dim<Folds...> > mytype;    ///< Shorthand for this struct's type
+struct Brick<Dim<BDims...>, Dim<Folds...>, isComplex> {
+  typedef Brick<Dim<BDims...>, Dim<Folds...>, isComplex> mytype;    ///< Shorthand for this struct's type
   typedef BrickInfo<sizeof...(BDims)> myBrickInfo;        ///< Shorthand for type of the metadata
 
   static constexpr unsigned VECLEN = cal_size<Folds...>::value;     ///< Vector length shorthand
-  static constexpr unsigned BRICKSIZE = cal_size<BDims...>::value;  ///< Brick size shorthand
+  static constexpr unsigned BRICKSIZE = cal_size<BDims...>::value * (isComplex ? 2 : 1);  ///< Brick size shorthand
+  static constexpr bool complex = isComplex;
 
   myBrickInfo *bInfo;        ///< Pointer to (possibly shared) metadata
   unsigned step;             ///< Spacing between bricks in unit of bElem (BrickStorage)
