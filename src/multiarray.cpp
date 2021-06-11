@@ -30,9 +30,25 @@ bElem *uninitArray(const std::vector<long> &list, long &size) {
   return (bElem *) aligned_alloc(ALIGN, size * sizeof(bElem));
 }
 
+bComplexElem *uninitComplexArray(const std::vector<long> &list, long &size) {
+  size = 1;
+  for (auto i: list)
+    size *= i;
+  return (bComplexElem *) aligned_alloc(ALIGN, size * sizeof(bComplexElem));
+}
+
 bElem *randomArray(const std::vector<long> &list) {
   long size;
   bElem *arr = uninitArray(list, size);
+#pragma omp parallel for
+  for (long l = 0; l < size; ++l)
+    arr[l] = randD();
+  return arr;
+}
+
+bComplexElem *randomComplexArray(const std::vector<long> &list) {
+  long size;
+  bComplexElem *arr = uninitComplexArray(list, size);
 #pragma omp parallel for
   for (long l = 0; l < size; ++l)
     arr[l] = randD();
@@ -48,16 +64,11 @@ bElem *zeroArray(const std::vector<long> &list) {
   return arr;
 }
 
-bool compareArray(const std::vector<long> &list, bElem *arrA, bElem *arrB) {
-  long size = 1;
-  for (auto i: list)
-    size *= i;
-  bool same = true;
-#pragma omp parallel for reduction(&&: same)
-  for (long l = 0; l < size; ++l) {
-    bElem diff = std::abs(arrA[l] - arrB[l]);
-    bool r = (diff < BRICK_TOLERANCE) || (diff < (std::abs(arrA[l]) + std::abs(arrB[l])) * BRICK_TOLERANCE);
-    same = same && r;
-  }
-  return same;
+bComplexElem *zeroComplexArray(const std::vector<long> &list) {
+  long size;
+  bComplexElem *arr = uninitComplexArray(list, size);
+#pragma omp parallel for
+  for (long l = 0; l < size; ++l)
+    arr[l] = 0.0;
+  return arr;
 }

@@ -6,12 +6,15 @@
 #ifndef BRICK_VECSCATTER_H
 #define BRICK_VECSCATTER_H
 
+#include <complex>
+
 /**
  * @brief Basic datatype for all brick elements
  */
 #ifndef bElem
 #define bElem double
 #endif
+typedef std::complex<bElem> bComplexElem;
 
 #define VS_STRING(...) #__VA_ARGS__
 #define VS_TOSTR(...) VS_STRING(__VA_ARGS__)
