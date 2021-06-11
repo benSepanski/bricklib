@@ -6,6 +6,7 @@
 #include "stencils/stencils.h"
 
 bElem *coeff;
+bComplexElem *zCoeff;
 
 int main() {
   coeff = (bElem *) malloc(129 * sizeof(bElem));
@@ -14,10 +15,14 @@ int main() {
   std::uniform_real_distribution<bElem> u(0, 1);
 
   for (int i = 0; i < 129; ++i)
+  {
     coeff[i] = u(mt);
+    zCoeff[i] = bComplexElem(u(mt), u(mt));
+  }
 
   copy();
   d3pt7();
+  d3pt7complex();
   d3pt27();
   d3cond();
   std::cout << "result match" << std::endl;

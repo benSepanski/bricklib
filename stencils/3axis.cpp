@@ -91,6 +91,88 @@ void d3pt7() {
   free(bInfo.adj);
 }
 
+void d3pt7complex() {
+  unsigned *grid_ptr;
+
+  auto bInfo = init_grid<3>(grid_ptr, {STRIDEB, STRIDEB, STRIDEB});
+  auto grid = (unsigned (*)[STRIDEB][STRIDEB]) grid_ptr;
+
+  bComplexElem *in_ptr = randomComplexArray({STRIDE, STRIDE, STRIDE});
+  bComplexElem *out_ptr = zeroComplexArray({STRIDE, STRIDE, STRIDE});
+  bComplexElem(*arr_in)[STRIDE][STRIDE] = (bComplexElem (*)[STRIDE][STRIDE]) in_ptr;
+  bComplexElem(*arr_out)[STRIDE][STRIDE] = (bComplexElem (*)[STRIDE][STRIDE]) out_ptr;
+
+  auto bSize = cal_size<BDIM>::value;
+  auto bStorage = BrickStorage::allocate(bInfo.nbricks, bSize * 2);
+  typedef Brick<Dim<BDIM>, Dim<VFOLD>, true> ComplexBrick;
+  ComplexBrick bIn(&bInfo, bStorage, 0);
+  ComplexBrick bOut(&bInfo, bStorage, bSize);
+
+  // TODO
+  copyToBrick<3>({STRIDEG, STRIDEG, STRIDEG}, {PADDING, PADDING, PADDING}, {0, 0, 0}, in_ptr, grid_ptr, bIn);
+
+  auto arr_func = [&arr_in, &arr_out]() -> void {
+    _TILEFOR arr_out[k][j][i] = coeff[5] * arr_in[k + 1][j][i] + coeff[6] * arr_in[k - 1][j][i] +
+                                coeff[3] * arr_in[k][j + 1][i] + coeff[4] * arr_in[k][j - 1][i] +
+                                coeff[1] * arr_in[k][j][i + 1] + coeff[2] * arr_in[k][j][i - 1] +
+                                coeff[0] * arr_in[k][j][i];
+  };
+
+#define bIn(i, j, k) arr_in[k][j][i]
+#define bOut(i, j, k) arr_out[k][j][i]
+  auto arr_tile_func = [&arr_in, &arr_out]() -> void {
+    #pragma omp parallel for
+    for (long tk = GZ; tk < STRIDE - GZ; tk += TILE)
+    for (long tj = GZ; tj < STRIDE - GZ; tj += TILE)
+    for (long ti = GZ; ti < STRIDE - GZ; ti += TILE)
+      tile("7pt.py", "FLEX", (BDIM), ("tk", "tj", "ti"), (1,1,4));
+  };
+#undef bIn
+#undef bOut
+
+  auto brick_func = [&grid, &bIn, &bOut]() -> void {
+    _PARFOR
+    for (long tk = GB; tk < STRIDEB - GB; ++tk)
+      for (long tj = GB; tj < STRIDEB - GB; ++tj)
+        for (long ti = GB; ti < STRIDEB - GB; ++ti) {
+          unsigned b = grid[tk][tj][ti];
+          for (long k = 0; k < TILE; ++k)
+            for (long j = 0; j < TILE; ++j)
+              for (long i = 0; i < TILE; ++i) {
+                bOut[b][k][j][i] = coeff[5] * bIn[b][k + 1][j][i] + coeff[6] * bIn[b][k - 1][j][i] +
+                                   coeff[3] * bIn[b][k][j + 1][i] + coeff[4] * bIn[b][k][j - 1][i] +
+                                   coeff[1] * bIn[b][k][j][i + 1] + coeff[2] * bIn[b][k][j][i - 1] +
+                                   coeff[0] * bIn[b][k][j][i];
+              }
+        }
+  };
+
+  auto brick_func_trans = [&grid, &bIn, &bOut]() -> void {
+    _PARFOR
+    for (long tk = GB; tk < STRIDEB - GB; ++tk)
+      for (long tj = GB; tj < STRIDEB - GB; ++tj)
+        for (long ti = GB; ti < STRIDEB - GB; ++ti) {
+          unsigned b = grid[tk][tj][ti];
+          brick("7pt.py", VSVEC, (BDIM), (VFOLD), b);
+        }
+  };
+
+  std::cout << "d3pt7" << std::endl;
+  std::cout << "Arr: " << time_func(arr_func) << std::endl;
+  std::cout << "Bri: " << time_func(brick_func) << std::endl;
+  if (!compareBrick<3>({N, N, N}, {PADDING,PADDING,PADDING}, {GZ, GZ, GZ}, out_ptr, grid_ptr, bOut))
+    throw std::runtime_error("result mismatch!");
+  std::cout << "Arr Scatter: " << time_func(arr_tile_func) << std::endl;
+  std::cout << "Trans: " << time_func(brick_func_trans) << std::endl;
+  if (!compareBrick<3>({N, N, N}, {PADDING,PADDING,PADDING}, {GZ, GZ, GZ}, out_ptr, grid_ptr, bOut))
+    throw std::runtime_error("result mismatch!");
+
+  free(in_ptr);
+  free(out_ptr);
+  free(grid_ptr);
+  free(bInfo.adj);
+}
+
 void d3cond() {
   unsigned *grid_ptr;
 
