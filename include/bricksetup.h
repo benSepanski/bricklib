@@ -94,13 +94,16 @@ BrickInfo<dims> init_grid(unsigned *&grid_ptr, const std::vector<long> &dimlist)
 }
 
 template<unsigned dims, unsigned d, typename F, typename A>
-inline void fill(const std::vector<long> &tile, const std::vector<long> &stride, bElem *arr, A a, F f, RunningTag t) {
+inline void fill(const std::vector<long> &tile, const std::vector<long> &stride, typename A::elemType *arr, A a, F f, RunningTag t) {
   for (long s = 0; s < tile[d - 1]; ++s)
     fill<dims, d - 1>(tile, stride, arr + s * stride[d - 1], a[s], f, TagSelect<d - 1>::value);
 }
 
-template<unsigned dims, unsigned d, typename F, typename A>
-inline void fill(const std::vector<long> &tile, const std::vector<long> &stride, bElem *arr, A &a, F f, StopTag t) {
+template<unsigned dims, unsigned d, typename F, typename elemType>
+inline void fill(const std::vector<long> &tile, const std::vector<long> &stride, elemType *arr, elemType &a, F f, StopTag t) {
+  static_assert(std::is_same<elemType, bElem>::value || std::is_same<elemType, bComplexElem>::value,
+                "expected elemType to be of type bElem or bComplexElem");
+
   f(a, arr);
 }
 
@@ -108,7 +111,7 @@ template<unsigned dims, unsigned d, typename T, typename F>
 inline void iter(const std::vector<long> &dimlist, const std::vector<long> &tile,
                  const std::vector<long> &strideA, const std::vector<long> &strideB,
                  const std::vector<long> &padding, const std::vector<long> &ghost,
-                 T &brick, bElem *arr, unsigned *grid_ptr, F f, RunningTag t) {
+                 T &brick, typename T::elemType *arr, unsigned *grid_ptr, F f, RunningTag t) {
   constexpr unsigned dimp = d - 1;
   if (dims == d) {
 #pragma omp parallel for
@@ -128,7 +131,7 @@ template<unsigned dims, unsigned d, typename T, typename F>
 inline void iter(const std::vector<long> &dimlist, const std::vector<long> &tile,
                  const std::vector<long> &strideA, const std::vector<long> &strideB,
                  const std::vector<long> &padding, const std::vector<long> &ghost,
-                 T &brick, bElem *arr, unsigned *grid_ptr, F f, StopTag t) {
+                 T &brick, typename T::elemType *arr, unsigned *grid_ptr, F f, StopTag t) {
   fill<dims, dims>(tile, strideA, arr, brick[*grid_ptr], f, RunningTag());
 }
 
@@ -138,12 +141,17 @@ inline void iter(const std::vector<long> &dimlist, const std::vector<long> &tile
  * dimlist: the internal regions, iterated
  * padding: the padding necessary for arrays, skipped
  * ghost: the padding for both, skipped
- * f: F (&bElem, *bElem) -> void
+ * f: F (&brick element-type, *brick-element type) -> void
  */
-template<unsigned dims, typename F, typename T, unsigned ... BDims>
+template<unsigned dims, typename F, typename T, bool isComplex, unsigned ... BDims>
 inline void
-iter_grid(const std::vector<long> &dimlist, const std::vector<long> &padding, const std::vector<long> &ghost,
-          bElem *arr, unsigned *grid_ptr, Brick<Dim<BDims...>, T> &brick, F f) {
+iter_grid(const std::vector<long> &dimlist,
+          const std::vector<long> &padding,
+          const std::vector<long> &ghost,
+          typename Brick<Dim<BDims...>, T, isComplex>::elemType *arr,
+          unsigned *grid_ptr,
+          Brick<Dim<BDims...>, T, isComplex> &brick,
+          F f) {
   std::vector<long> strideA;
   std::vector<long> strideB;
   std::vector<long> tile = {BDims...};
@@ -176,8 +184,8 @@ iter_grid(const std::vector<long> &dimlist, const std::vector<long> &padding, co
 template<unsigned dims, typename T>
 inline void
 copyToBrick(const std::vector<long> &dimlist, const std::vector<long> &padding, const std::vector<long> &ghost,
-            bElem *arr, unsigned *grid_ptr, T &brick) {
-  auto f = [](bElem &brick, bElem *arr) -> void {
+            typename T::elemType *arr, unsigned *grid_ptr, T &brick) {
+  auto f = [](typename T::elemType &brick, typename T::elemType *arr) -> void {
     brick = *arr;
   };
 
@@ -196,7 +204,7 @@ copyToBrick(const std::vector<long> &dimlist, const std::vector<long> &padding, 
  * For parameters see copyToBrick(const std::vector<long> &dimlist, const std::vector<long> &padding, const std::vector<long> &ghost, bElem *arr, unsigned *grid_ptr, T &brick)
  */
 template<unsigned dims, typename T>
-inline void copyToBrick(const std::vector<long> &dimlist, bElem *arr, unsigned *grid_ptr, T &brick) {
+inline void copyToBrick(const std::vector<long> &dimlist, typename T::elemType *arr, unsigned *grid_ptr, T &brick) {
   std::vector<long> padding(dimlist.size(), 0);
   std::vector<long> ghost(dimlist.size(), 0);
 
@@ -216,8 +224,8 @@ inline void copyToBrick(const std::vector<long> &dimlist, bElem *arr, unsigned *
  */
 template<unsigned dims, typename T>
 inline void copyFromBrick(const std::vector<long> &dimlist, const std::vector<long> &padding,
-                          const std::vector<long> &ghost, bElem *arr, unsigned *grid_ptr, T &brick) {
-  auto f = [](bElem &brick, bElem *arr) -> void {
+                          const std::vector<long> &ghost, typename T::elemType *arr, unsigned *grid_ptr, T &brick) {
+  auto f = [](typename T::elemType &brick, typename T::elemType *arr) -> void {
     *arr = brick;
   };
 

@@ -118,17 +118,17 @@ void d3pt7complex() {
                                 coeff[0] * arr_in[k][j][i];
   };
 
-#define bIn(i, j, k) arr_in[k][j][i]
-#define bOut(i, j, k) arr_out[k][j][i]
-  auto arr_tile_func = [&arr_in, &arr_out]() -> void {
-    #pragma omp parallel for
-    for (long tk = GZ; tk < STRIDE - GZ; tk += TILE)
-    for (long tj = GZ; tj < STRIDE - GZ; tj += TILE)
-    for (long ti = GZ; ti < STRIDE - GZ; ti += TILE)
-      tile("7pt.py", "FLEX", (BDIM), ("tk", "tj", "ti"), (1,1,4));
-  };
-#undef bIn
-#undef bOut
+// #define bIn(i, j, k) arr_in[k][j][i]
+// #define bOut(i, j, k) arr_out[k][j][i]
+//   auto arr_tile_func = [&arr_in, &arr_out]() -> void {
+//     #pragma omp parallel for
+//     for (long tk = GZ; tk < STRIDE - GZ; tk += TILE)
+//     for (long tj = GZ; tj < STRIDE - GZ; tj += TILE)
+//     for (long ti = GZ; ti < STRIDE - GZ; ti += TILE)
+//       tile("7pt.py", "FLEX", (BDIM), ("tk", "tj", "ti"), (1,1,4));
+//   };
+// #undef bIn
+// #undef bOut
 
   auto brick_func = [&grid, &bIn, &bOut]() -> void {
     _PARFOR
@@ -147,23 +147,23 @@ void d3pt7complex() {
         }
   };
 
-  auto brick_func_trans = [&grid, &bIn, &bOut]() -> void {
-    _PARFOR
-    for (long tk = GB; tk < STRIDEB - GB; ++tk)
-      for (long tj = GB; tj < STRIDEB - GB; ++tj)
-        for (long ti = GB; ti < STRIDEB - GB; ++ti) {
-          unsigned b = grid[tk][tj][ti];
-          brick("7pt.py", VSVEC, (BDIM), (VFOLD), b);
-        }
-  };
+  // auto brick_func_trans = [&grid, &bIn, &bOut]() -> void {
+  //   _PARFOR
+  //   for (long tk = GB; tk < STRIDEB - GB; ++tk)
+  //     for (long tj = GB; tj < STRIDEB - GB; ++tj)
+  //       for (long ti = GB; ti < STRIDEB - GB; ++ti) {
+  //         unsigned b = grid[tk][tj][ti];
+  //         brick("7pt.py", VSVEC, (BDIM), (VFOLD), b);
+  //       }
+  // };
 
   std::cout << "d3pt7" << std::endl;
   std::cout << "Arr: " << time_func(arr_func) << std::endl;
   std::cout << "Bri: " << time_func(brick_func) << std::endl;
   if (!compareBrick<3>({N, N, N}, {PADDING,PADDING,PADDING}, {GZ, GZ, GZ}, out_ptr, grid_ptr, bOut))
     throw std::runtime_error("result mismatch!");
-  std::cout << "Arr Scatter: " << time_func(arr_tile_func) << std::endl;
-  std::cout << "Trans: " << time_func(brick_func_trans) << std::endl;
+  // std::cout << "Arr Scatter: " << time_func(arr_tile_func) << std::endl;
+  // std::cout << "Trans: " << time_func(brick_func_trans) << std::endl;
   if (!compareBrick<3>({N, N, N}, {PADDING,PADDING,PADDING}, {GZ, GZ, GZ}, out_ptr, grid_ptr, bOut))
     throw std::runtime_error("result mismatch!");
 

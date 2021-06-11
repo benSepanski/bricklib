@@ -30,9 +30,11 @@ extern bool compareBrick_b;     ///< Thread-private comparison accumulator
 template<unsigned dims, typename T>
 inline bool
 compareBrick(const std::vector<long> &dimlist, const std::vector<long> &padding, const std::vector<long> &ghost,
-    bElem *arr, unsigned *grid_ptr, T &brick) {
+    typename T::elemType *arr, unsigned *grid_ptr, T &brick) {
+  typedef typename T::elemType elemType;///< convenient alias to avoid writing "typename" everywhere
+
   bool ret = true;
-  auto f = [&ret](bElem &brick, const bElem *arr) -> void {
+  auto f = [&ret](elemType &brick, const elemType *arr) -> void {
     double diff = std::abs(brick - *arr);
     bool r = (diff < BRICK_TOLERANCE) || (diff < (std::abs(brick) + std::abs(*arr)) * BRICK_TOLERANCE);
     compareBrick_b = (compareBrick_b && r);
@@ -66,11 +68,11 @@ compareBrick(const std::vector<long> &dimlist, const std::vector<long> &padding,
  * @param brick
  * @return
  *
- * For parameters see compareBrick(const std::vector<long> &dimlist, const std::vector<long> &padding, const std::vector<long> &ghost, bElem *arr, unsigned *grid_ptr, T &brick)
+ * For parameters see compareBrick(const std::vector<long> &dimlist, const std::vector<long> &padding, const std::vector<long> &ghost, typename T::elemType *arr, unsigned *grid_ptr, T &brick)
  */
 template<unsigned dims, typename T>
 inline bool
-compareBrick(const std::vector<long> &dimlist, bElem *arr, unsigned *grid_ptr,
+compareBrick(const std::vector<long> &dimlist, typename T::elemType *arr, unsigned *grid_ptr,
              T &brick) {
   std::vector<long> padding(dimlist.size(), 0);
   std::vector<long> ghost(dimlist.size(), 0);

@@ -55,7 +55,7 @@ struct BrickStorage {
    * A chunk can contain multiple bricks from different sub-fields. Forming structure-of-array.
    */
   long chunks;
-  /// Size of a chunk in number of elements
+  /// Size of a chunk in number of real elements (each complex elements counts as 2 real elements)
   long step;
   /// MMAP data structure when using mmap as allocator
   void *mmap_info = nullptr;
@@ -215,6 +215,7 @@ template<typename T,
     unsigned F>
 struct _BrickAccessor<T, Dim<D>, Dim<F>, bool> {
   T *par;         ///< parent Brick data structure reference
+  typedef typename T::elemType elemType; ///< type of elements in the brick
 
   unsigned b;     ///< Reference (center) brick
   unsigned pos;   ///< Accumulative position within adjacency list
@@ -227,7 +228,7 @@ struct _BrickAccessor<T, Dim<D>, Dim<F>, bool> {
   }
 
   FORCUDA
-  inline bElem &operator[](unsigned i) {
+  inline elemType &operator[](unsigned i) {
     // change pos
     unsigned dir = i + D;
     unsigned d = pos * 3 + dir / D;
@@ -237,7 +238,7 @@ struct _BrickAccessor<T, Dim<D>, Dim<F>, bool> {
     unsigned n = nvec * (D / F) + l / F;
     unsigned offset = n * par->VECLEN + w;
 
-    return par->dat[par->bInfo->adj[b][d] * par->step + offset];
+    return *reinterpret_cast<elemType*>(par->dat + par->bInfo->adj[b][d] * par->step + offset);
   }
 };
 
@@ -256,6 +257,7 @@ template<typename T,
     unsigned ... Folds>
 struct _BrickAccessor<T, Dim<D, BDims...>, Dim<F, Folds...>, bool> {
   T *par;         ///< parent Brick data structure reference
+  typedef typename T::elemType elemType; ///< type of elements in the brick
 
   unsigned b;     ///< Reference (center) brick
   unsigned pos;   ///< Accumulative position within adjacency list
@@ -294,6 +296,7 @@ template<typename T,
     unsigned ... Folds>
 struct _BrickAccessor<T, Dim<D, BDims...>, Dim<Folds...>, void> {
   T *par;         ///< parent Brick data structure reference
+  typedef typename T::elemType elemType; ///< type of elements in the brick
 
   unsigned b;     ///< Reference (center) brick
   unsigned pos;   ///< Accumulative position within adjacency list
@@ -356,6 +359,7 @@ template<
 struct Brick<Dim<BDims...>, Dim<Folds...>, isComplex> {
   typedef Brick<Dim<BDims...>, Dim<Folds...>, isComplex> mytype;    ///< Shorthand for this struct's type
   typedef BrickInfo<sizeof...(BDims)> myBrickInfo;        ///< Shorthand for type of the metadata
+  typedef typename std::conditional<isComplex, bComplexElem, bElem>::type elemType; ///< the type of elements in this brick
 
   static constexpr unsigned VECLEN = cal_size<Folds...>::value;     ///< Vector length shorthand
   static constexpr unsigned BRICKSIZE = cal_size<BDims...>::value * (isComplex ? 2 : 1);  ///< Brick size shorthand
@@ -377,16 +381,18 @@ struct Brick<Dim<BDims...>, Dim<Folds...>, isComplex> {
   /// Return the adjacency list of brick *b*
   template<unsigned ... Offsets>
   FORCUDA
-  inline bElem *neighbor(unsigned b) {
+  inline elemType *neighbor(unsigned b) {
     unsigned off = cal_offs<sizeof...(BDims), Offsets...>::value;
-    return &dat[bInfo->adj[b][off] * step];
+    return reinterpret_cast<elemType*>(&dat[bInfo->adj[b][off] * step]);
   }
 
   /**
    * @brief Initialize a brick data structure
    * @param bInfo Pointer to metadata
    * @param bStorage Brick storage (memory region)
-   * @param offset Offset within the brick storage in number of elements, eg. is a multiple of 512 for 8x8x8 bricks
+   * @param offset Offset within the brick storage in number of real elements
+   *               (i.e. each complex element counts as 2),
+   *                eg. is a multiple of 512 for 8x8x8 bricks
    */
   Brick(myBrickInfo *bInfo, const BrickStorage &brickStorage, unsigned offset) : bInfo(bInfo) {
     bStorage = brickStorage;
