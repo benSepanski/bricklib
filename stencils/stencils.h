@@ -76,5 +76,7 @@ void d3cns();
 
 extern bElem* coeff;
 
+extern bComplexElem* zCoeff;
+
 
 #endif //BRICK_STENCILS_H

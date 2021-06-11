@@ -51,7 +51,7 @@ bComplexElem *randomComplexArray(const std::vector<long> &list) {
   bComplexElem *arr = uninitComplexArray(list, size);
 #pragma omp parallel for
   for (long l = 0; l < size; ++l)
-    arr[l] = randD();
+    arr[l] = bComplexElem(randD(), randD());
   return arr;
 }
 
