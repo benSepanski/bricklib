@@ -102,9 +102,9 @@ void d3pt7complex() {
   bComplexElem(*arr_in)[STRIDE][STRIDE] = (bComplexElem (*)[STRIDE][STRIDE]) in_ptr;
   bComplexElem(*arr_out)[STRIDE][STRIDE] = (bComplexElem (*)[STRIDE][STRIDE]) out_ptr;
 
-  auto bSize = cal_size<BDIM>::value;
-  auto bStorage = BrickStorage::allocate(bInfo.nbricks, bSize * 2);
   typedef Brick<Dim<BDIM>, Dim<VFOLD>, true> ComplexBrick;
+  auto bSize = ComplexBrick::BRICKSIZE;
+  auto bStorage = BrickStorage::allocate(bInfo.nbricks, bSize * 2);
   ComplexBrick bIn(&bInfo, bStorage, 0);
   ComplexBrick bOut(&bInfo, bStorage, bSize);
 
@@ -158,6 +158,8 @@ void d3pt7complex() {
   // };
 
   std::cout << "d3pt7complex" << std::endl;
+  if (!compareBrick<3>({N, N, N}, {PADDING,PADDING,PADDING}, {GZ, GZ, GZ}, in_ptr, grid_ptr, bIn))
+    throw std::runtime_error("copy mismatch!");
   std::cout << "Arr: " << time_func(arr_func) << std::endl;
   std::cout << "Bri: " << time_func(brick_func) << std::endl;
   if (!compareBrick<3>({N, N, N}, {PADDING,PADDING,PADDING}, {GZ, GZ, GZ}, out_ptr, grid_ptr, bOut))

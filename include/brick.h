@@ -238,7 +238,8 @@ struct _BrickAccessor<T, Dim<D>, Dim<F>, bool> {
     unsigned n = nvec * (D / F) + l / F;
     unsigned offset = n * par->VECLEN + w;
 
-    return *reinterpret_cast<elemType*>(par->dat + par->bInfo->adj[b][d] * par->step + offset);
+    //step is in unit of bElem, offset is in units of elemType
+    return *(reinterpret_cast<elemType*>(par->dat + par->bInfo->adj[b][d] * par->step) + offset);
   }
 };
 
