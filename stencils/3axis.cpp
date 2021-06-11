@@ -112,10 +112,10 @@ void d3pt7complex() {
   copyToBrick<3>({STRIDEG, STRIDEG, STRIDEG}, {PADDING, PADDING, PADDING}, {0, 0, 0}, in_ptr, grid_ptr, bIn);
 
   auto arr_func = [&arr_in, &arr_out]() -> void {
-    _TILEFOR arr_out[k][j][i] = coeff[5] * arr_in[k + 1][j][i] + coeff[6] * arr_in[k - 1][j][i] +
-                                coeff[3] * arr_in[k][j + 1][i] + coeff[4] * arr_in[k][j - 1][i] +
-                                coeff[1] * arr_in[k][j][i + 1] + coeff[2] * arr_in[k][j][i - 1] +
-                                coeff[0] * arr_in[k][j][i];
+    _TILEFOR arr_out[k][j][i] = zCoeff[5] * arr_in[k + 1][j][i] + zCoeff[6] * arr_in[k - 1][j][i] +
+                                zCoeff[3] * arr_in[k][j + 1][i] + zCoeff[4] * arr_in[k][j - 1][i] +
+                                zCoeff[1] * arr_in[k][j][i + 1] + zCoeff[2] * arr_in[k][j][i - 1] +
+                                zCoeff[0] * arr_in[k][j][i];
   };
 
 // #define bIn(i, j, k) arr_in[k][j][i]
@@ -139,10 +139,10 @@ void d3pt7complex() {
           for (long k = 0; k < TILE; ++k)
             for (long j = 0; j < TILE; ++j)
               for (long i = 0; i < TILE; ++i) {
-                bOut[b][k][j][i] = coeff[5] * bIn[b][k + 1][j][i] + coeff[6] * bIn[b][k - 1][j][i] +
-                                   coeff[3] * bIn[b][k][j + 1][i] + coeff[4] * bIn[b][k][j - 1][i] +
-                                   coeff[1] * bIn[b][k][j][i + 1] + coeff[2] * bIn[b][k][j][i - 1] +
-                                   coeff[0] * bIn[b][k][j][i];
+                bOut[b][k][j][i] = zCoeff[5] * bIn[b][k + 1][j][i] + zCoeff[6] * bIn[b][k - 1][j][i] +
+                                   zCoeff[3] * bIn[b][k][j + 1][i] + zCoeff[4] * bIn[b][k][j - 1][i] +
+                                   zCoeff[1] * bIn[b][k][j][i + 1] + zCoeff[2] * bIn[b][k][j][i - 1] +
+                                   zCoeff[0] * bIn[b][k][j][i];
               }
         }
   };
@@ -157,7 +157,7 @@ void d3pt7complex() {
   //       }
   // };
 
-  std::cout << "d3pt7" << std::endl;
+  std::cout << "d3pt7complex" << std::endl;
   std::cout << "Arr: " << time_func(arr_func) << std::endl;
   std::cout << "Bri: " << time_func(brick_func) << std::endl;
   if (!compareBrick<3>({N, N, N}, {PADDING,PADDING,PADDING}, {GZ, GZ, GZ}, out_ptr, grid_ptr, bOut))
