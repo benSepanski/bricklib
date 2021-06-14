@@ -59,26 +59,6 @@ struct bComplexElem : public stdComplex
     #endif
 
     __host__ __device__ inline
-    bComplexElem operator*(const bComplexElem &that)
-    {
-        #ifdef __CUDA_ARCH__
-        return CUCMUL(*this, that);
-        #else
-        return (*this) * that;
-        #endif
-    }
-
-    __host__ __device__ inline
-    bComplexElem operator+(const bComplexElem &that)
-    {
-        #ifdef __CUDA_ARCH__
-        return CUCADD(*this, that);
-        #else
-        return (*this) + that;
-        #endif
-    }
-
-    __host__ __device__ inline
     bComplexElem &operator=(const bCuComplexElem &that)
     {
         *this = *((bComplexElem*)&that);
@@ -92,7 +72,32 @@ struct bComplexElem : public stdComplex
         reinterpret_cast<bElem(&)[2]>(*this)[1] = CUCIMAG(that);
     }
 #endif
+
+    bComplexElem(const stdComplex &that) : stdComplex(that) { }
 };
+
+// overloaded arithmetic operators
+#if defined(__CUDACC__)
+__host__ __device__ inline
+bComplexElem operator*(const bComplexElem &a, const bComplexElem &b)
+{
+    #ifdef __CUDA_ARCH__
+    return CUCMUL(a, b);
+    #else
+    return std::operator*(a, b);
+    #endif
+}
+
+__host__ __device__ inline
+bComplexElem operator+(const bComplexElem &a, const bComplexElem &b)
+{
+    #ifdef __CUDA_ARCH__
+    return CUCADD(a, b);
+    #else
+    return std::operator+(a, b);
+    #endif
+}
+#endif
 
 #define VS_STRING(...) #__VA_ARGS__
 #define VS_TOSTR(...) VS_STRING(__VA_ARGS__)
