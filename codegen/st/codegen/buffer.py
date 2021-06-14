@@ -18,6 +18,13 @@ class Buffer:
 
     def ref_name(self):
         return self.name
+    
+    def is_complex(self) -> bool:
+        if self.grid is not None:
+            if self.rhs.is_complex() and not self.grid.is_complex():
+                raise ValueError("Cannot assign complex rhs to real-valued grid")
+            return self.grid.is_complex()
+        return self.rhs.is_complex()
 
 
 class BufferRead(Expr):

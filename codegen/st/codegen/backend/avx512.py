@@ -95,7 +95,9 @@ class BackendAVX512(Backend):
             self.printer.rel += rel
         return self.printer.print_str(comp)
 
-    def declare_reg(self, name, block: CodeBlock):
+    def declare_reg(self, name, block: CodeBlock, complex_valued: bool):
+        if complex_valued:
+            raise NotImplementedError("complex values not yet supported for AVX")
         align = self.layout.prec * 4 * self.VECLEN
         align = 64 if align >= 64 else align
         block.append("bElem {}[{}] __attribute__((aligned({})));".format(name, self.VECLEN, align))

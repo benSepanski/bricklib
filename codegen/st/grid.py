@@ -7,12 +7,18 @@ class Grid:
         self.name = src_name
         self.dims = dims
         self.out = None
-        self.complex = complex_valued
+        self._complex = complex_valued
 
     def __call__(self, *args, **kwargs):
         if self.out is not None:
             return self.out[1]
         return GridRef(self, list(args))
+    
+    def is_complex(self) -> bool:
+        """
+        :return: true iff the grid is complex-valued
+        """
+        return self._complex
 
 
 def eval_offset(idx_expr: Expr):
@@ -46,7 +52,7 @@ class GridRef(Expr):
         self.grid = grid
         if len(indices) != grid.dims:
             raise ValueError("Index list not consistent with dimensions")
-        self._attr[Expr._COMPLEX_FLAG] = grid.complex
+        self._attr[Expr._COMPLEX_FLAG] = grid.is_complex()
         self.children = []
         self.indices = []
         self.offsets = []

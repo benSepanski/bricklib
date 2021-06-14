@@ -145,6 +145,7 @@ if __name__ == "__main__":
 
     def Brick(file, line, script_name, prec, vec, *, bidx='b', dim=None, fold=None, stride=None):
         if file == src:
+            print("BACKEND", vec)
             print(file, line)
             prec = get_prec(prec)
             backend = get_backend(vec)

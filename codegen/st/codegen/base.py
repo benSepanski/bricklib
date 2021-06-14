@@ -717,7 +717,8 @@ class CodeGen:
                         if off in read[expr.grid]:
                             return
                         else:
-                            backend.declare_reg(backend.vecreg_name(expr.grid, off), compGroup)
+                            complex_valued = expr.grid.is_complex()
+                            backend.declare_reg(backend.vecreg_name(expr.grid, off), compGroup, complex_valued)
                             read[expr.grid][off] = tuple(real_off)
 
                         # need to instantiate the read
@@ -776,7 +777,7 @@ class CodeGen:
                             vecs[n][regs[reg]] = backend.vecbuf_name(n, reg)
                             read_bufs[n][reg] = regs[reg]
 
-                def read_vec(n, ovec, pos, vec_index):
+                def read_vec(n: Grid, ovec, pos, vec_index):
                     if pos in vecs[n]:
                         read_block.append("{} = {};".format(ovec, vecs[n][pos]))
                         return vec_index
@@ -795,7 +796,7 @@ class CodeGen:
                             namea = vecs[n][posa]
                         else:
                             namea = backend.vectmp_name(vec_index)
-                            backend.declare_vec(namea, read_block)
+                            backend.declare_vec(namea, read_block, n.is_complex())
                             vec_index += 1
                             vec_index = read_vec(n, namea, posa, vec_index)
                         posb = list(pos)
@@ -805,7 +806,7 @@ class CodeGen:
                             nameb = vecs[n][posb]
                         else:
                             nameb = backend.vectmp_name(vec_index)
-                            backend.declare_vec(nameb, read_block)
+                            backend.declare_vec(nameb, read_block, n.is_complex())
                             vec_index += 1
                             vec_index = read_vec(n, nameb, posb, vec_index)
                         backend.merge(ovec, nameb, namea, dim, pos[dim] % fold[dim], read_block)
@@ -828,7 +829,7 @@ class CodeGen:
                     for reg, val in regs.items():
                         if val not in vecs[n]:
                             name = backend.vectmp_name(vec_index)
-                            backend.declare_vec(name, read_block)
+                            backend.declare_vec(name, read_block, n.is_complex())
                             vec_index += 1
                             vec_index = read_vec(n, name, val, vec_index)
                         backend.store_vecbuf(vecs[n][val], backend.vecreg_name(n, reg), read_block)

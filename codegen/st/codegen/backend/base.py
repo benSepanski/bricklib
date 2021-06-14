@@ -8,6 +8,24 @@ from st.expr import Expr
 from st.alop import BinaryOperators
 import io
 
+"""
+the type to use for real-valued elements
+"""
+REAL_ELEMENT_TYPE = "bElem"
+
+"""
+the type to use for complex-valued elements
+"""
+COMPLEX_ELEMENT_TYPE = "bComplexElem"
+
+def get_element_type(complex_valued: bool) -> str:
+    """
+    :arg complex_valued: true iff element is complex.
+    :return: the complex element type if *complex_valued*, else the real element type
+    """
+    return COMPLEX_ELEMENT_TYPE if complex_valued else REAL_ELEMENT_TYPE
+
+
 """ A generic (AVX512) backend.
 
 A backend code generator should include:
@@ -332,7 +350,7 @@ class Backend:
         return self.STRIDE[dim]
 
     def declare_vecbuf(self, grid: Grid, vec_shift, block: CodeBlock):
-        self.declare_vec(self.vecbuf_name(grid, vec_shift), block)
+        self.declare_vec(self.vecbuf_name(grid, vec_shift), block, grid.is_complex())
 
     @abstractmethod
     def genVectorLoop(self, group: CodeBlock):
@@ -396,11 +414,11 @@ class Backend:
         pass
 
     @abstractmethod
-    def declare_reg(self, name, block: CodeBlock):
+    def declare_reg(self, name, block: CodeBlock, complex_valued: bool):
         pass
 
     @abstractmethod
-    def declare_vec(self, name, block: CodeBlock):
+    def declare_vec(self, name, block: CodeBlock, complex_valued: bool):
         pass
 
     @abstractmethod

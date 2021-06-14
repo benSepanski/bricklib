@@ -19,7 +19,9 @@ class BackendSSE(BackendAVX512):
             if tuple(layout.fold) != (self.VECLEN,):
                 raise ValueError("Fold and vector type (AVX2) mismatch")
 
-    def declare_vec(self, name, block: CodeBlock):
+    def declare_vec(self, name, block: CodeBlock, complex_valued: bool):
+        if complex_valued:
+            raise NotImplementedError("complex values not yet supproted for SSE")
         block.append("__m128i {};".format(name))
 
     def store_vecbuf(self, vecbuf_name, reg_name, block: CodeBlock):

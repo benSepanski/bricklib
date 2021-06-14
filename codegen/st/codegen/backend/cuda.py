@@ -1,5 +1,5 @@
 from typing import List
-from st.codegen.backend.base import Backend, PrinterRed, CodeBlock
+from st.codegen.backend.base import Backend, CodeBlock, get_element_type, PrinterRed
 from st.codegen.buffer import Buffer, BufferRead
 from st.grid import Grid, GridRef
 from st.expr import Expr
@@ -72,26 +72,30 @@ class BackendCUDA(Backend):
         self.printer.dimrels = dimrels
         return self.printer.print_str(comp)
 
-    def declare_reg(self, name, block: CodeBlock):
-        block.append("bElem {};".format(name))
+    def declare_reg(self, name, block: CodeBlock, complex_valued: bool):
+        element_type = get_element_type(complex_valued)
+        block.append(f"{element_type} {name};")
 
-    def declare_vec(self, name, block: CodeBlock):
-        block.append("bElem {};".format(name))
+    def declare_vec(self, name, block: CodeBlock, complex_valued: bool):
+        element_type = get_element_type(complex_valued)
+        block.append(f"{element_type} {name};")
 
     def declare_gridref(self, grid: Grid, block: CodeBlock):
+        element_type = get_element_type(grid.is_complex())
         name = self.gridref_name(grid)
-        block.append(("__global " if self.ocl else "") + "bElem *{} = &{};".format(
-            name, self.layout.elem(grid, [0] * len(self.codegen.TILE_DIM))))
+        ref = self.layout.elem(grid, [0] * len(self.codegen.TILE_DIM))
+        block.append(("__global " if self.ocl else "") + f"{element_type} *{name} = &{ref};")
         return name
 
     def store_vecbuf(self, vecbuf_name, reg_name, block: CodeBlock):
         block.append("{} = {};".format(reg_name, vecbuf_name))
 
     def declare_buf(self, buf: Buffer, block: CodeBlock):
+        element_type = get_element_type(buf.is_complex())
         space = 1
         for a, b in buf.iteration:
             space *= b - a
-        block.append("bElem {}[{}];".format(buf.name, space // self.VECLEN))
+        block.append(f"{element_type} {buf.name}[{space // self.VECLEN}];")
         return buf.name
 
     def genStoreLoop(self, group: CodeBlock):
