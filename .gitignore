@@ -8,6 +8,9 @@ cmake-build-*
 # My CMake build
 build
 
+# vscode stuff
+/.vscode/**
+
 # Test artifacts
 *.o
 *.optrpt
