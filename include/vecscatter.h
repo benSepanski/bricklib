@@ -18,62 +18,138 @@
 #define bElem double
 #endif
 
-// typedef std::complex<bElem> bComplexElem;
-// Use the default, C-style CUDA complex types
+// as in brick.h,
+/// Overloaded attributes for potentially GPU-usable functions (in place of __host__ __device__ etc.)
+#if defined(__CUDACC__) || defined(__HIP__)
+#define FORCUDA __host__ __device__
+#else
+#define FORCUDA
+#endif
+
+// Inside CUDA kernels, use the default, C-style CUDA complex types
 #if defined(__CUDACC__)
     #if bElem==double
         typedef cuDoubleComplex bCuComplexElem;
-        #define CUCADD(a, b) cuCadd(a, b)
-        #define CUCMUL(a, b) cuCmul(a, b)
-        #define CUCREAL(a) cuCreal(a)
-        #define CUCIMAG(a) cuCimag(a)
+        #define CUCADD(z, w) cuCadd(z, w)
+        #define CUCMUL(z, w) cuCmul(z, w)
+        #define CUCDIV(z, w) cuCdiv(z, w)
+        #define CUCREAL(z) cuCreal(z)
+        #define CUCIMAG(z) cuCimag(z)
     #elif bElem==float
         typedef cuFloatComplex bCuComplexElem;
-        #define CUCADD(a, b) cuCaddf(a, b)
-        #define CUCMUL(a, b) cuCmulf(a, b)
-        #define CUCREAL(a) cuCrealf(a)
-        #define CUCIMAG(a) cuCimagf(a)
+        #define CUCADD(z, w) cuCaddf(z, w)
+        #define CUCMUL(z, w) cuCmulf(z, w)
+        #define CUCDIV(z, w) cuCdivf(z, w)
+        #define CUCREAL(z) cuCrealf(z)
+        #define CUCIMAG(z) cuCimagf(z)
     #else
         #error "Expected bElem to be double or float"
     #endif
+    #define FROMCUDA(z) reinterpet_cast<bComplexElem>(z)
+#endif
+
+#if bElem==double
+    #define AS_ARRAY(z) reinterpret_cast<double(&)[2]>(z)
+    #define AS_CONST_ARRAY(z) reinterpret_cast<const double(&)[2]>(z)
+#elif bElem==float
+    #define AS_ARRAY(z) reinterpret_cast<float(&)[2]>(z)
+    #define AS_CONST_ARRAY(z) reinterpret_cast<const float(&)[2]>(z)
+#else
+    #error "expected bElem to be float or double"
 #endif
 
 typedef std::complex<bElem> stdComplex;
 
 struct bComplexElem : public stdComplex
 {
+    // inherit parent constructors for host-side
     using stdComplex::stdComplex;
-    using stdComplex::operator=;
 
-#if defined(__CUDACC__)
-    // Automatic conversion to/assignment from cuda types
-    #if bElem==double
-        __host__ __device__ inline
-        operator cuDoubleComplex() const{return *((cuDoubleComplex*) this);}
+    // allow host-side implicit conversion from std
+    bComplexElem(const stdComplex &that) : stdComplex(that) { }
 
-    #elif bElem==float
-        __host__ __device__ inline
-        operator cuFloatComplex() const{return *((cuFloatComplex*) this);}
-    #else
-    #error "Expected bElem to be double or float"
-    #endif
+    // redefine constructors needed on the device-side
+    FORCUDA
+    bComplexElem() : stdComplex() { }
 
-    __host__ __device__ inline
-    bComplexElem &operator=(const bCuComplexElem &that)
+    FORCUDA
+    bComplexElem(const bComplexElem &that) : stdComplex()
     {
-        *this = *((bComplexElem*)&that);
-        return *this;
+        AS_ARRAY(*this)[0] = AS_CONST_ARRAY(that)[0];
+        AS_ARRAY(*this)[0] = AS_CONST_ARRAY(that)[0];
     }
+
+// Cuda compatability
+#if defined(__CUDACC__)
+    // Conversion to/from cuda complex
+    #if bElem==double
+    __host__ __device__ inline
+    operator cuDoubleComplex() const
+    {
+        return *((cuDoubleComplex*) this);
+    }
+    #elif bElem==float
+    __host__ __device__ inline
+    operator cuFloatComplex() const
+    {
+        return *((cuFloatComplex*) this);
+    }
+    #endif
 
     __host__ __device__ inline
     bComplexElem(const bCuComplexElem &that)
     {
-        reinterpret_cast<bElem(&)[2]>(*this)[0] = CUCREAL(that);
-        reinterpret_cast<bElem(&)[2]>(*this)[1] = CUCIMAG(that);
+        AS_ARRAY(*this)[0] = CUCREAL(that);
+        AS_ARRAY(*this)[1] = CUCIMAG(that);
+    }
+
+    // Overloaded arithmetic operators
+    __host__ __device__ inline
+    bComplexElem &operator+=(const bComplexElem &that)
+    {
+        #ifdef __CUDA_ARCH__
+        AS_ARRAY(*this)[0] += CUCREAL(that);
+        AS_ARRAY(*this)[1] += CUCIMAG(that);
+        return *this;
+        #else
+        return static_cast<bComplexElem &>(stdComplex::operator+=(static_cast<const stdComplex&>(that)));
+        #endif
+    }
+
+    __host__ __device__ inline
+    bComplexElem &operator-=(const bComplexElem &that)
+    {
+        #ifdef __CUDA_ARCH__
+        AS_ARRAY(*this)[0] -= CUCREAL(that);
+        AS_ARRAY(*this)[1] -= CUCIMAG(that);
+        return *this;
+        #else
+        return static_cast<bComplexElem &>(stdComplex::operator-=(static_cast<const stdComplex&>(that)));
+        #endif
+    }
+
+    __host__ __device__ inline
+    bComplexElem &operator*=(const bComplexElem &that)
+    {
+        #ifdef __CUDA_ARCH__
+        *this = CUCMUL(*this, that);
+        return *this;
+        #else
+        return static_cast<bComplexElem &>(stdComplex::operator*=(static_cast<const stdComplex&>(that)));
+        #endif
+    }
+    
+    __host__ __device__ inline
+    bComplexElem &operator/=(const bComplexElem &that)
+    {
+        #ifdef __CUDA_ARCH__
+        *this = CUCDIV(*this, that);
+        return *this;
+        #else
+        return static_cast<bComplexElem &>(stdComplex::operator/=(static_cast<const stdComplex&>(that)));
+        #endif
     }
 #endif
-
-    bComplexElem(const stdComplex &that) : stdComplex(that) { }
 };
 
 // overloaded arithmetic operators
