@@ -63,6 +63,7 @@ class Printer(PrinterBase):
             Uop.BitNot: 3
         }
         self.print.register(st.expr.BinOp, self._print_binOp)
+        self.print.register(st.expr.ComplexLiteral, self._print_complexLiteral)
         self.print.register(st.expr.FloatLiteral, self._print_floatLiteral)
         self.print.register(st.expr.IntLiteral, self._print_intLiteral)
         self.print.register(st.expr.UnOp, self._print_unOp)
@@ -82,6 +83,9 @@ class Printer(PrinterBase):
             stream.write(")")
 
     def _print_floatLiteral(self, node: st.expr.FloatLiteral, stream: StringIO, prec=255):
+        stream.write(str(node.val))
+
+    def _print_complexLiteral(self, node: st.expr.ComplexLiteral, stream: StringIO, prec=255):
         stream.write(str(node.val))
 
     def _print_intLiteral(self, node: st.expr.IntLiteral, stream: StringIO, prec=255):

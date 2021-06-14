@@ -10,6 +10,8 @@ def conv_expr(input):
         return IntLiteral(input)
     if isinstance(input, float):
         return FloatLiteral(input)
+    if isinstance(input, complex):
+        return ComplexLiteral(input)
     if isinstance(input, str):
         return ConstRef(input)
     if isinstance(input, Expr):
@@ -32,6 +34,7 @@ class Expr(object, metaclass=ExprMeta):
     _arg_sig = None
     _attr = dict()
     attr: Dict
+    _COMPLEX_FLAG = "complex"  # key for complex flag in _attr
 
     def __init__(self, *args, **kwargs):
         bound = self._arg_sig.bind(*args, **kwargs)
@@ -48,6 +51,13 @@ class Expr(object, metaclass=ExprMeta):
             for child in self.children:
                 init = child.visit(init, func)
         return init
+    
+    def is_complex(self) -> bool:
+        """
+        Return true if this expression may evaluate to a complex-typed
+        expression
+        """
+        return self.get_attr(Expr._COMPLEX_FLAG) == True
 
     def mk_child(self, child):
         """ Make one node a child
@@ -71,7 +81,7 @@ class Expr(object, metaclass=ExprMeta):
             ret += str(child)
         ret += ")"
         return ret
-
+    
     # Arithmetic operators
     def __add__(self, other):
         return BinOp(st.alop.BinaryOperators.Add,
@@ -191,6 +201,7 @@ class Index(Expr):
     def __init__(self, n: int):
         super().__init__()
         self.n = n
+        self._attr[Expr._COMPLEX_FLAG] = False
 
     def genericName(self):
         return "axis{}".format(self.n)
@@ -205,6 +216,8 @@ class ReductionOp(Expr):
         super().__init__()
         self.children = terms[:]
         self.op = operator
+        assert all(isinstance(child, Expr) for child in self.children)
+        self._attr[Expr._COMPLEX_FLAG] = any(child.is_complex() for child in self.children)
 
 
 class If(Expr):
@@ -215,6 +228,7 @@ class If(Expr):
 
     def __init__(self, *pargs, **kwargs):
         super().__init__(*pargs, **kwargs)
+        self._attr[Expr._COMPLEX_FLAG] = self.thn.is_complex() or self.els.is_complex()
 
 
 class BinOp(Expr):
@@ -226,6 +240,24 @@ class BinOp(Expr):
                  *pargs, **kwargs):
         super().__init__(*pargs, **kwargs)
         self.operator = operator
+        # Handle complex types
+        has_complex_operand = self.lhs.is_complex() or self.rhs.is_complex()
+        if has_complex_operand and operator not in (st.alop.BinaryOperators.Add,
+                                                    st.alop.BinaryOperators.Sub,
+                                                    st.alop.BinaryOperators.Mul,
+                                                    st.alop.BinaryOperators.Div,
+                                                    st.alop.BinaryOperators.Assign,
+                                                    st.alop.BinaryOperators.Eq,
+                                                    st.alop.BinaryOperators.Neq,
+                                                    ):
+            raise ValueError(f"Cannot perform operator {operator} on complex types.")
+        if has_complex_operand and operator == st.alop.BinaryOperators.Assign:
+            if not self.lhs.is_complex():
+                raise ValueError(f"Cannot assign complex-type to real-typed value {self.lhs}")
+        
+        is_complex = has_complex_operand and operator not in \
+            (st.alop.BinaryOperators.Eq, st.alop.BinaryOperators.Neq)
+        self._attr[Expr._COMPLEX_FLAG] = is_complex
 
     def str_attr(self):
         """ Extra attributes that should be printed in str representation """
@@ -240,6 +272,14 @@ class UnOp(Expr):
                  *pargs, **kwargs):
         super().__init__(*pargs, **kwargs)
         self.operator = operator
+        if self.subexpr.is_complex() and operator not in \
+                (st.alop.UnaryOperators.Neg,
+                 st.alop.UnaryOperators.Pos,
+                 st.alop.UnaryOperators.Inc,
+                 st.alop.UnaryOperators.Dec,
+                 ):
+            raise ValueError(f"Cannot apply operator {operator} to complex types")
+        self._attr[Expr._COMPLEX_FLAG] = self.subexpr.is_complex()
 
     def str_attr(self):
         """ Extra attributes that should be printed in str representation """
@@ -247,7 +287,11 @@ class UnOp(Expr):
 
 
 class IntLiteral(Expr):
-    _attr = {'num_literal': True, 'num_const': True, 'atomic': True}
+    _attr = {'num_literal': True,
+             'num_const': True,
+             'atomic': True,
+             Expr._COMPLEX_FLAG: False,
+             }
 
     def __init__(self, v: int):
         super().__init__()
@@ -257,11 +301,18 @@ class IntLiteral(Expr):
         return self.val
 
     def __float__(self):
-        return float(self.val)
+        return float(int(self))
+    
+    def __complex__(self):
+        return complex(int(self))
 
 
 class FloatLiteral(Expr):
-    _attr = {'num_literal': True, 'num_const': True, 'atomic': True}
+    _attr = {'num_literal': True,
+             'num_const': True,
+             'atomic': True,
+             Expr._COMPLEX_FLAG: False,
+             }
 
     def __init__(self, v: float):
         super().__init__()
@@ -269,14 +320,33 @@ class FloatLiteral(Expr):
 
     def __float__(self):
         return self.val
+    
+    def __complex__(self):
+        return complex(float(self))
 
+class ComplexLiteral(Expr):
+    _attr = {'num_literal': True,
+             'num_const': True,
+             'atomic': True,
+             Expr._COMPLEX_FLAG: True,
+             }
 
-class ConstRef(Expr):
-    _attr = {'num_const': True, 'atomic': True}
-
-    def __init__(self, v: str):
+    def __init__(self, v: complex):
         super().__init__()
         self.val = v
+    
+    def __complex__(self):
+        return self.val
+
+class ConstRef(Expr):
+    _attr = {'num_const': True,
+             'atomic': True,
+             }
+
+    def __init__(self, v: str, complex_valued: bool = False):
+        super().__init__()
+        self.val = v
+        self._attr[Expr._COMPLEX_FLAG] = complex_valued
 
     def str_attr(self):
         return self.val

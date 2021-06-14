@@ -3,10 +3,11 @@ from typing import List
 
 
 class Grid:
-    def __init__(self, src_name: str, dims: int):
+    def __init__(self, src_name: str, dims: int, complex_valued: bool = False):
         self.name = src_name
         self.dims = dims
         self.out = None
+        self.complex = complex_valued
 
     def __call__(self, *args, **kwargs):
         if self.out is not None:
@@ -45,6 +46,7 @@ class GridRef(Expr):
         self.grid = grid
         if len(indices) != grid.dims:
             raise ValueError("Index list not consistent with dimensions")
+        self._attr[Expr._COMPLEX_FLAG] = grid.complex
         self.children = []
         self.indices = []
         self.offsets = []
