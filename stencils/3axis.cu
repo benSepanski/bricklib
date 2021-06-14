@@ -361,6 +361,13 @@ void d3pt7complexcu() {
   // };
 
   std::cout << "d3pt7complex" << std::endl;
+  // check input
+  cudaMemcpy(bStorage.dat.get(), bStorage_dev.dat.get(), bStorage.chunks * bStorage.step * sizeof(bElem), cudaMemcpyDeviceToHost);
+  cudaDeviceSynchronize();
+  if (!compareBrick<3>({N, N, N}, {PADDING, PADDING, PADDING}, {GZ, GZ, GZ}, in_ptr, grid_ptr, bIn))
+    throw std::runtime_error("Input mismatch!");
+
+  // perform stencil computations
   arr_func();
   std::cout << "Arr: " << cutime_func(cuarr_func) << std::endl;
   std::cout << "Arr warp: " << cutime_func(cuarr_warp) << std::endl;
@@ -368,7 +375,7 @@ void d3pt7complexcu() {
   std::cout << "Bri: " << cutime_func(brick_func) << std::endl;
   // std::cout << "Trans: " << cutime_func(brick_func_trans) << std::endl;
 
-  cudaMemcpy(bStorage.dat.get(), bStorage_dev.dat.get(), bStorage.chunks * bStorage.step * sizeof(bComplexElem), cudaMemcpyDeviceToHost);
+  cudaMemcpy(bStorage.dat.get(), bStorage_dev.dat.get(), bStorage.chunks * bStorage.step * sizeof(bElem), cudaMemcpyDeviceToHost);
   cudaDeviceSynchronize();
 
   if (!compareBrick<3>({N, N, N}, {PADDING, PADDING, PADDING}, {GZ, GZ, GZ}, out_ptr, grid_ptr, bOut))
