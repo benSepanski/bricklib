@@ -25,6 +25,7 @@ int main() {
   }
 
   d3pt7cu();
+  d3pt7complexcu();
   d3condcu();
   return 0;
 }
