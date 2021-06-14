@@ -252,19 +252,19 @@ d3pt7complex_arr_warp(bComplexElem (*arr_in)[STRIDE][STRIDE], bComplexElem (*arr
                          coeff[0] * arr_in[k][j][i];
 }
 
-// #define bIn(i, j, k) arr_in[k][j][i]
-// #define bOut(i, j, k) arr_out[k][j][i]
+#define bIn(i, j, k) arr_in[k][j][i]
+#define bOut(i, j, k) arr_out[k][j][i]
 
-// __global__ void
-// d3pt7complex_arr_scatter(bElem (*arr_in)[STRIDE][STRIDE], bElem (*arr_out)[STRIDE][STRIDE], bElem *coeff) {
-//   long k = GZ + blockIdx.z * TILE;
-//   long j = GZ + blockIdx.y * TILE;
-//   long i = GZ + blockIdx.x * 32;
-//   tile("7pt.py", VSVEC, (TILE, TILE, 32), ("k", "j", "i"), (1, 1, 32));
-// }
+__global__ void
+d3pt7complex_arr_scatter(bComplexElem (*arr_in)[STRIDE][STRIDE], bComplexElem (*arr_out)[STRIDE][STRIDE], bComplexElem *coeff) {
+  long k = GZ + blockIdx.z * TILE;
+  long j = GZ + blockIdx.y * TILE;
+  long i = GZ + blockIdx.x * 32;
+  tile("7pt_complex.py", VSVEC, (TILE, TILE, 32), ("k", "j", "i"), (1, 1, 32));
+}
 
-// #undef bIn
-// #undef bOut
+#undef bIn
+#undef bOut
 
 void d3pt7complexcu() {
   unsigned *grid_ptr;
@@ -345,12 +345,12 @@ void d3pt7complexcu() {
     d3pt7complex_arr_warp << < block, thread >> > (arr_in, arr_out, coeff_dev);
   };
 
-  // auto cuarr_scatter = [&in_dev, &out_dev, &coeff_dev]() -> void {
-  //   bElem(*arr_in)[STRIDE][STRIDE] = (bElem (*)[STRIDE][STRIDE]) in_dev;
-  //   bElem(*arr_out)[STRIDE][STRIDE] = (bElem (*)[STRIDE][STRIDE]) out_dev;
-  //   dim3 block(N / 32, NB, NB), thread(32);
-  //   d3pt7complex_arr_scatter << < block, thread >> > (arr_in, arr_out, coeff_dev);
-  // };
+  auto cuarr_scatter = [&in_dev, &out_dev, &coeff_dev]() -> void {
+    bComplexElem(*arr_in)[STRIDE][STRIDE] = (bComplexElem (*)[STRIDE][STRIDE]) in_dev;
+    bComplexElem(*arr_out)[STRIDE][STRIDE] = (bComplexElem (*)[STRIDE][STRIDE]) out_dev;
+    dim3 block(N / 32, NB, NB), thread(32);
+    d3pt7complex_arr_scatter << < block, thread >> > (arr_in, arr_out, coeff_dev);
+  };
 
   // auto brick_func_trans = [&grid, &bInfo_dev, &bStorage_dev, &coeff_dev]() -> void {
   //   auto bSize = cal_size<BDIM>::value;
@@ -371,7 +371,7 @@ void d3pt7complexcu() {
   arr_func();
   std::cout << "Arr: " << cutime_func(cuarr_func) << std::endl;
   std::cout << "Arr warp: " << cutime_func(cuarr_warp) << std::endl;
-  // std::cout << "Arr scatter: " << cutime_func(cuarr_scatter) << std::endl;
+  std::cout << "Arr scatter: " << cutime_func(cuarr_scatter) << std::endl;
   std::cout << "Bri: " << cutime_func(brick_func) << std::endl;
   // std::cout << "Trans: " << cutime_func(brick_func_trans) << std::endl;
 
