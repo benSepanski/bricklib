@@ -7,6 +7,9 @@
 #define BRICK_VECSCATTER_H
 
 #include <complex>
+#if defined(__CUDACC__)
+#include <cuComplex.h>
+#endif
 
 /**
  * @brief Basic datatype for all brick elements
@@ -14,7 +17,82 @@
 #ifndef bElem
 #define bElem double
 #endif
-typedef std::complex<bElem> bComplexElem;
+
+// typedef std::complex<bElem> bComplexElem;
+// Use the default, C-style CUDA complex types
+#if defined(__CUDACC__)
+    #if bElem==double
+        typedef cuDoubleComplex bCuComplexElem;
+        #define CUCADD(a, b) cuCadd(a, b)
+        #define CUCMUL(a, b) cuCmul(a, b)
+        #define CUCREAL(a) cuCreal(a)
+        #define CUCIMAG(a) cuCimag(a)
+    #elif bElem==float
+        typedef cuFloatComplex bCuComplexElem;
+        #define CUCADD(a, b) cuCaddf(a, b)
+        #define CUCMUL(a, b) cuCmulf(a, b)
+        #define CUCREAL(a) cuCrealf(a)
+        #define CUCIMAG(a) cuCimagf(a)
+    #else
+        #error "Expected bElem to be double or float"
+    #endif
+#endif
+
+typedef std::complex<bElem> stdComplex;
+
+struct bComplexElem : public stdComplex
+{
+    using stdComplex::stdComplex;
+    using stdComplex::operator=;
+
+#if defined(__CUDACC__)
+    // Automatic conversion to/assignment from cuda types
+    #if bElem==double
+        __host__ __device__ inline
+        operator cuDoubleComplex() const{return *((cuDoubleComplex*) this);}
+
+    #elif bElem==float
+        __host__ __device__ inline
+        operator cuFloatComplex() const{return *((cuFloatComplex*) this);}
+    #else
+    #error "Expected bElem to be double or float"
+    #endif
+
+    __host__ __device__ inline
+    bComplexElem operator*(const bComplexElem &that)
+    {
+        #ifdef __CUDA_ARCH__
+        return CUCMUL(*this, that);
+        #else
+        return (*this) * that;
+        #endif
+    }
+
+    __host__ __device__ inline
+    bComplexElem operator+(const bComplexElem &that)
+    {
+        #ifdef __CUDA_ARCH__
+        return CUCADD(*this, that);
+        #else
+        return (*this) + that;
+        #endif
+    }
+
+    __host__ __device__ inline
+    bComplexElem &operator=(const bCuComplexElem &that)
+    {
+        *this = *((bComplexElem*)&that);
+        return *this;
+    }
+
+    __host__ __device__ inline
+    bComplexElem(const bCuComplexElem &that)
+    {
+        reinterpret_cast<bElem(&)[2]>(*this)[0] = CUCREAL(that);
+        reinterpret_cast<bElem(&)[2]>(*this)[1] = CUCIMAG(that);
+    }
+#endif
+};
 
 #define VS_STRING(...) #__VA_ARGS__
 #define VS_TOSTR(...) VS_STRING(__VA_ARGS__)
