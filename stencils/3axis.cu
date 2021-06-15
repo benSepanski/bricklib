@@ -223,7 +223,7 @@ d3pt7complex_brick_trans(unsigned (*grid)[STRIDEB][STRIDEB], ComplexBrick bIn, C
   long tj = GB + blockIdx.y;
   long ti = GB + blockIdx.x;
   unsigned b = grid[tk][tj][ti];
-  brick("7pt.py", VSVEC, (BDIM), (VFOLD), b);
+  brick("7pt_complex.py", VSVEC, (BDIM), (VFOLD), b);
 }
 
 __global__ void
