@@ -6,6 +6,7 @@
 #ifndef BRICK_H
 #define BRICK_H
 
+#include <cassert>
 #include <stdlib.h>
 #include <type_traits>
 #include <memory>
@@ -238,8 +239,7 @@ struct _BrickAccessor<T, Dim<D>, Dim<F>, bool> {
     unsigned n = nvec * (D / F) + l / F;
     unsigned offset = n * par->VECLEN + w;
 
-    //step is in unit of bElem, offset is in units of elemType
-    return *(reinterpret_cast<elemType*>(par->dat + par->bInfo->adj[b][d] * par->step) + offset);
+    return par->dat[par->bInfo->adj[b][d] * par->step + offset];
   }
 };
 
@@ -365,11 +365,11 @@ struct Brick<Dim<BDims...>, Dim<Folds...>, isComplex> {
 
   static constexpr unsigned VECLEN = cal_size<Folds...>::value;     ///< Vector length shorthand
   static constexpr unsigned BRICKSIZE = cal_size<BDims...>::value * (isComplex ? 2 : 1);  ///< Brick size shorthand
-  static constexpr bool complex = isComplex;
+  static constexpr bool complex = isComplex;  ///< True iff the elements of this brick are complex
 
   myBrickInfo *bInfo;        ///< Pointer to (possibly shared) metadata
-  unsigned step;             ///< Spacing between bricks in unit of bElem (BrickStorage)
-  bElem *dat;                ///< Offsetted memory (BrickStorage)
+  unsigned step;             ///< Spacing between bricks in unit of elemType
+  elemType *dat;                ///< Offsetted memory (BrickStorage)
   BrickStorage bStorage;
 
   /// Indexing operator returns: @ref _BrickAccessor
@@ -385,7 +385,7 @@ struct Brick<Dim<BDims...>, Dim<Folds...>, isComplex> {
   FORCUDA
   inline elemType *neighbor(unsigned b) {
     unsigned off = cal_offs<sizeof...(BDims), Offsets...>::value;
-    return reinterpret_cast<elemType*>(&dat[bInfo->adj[b][off] * step]);
+    return &dat[bInfo->adj[b][off] * step];
   }
 
   /**
@@ -394,12 +394,14 @@ struct Brick<Dim<BDims...>, Dim<Folds...>, isComplex> {
    * @param bStorage Brick storage (memory region)
    * @param offset Offset within the brick storage in number of real elements
    *               (i.e. each complex element counts as 2),
-   *                eg. is a multiple of 512 for 8x8x8 bricks
+   *                eg. is a multiple of 512 for 8x8x8 real bricks,
+   *                       a multiple of 1024 for 8x8x8 complex bricks
    */
   Brick(myBrickInfo *bInfo, const BrickStorage &brickStorage, unsigned offset) : bInfo(bInfo) {
     bStorage = brickStorage;
-    dat = bStorage.dat.get() + offset;
-    step = (unsigned) bStorage.step;
+    dat = reinterpret_cast<elemType*>(bStorage.dat.get() + offset);
+    assert(bStorage.step % 2 == 0);
+    step = (unsigned) bStorage.step / (isComplex ? 2 : 1);
   }
 };
 /**@}*/

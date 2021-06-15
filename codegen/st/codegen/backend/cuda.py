@@ -83,10 +83,8 @@ class BackendCUDA(Backend):
     def declare_gridref(self, grid: Grid, block: CodeBlock):
         element_type = get_element_type(grid.is_complex())
         name = self.gridref_name(grid)
-        ref = "&" + self.layout.elem(grid, [0] * len(self.codegen.TILE_DIM))
-        if grid.is_complex():
-            ref = f"reinterpret_cast<{element_type}*>({ref})"
-        block.append(("__global " if self.ocl else "") + f"{element_type} *{name} = {ref};")
+        ref = self.layout.elem(grid, [0] * len(self.codegen.TILE_DIM))
+        block.append(("__global " if self.ocl else "") + f"{element_type} *{name} = &{ref};")
         return name
 
     def store_vecbuf(self, vecbuf_name, reg_name, block: CodeBlock):
