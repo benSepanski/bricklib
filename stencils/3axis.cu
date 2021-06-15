@@ -217,16 +217,14 @@ d3pt7complex_brick(unsigned (*grid)[STRIDEB][STRIDEB], ComplexBrick bIn, Complex
                      coeff[0] * bIn[b][k][j][i];
 }
 
-// __global__ void
-// d3pt7complex_brick_trans(unsigned (*grid)[STRIDEB][STRIDEB], Brick <Dim<BDIM>, Dim<VFOLD>> bIn,
-//                   Brick <Dim<BDIM>, Dim<VFOLD>> bOut,
-//                   bElem *coeff) {
-//   long tk = GB + blockIdx.z;
-//   long tj = GB + blockIdx.y;
-//   long ti = GB + blockIdx.x;
-//   unsigned b = grid[tk][tj][ti];
-//   brick("7pt.py", VSVEC, (BDIM), (VFOLD), b);
-// }
+__global__ void
+d3pt7complex_brick_trans(unsigned (*grid)[STRIDEB][STRIDEB], ComplexBrick bIn, ComplexBrick bOut, bComplexElem *coeff) {
+  long tk = GB + blockIdx.z;
+  long tj = GB + blockIdx.y;
+  long ti = GB + blockIdx.x;
+  unsigned b = grid[tk][tj][ti];
+  brick("7pt.py", VSVEC, (BDIM), (VFOLD), b);
+}
 
 __global__ void
 d3pt7complex_arr(bComplexElem (*arr_in)[STRIDE][STRIDE], bComplexElem (*arr_out)[STRIDE][STRIDE], bComplexElem *coeff) {
@@ -352,13 +350,13 @@ void d3pt7complexcu() {
     d3pt7complex_arr_scatter << < block, thread >> > (arr_in, arr_out, coeff_dev);
   };
 
-  // auto brick_func_trans = [&grid, &bInfo_dev, &bStorage_dev, &coeff_dev]() -> void {
-  //   auto bSize = cal_size<BDIM>::value;
-  //   Brick <Dim<BDIM>, Dim<VFOLD>> bIn(bInfo_dev, bStorage_dev, 0);
-  //   Brick <Dim<BDIM>, Dim<VFOLD>> bOut(bInfo_dev, bStorage_dev, bSize);
-  //   dim3 block(NB, NB, NB), thread(32);
-  //   d3pt7complex_brick_trans << < block, thread >> > (grid, bIn, bOut, coeff_dev);
-  // };
+  auto brick_func_trans = [&grid, &bInfo_dev, &bStorage_dev, &coeff_dev]() -> void {
+    auto bSize = ComplexBrick::BRICKSIZE;
+    ComplexBrick bIn(bInfo_dev, bStorage_dev, 0);
+    ComplexBrick bOut(bInfo_dev, bStorage_dev, bSize);
+    dim3 block(NB, NB, NB), thread(32);
+    d3pt7complex_brick_trans << < block, thread >> > (grid, bIn, bOut, coeff_dev);
+  };
 
   std::cout << "d3pt7complex" << std::endl;
   // check input
@@ -373,7 +371,7 @@ void d3pt7complexcu() {
   std::cout << "Arr warp: " << cutime_func(cuarr_warp) << std::endl;
   std::cout << "Arr scatter: " << cutime_func(cuarr_scatter) << std::endl;
   std::cout << "Bri: " << cutime_func(brick_func) << std::endl;
-  // std::cout << "Trans: " << cutime_func(brick_func_trans) << std::endl;
+  std::cout << "Trans: " << cutime_func(brick_func_trans) << std::endl;
 
   cudaMemcpy(bStorage.dat.get(), bStorage_dev.dat.get(), bStorage.chunks * bStorage.step * sizeof(bElem), cudaMemcpyDeviceToHost);
   cudaDeviceSynchronize();
