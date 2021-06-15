@@ -809,7 +809,16 @@ class CodeGen:
                             backend.declare_vec(nameb, read_block, n.is_complex())
                             vec_index += 1
                             vec_index = read_vec(n, nameb, posb, vec_index)
-                        backend.merge(ovec, nameb, namea, dim, pos[dim] % fold[dim], read_block)
+                        if n.is_complex():
+                            ovec_array_view = f"reinterpret_cast<bElem(&)[2]>({ovec})"
+                            realo = ovec_array_view + "[0]"
+                            realb, reala = map(lambda name: name + ".real()", (nameb, namea))
+                            imago = ovec_array_view + "[1]"
+                            imagb, imaga = map(lambda name: name + ".imag()", (nameb, namea))
+                            backend.merge(realo, realb, reala, dim, pos[dim] % fold[dim], read_block)
+                            backend.merge(imago, imagb, imaga, dim, pos[dim] % fold[dim], read_block)
+                        else:
+                            backend.merge(ovec, nameb, namea, dim, pos[dim] % fold[dim], read_block)
                     vecs[n][pos] = ovec
                     return vec_index
 
