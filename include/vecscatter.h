@@ -21,159 +21,183 @@
 // as in brick.h,
 /// Overloaded attributes for potentially GPU-usable functions (in place of __host__ __device__ etc.)
 #if defined(__CUDACC__) || defined(__HIP__)
-#define FORCUDA __host__ __device__
-#else
-#define FORCUDA
-#endif
-
-// Inside CUDA kernels, use the default, C-style CUDA complex types
-#if defined(__CUDACC__)
+    #define FORCUDA __host__ __device__
     #if bElem==double
-        typedef cuDoubleComplex bCuComplexElem;
-        #define CUCADD(z, w) cuCadd(z, w)
-        #define CUCMUL(z, w) cuCmul(z, w)
-        #define CUCDIV(z, w) cuCdiv(z, w)
-        #define CUCREAL(z) cuCreal(z)
-        #define CUCIMAG(z) cuCimag(z)
-    #elif bElem==float
-        typedef cuFloatComplex bCuComplexElem;
-        #define CUCADD(z, w) cuCaddf(z, w)
-        #define CUCMUL(z, w) cuCmulf(z, w)
-        #define CUCDIV(z, w) cuCdivf(z, w)
-        #define CUCREAL(z) cuCrealf(z)
-        #define CUCIMAG(z) cuCimagf(z)
+        typedef cuDoubleComplex bCuComplexElem ;
     #else
-        #error "Expected bElem to be double or float"
+        typedef cuFloatComplex bCuComplexElem;
     #endif
-    #define FROMCUDA(z) reinterpet_cast<bComplexElem>(z)
-#endif
-
-#if bElem==double
-    #define AS_ARRAY(z) reinterpret_cast<double(&)[2]>(z)
-    #define AS_CONST_ARRAY(z) reinterpret_cast<const double(&)[2]>(z)
-#elif bElem==float
-    #define AS_ARRAY(z) reinterpret_cast<float(&)[2]>(z)
-    #define AS_CONST_ARRAY(z) reinterpret_cast<const float(&)[2]>(z)
 #else
-    #error "expected bElem to be float or double"
+    #define FORCUDA
 #endif
 
-typedef std::complex<bElem> stdComplex;
+// std::complex doesn't work in kernels,
+// thrust::complex/C-style CUDA complex types can only be linked
+// against if using nvcc.
+//
+// Since all use the same layout (an array of 2 float/doubles,
+// real first) it's more convenient for us to just build our own
+// compatible struct that works on device and host code.
 
-struct bComplexElem : public stdComplex
+struct bComplexElem
 {
-    // inherit parent constructors for host-side
-    using stdComplex::stdComplex;
+    bElem value[2];
 
-    // allow host-side implicit conversion from std
-    bComplexElem(const stdComplex &that) : stdComplex(that) { }
-
-    // redefine constructors needed on the device-side
+    // default constructor: random values
     FORCUDA
-    bComplexElem() : stdComplex() { }
-
+    bComplexElem() { }
+    // basic constructors
     FORCUDA
-    bComplexElem(const bComplexElem &that) : stdComplex()
+    bComplexElem(const bElem &real, const bElem &imag) : value{real, imag} { }
+    FORCUDA
+    bComplexElem(const bElem &real) : value{real, 0.0} { }
+    FORCUDA
+    bComplexElem(const int &real) : value{(bElem) real, 0.0} { }
+    FORCUDA
+    bComplexElem(const long &real) : value{(bElem) real, 0.0} { }
+    FORCUDA
+    bComplexElem(const bComplexElem &that) : value{that.real(), that.imag()} { }
+
+    // conversion from std/cuda
+    bComplexElem(const std::complex<bElem> &that) 
     {
-        AS_ARRAY(*this)[0] = AS_CONST_ARRAY(that)[0];
-        AS_ARRAY(*this)[0] = AS_CONST_ARRAY(that)[0];
+        value[0] = reinterpret_cast<const bElem(&)[2]>(that)[0];
+        value[1] = reinterpret_cast<const bElem(&)[2]>(that)[1];
     }
 
-// Cuda compatability
-#if defined(__CUDACC__)
-    // Conversion to/from cuda complex
-    #if bElem==double
-    __host__ __device__ inline
-    operator cuDoubleComplex() const
+    #if defined(__CUDACC__) || defined(__HIP__)
+    FORCUDA inline
+    bComplexElem(bCuComplexElem &that) 
     {
-        return *((cuDoubleComplex*) this);
-    }
-    #elif bElem==float
-    __host__ __device__ inline
-    operator cuFloatComplex() const
-    {
-        return *((cuFloatComplex*) this);
+        value[0] = reinterpret_cast<const bElem(&)[2]>(that)[0];
+        value[1] = reinterpret_cast<const bElem(&)[2]>(that)[1];
     }
     #endif
 
-    __host__ __device__ inline
-    bComplexElem(const bCuComplexElem &that)
+    // conversion to std/cuda
+    operator std::complex<bElem>() const
     {
-        AS_ARRAY(*this)[0] = CUCREAL(that);
-        AS_ARRAY(*this)[1] = CUCIMAG(that);
+        return reinterpret_cast<const std::complex<bElem>&>(*this);
     }
 
-    // Overloaded arithmetic operators
-    __host__ __device__ inline
+    #if defined(__CUDACC__) || defined(__HIP__)
+    #if bElem==double
+        FORCUDA inline
+        operator cuDoubleComplex() const 
+        {
+            return reinterpret_cast<const bCuComplexElem&>(*this);
+        }
+    #else
+        FORCUDA inline
+        operator cuFloatComplex() const 
+        {
+            return reinterpret_cast<const bCuComplexElem&>(*this);
+        }
+    #endif
+    #endif
+
+    // assignment
+    FORCUDA inline
+    bComplexElem &operator=(const bComplexElem &that)
+    {
+        this->value[0] = that.real();
+        this->value[1] = that.imag();
+        return *this;
+    }
+
+    // basic complex operations
+    FORCUDA inline
+    const bElem &real() const
+    {
+        return value[0];
+    }
+
+    FORCUDA inline
+    const bElem &imag() const
+    {
+        return value[1];
+    }
+
+    // declare friends for unary/binary operations
+    FORCUDA inline
+    friend bComplexElem operator+(const bComplexElem &, const bComplexElem &);
+    FORCUDA inline
+    friend bComplexElem operator-(const bComplexElem &, const bComplexElem &);
+    FORCUDA inline
+    friend bComplexElem operator*(const bComplexElem &, const bComplexElem &);
+    FORCUDA inline
+    friend bComplexElem operator+(const bComplexElem &);
+    FORCUDA inline
+    friend bComplexElem operator-(const bComplexElem &);
+
+    // complex arithmetic updates
+    FORCUDA inline
     bComplexElem &operator+=(const bComplexElem &that)
     {
-        #ifdef __CUDA_ARCH__
-        AS_ARRAY(*this)[0] += CUCREAL(that);
-        AS_ARRAY(*this)[1] += CUCIMAG(that);
+        *this = *this + that;
         return *this;
-        #else
-        return static_cast<bComplexElem &>(stdComplex::operator+=(static_cast<const stdComplex&>(that)));
-        #endif
     }
 
-    __host__ __device__ inline
+    FORCUDA inline
     bComplexElem &operator-=(const bComplexElem &that)
     {
-        #ifdef __CUDA_ARCH__
-        AS_ARRAY(*this)[0] -= CUCREAL(that);
-        AS_ARRAY(*this)[1] -= CUCIMAG(that);
+        *this = *this - that;
         return *this;
-        #else
-        return static_cast<bComplexElem &>(stdComplex::operator-=(static_cast<const stdComplex&>(that)));
-        #endif
     }
 
-    __host__ __device__ inline
+    FORCUDA inline
     bComplexElem &operator*=(const bComplexElem &that)
     {
-        #ifdef __CUDA_ARCH__
-        *this = CUCMUL(*this, that);
+        *this = *this * that;
         return *this;
-        #else
-        return static_cast<bComplexElem &>(stdComplex::operator*=(static_cast<const stdComplex&>(that)));
-        #endif
     }
-    
-    __host__ __device__ inline
-    bComplexElem &operator/=(const bComplexElem &that)
+
+    // comparison
+    FORCUDA inline
+    bool operator==(const bComplexElem &that)
     {
-        #ifdef __CUDA_ARCH__
-        *this = CUCDIV(*this, that);
-        return *this;
-        #else
-        return static_cast<bComplexElem &>(stdComplex::operator/=(static_cast<const stdComplex&>(that)));
-        #endif
+        return this->real() == that.real()  && this->imag() == that.imag();
     }
-#endif
+
+    FORCUDA inline
+    bool operator!=(const bComplexElem &that)
+    {
+        return !(*this == that);
+    }
 };
 
-// overloaded arithmetic operators
-#if defined(__CUDACC__)
-__host__ __device__ inline
-bComplexElem operator*(const bComplexElem &a, const bComplexElem &b)
+// complex arithmetic binary operators
+FORCUDA
+bComplexElem operator+(const bComplexElem &z, const bComplexElem &w)
 {
-    #ifdef __CUDA_ARCH__
-    return CUCMUL(a, b);
-    #else
-    return std::operator*(a, b);
-    #endif
+    return bComplexElem(z.real() + w.real(), z.imag() + w.imag());
 }
 
-__host__ __device__ inline
-bComplexElem operator+(const bComplexElem &a, const bComplexElem &b)
+FORCUDA
+bComplexElem operator-(const bComplexElem &z, const bComplexElem &w)
 {
-    #ifdef __CUDA_ARCH__
-    return CUCADD(a, b);
-    #else
-    return std::operator+(a, b);
-    #endif
+    return bComplexElem(z.real() - w.real(), z.imag() - w.imag());
 }
-#endif
+
+FORCUDA
+bComplexElem operator*(const bComplexElem &z, const bComplexElem &w)
+{
+    return bComplexElem(z.real() * w.real() - z.imag() * w.imag(),
+                        z.imag() * w.real() + z.real() * w.imag());
+}
+
+// complex arithmetic unary operators
+FORCUDA
+bComplexElem operator+(const bComplexElem &z)
+{
+    return z;
+}
+
+FORCUDA
+bComplexElem operator-(const bComplexElem &z)
+{
+    return bComplexElem(-z.real(), -z.imag());
+}
 
 #define VS_STRING(...) #__VA_ARGS__
 #define VS_TOSTR(...) VS_STRING(__VA_ARGS__)

@@ -361,6 +361,7 @@ struct Brick<Dim<BDims...>, Dim<Folds...>, isComplex> {
   typedef Brick<Dim<BDims...>, Dim<Folds...>, isComplex> mytype;    ///< Shorthand for this struct's type
   typedef BrickInfo<sizeof...(BDims)> myBrickInfo;        ///< Shorthand for type of the metadata
   typedef typename std::conditional<isComplex, bComplexElem, bElem>::type elemType; ///< the type of elements in this brick
+  typedef typename std::conditional<isComplex, std::complex<bElem>, bElem>::type stdElemType; ///< STL-compatible type of elements
 
   static constexpr unsigned VECLEN = cal_size<Folds...>::value;     ///< Vector length shorthand
   static constexpr unsigned BRICKSIZE = cal_size<BDims...>::value * (isComplex ? 2 : 1);  ///< Brick size shorthand

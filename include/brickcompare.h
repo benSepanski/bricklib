@@ -8,12 +8,21 @@
 
 #include <iostream>
 #include <cmath>
+#include <complex>
 #include "bricksetup.h"
 #include "cmpconst.h"
 
 extern bool compareBrick_b;     ///< Thread-private comparison accumulator
 
 #pragma omp threadprivate(compareBrick_b)
+
+// template<typename elemType>
+// elemType abs(const elemType &val)
+// {
+//   // must be elem-type or value
+//   static_assert(std::is_same<bElem, elemType>::value || std::is_same<bComplexElem, elemType>::value);
+// }
+
 
 /**
  * @brief Compare values between bricks and an array
@@ -31,12 +40,13 @@ template<unsigned dims, typename T>
 inline bool
 compareBrick(const std::vector<long> &dimlist, const std::vector<long> &padding, const std::vector<long> &ghost,
     typename T::elemType *arr, unsigned *grid_ptr, T &brick) {
-  typedef typename T::elemType elemType;///< convenient alias to avoid writing "typename" everywhere
+  typedef typename T::elemType elemType; ///< convenient alias to avoid writing "typename" everywhere
+  typedef typename T::stdElemType stdElemType; ///< STL-type of element
 
   bool ret = true;
   auto f = [&ret](elemType &brick, const elemType *arr) -> void {
-    double diff = std::abs(brick - *arr);
-    bool r = (diff < BRICK_TOLERANCE) || (diff < (std::abs(brick) + std::abs(*arr)) * BRICK_TOLERANCE);
+    double diff = std::abs((stdElemType) (brick - *arr));
+    bool r = (diff < BRICK_TOLERANCE) || (diff < (std::abs((stdElemType) brick) + std::abs((stdElemType) *arr)) * BRICK_TOLERANCE);
     compareBrick_b = (compareBrick_b && r);
   };
 
