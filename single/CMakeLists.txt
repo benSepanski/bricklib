@@ -59,9 +59,12 @@ if(gtensor_FOUND)
     set(GENE5D_INCLUDE_DIRS "${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES}")
     VSTARGET(GENE5D ../stencils/gene-5d.cu ../stencils/gene-5d-out.cu)
     add_executable(single-gene5d ${VSTARGET_GENE5D_OUTPUT})
+    target_gtensor_sources(single-gene5d ${VSTARGET_GENE5D_OUTPUT})
     target_link_libraries(single-gene5d brickhelper gtensor::gtensor)
     set_target_properties(single-gene5d 
-            PROPERTIES OUTPUT_NAME gene5d)
+            PROPERTIES OUTPUT_NAME gene5d
+                       CXX_STANDARD 14
+                       CXX_STANDARD_REQUIRED ON)
     target_include_directories(single-gene5d PUBLIC
             "${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES}"
             )

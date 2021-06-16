@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cuComplex.h>
+#include "gtensor/gtensor.h"
 #include <iostream>
 #include <random>
 #include "bricksetup.h"
