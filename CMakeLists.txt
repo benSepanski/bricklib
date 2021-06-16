@@ -20,6 +20,17 @@ if (CMAKE_CUDA_COMPILER)
     set(CMAKE_CUDA_FLAGS ${CMAKE_CUDA_FLAGS} --expt-relaxed-constexpr )
 endif ()
 
+# use gtensor if available
+if(CMAKE_CUDA_COMPILER)
+    set(GTENSOR_DEVICE "cuda")
+    find_package(gtensor)
+    if(gtensor_FOUND)
+        message("gtensor installation found")
+    else()
+        message("No gtensor installation found")
+    endif ()
+endif ()
+
 find_package(OpenMP REQUIRED)
 find_package(MPI)
 find_package(OpenCL 2.0)
