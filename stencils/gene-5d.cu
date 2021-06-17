@@ -4,7 +4,7 @@
 
 #include <algorithm>
 #include <cuComplex.h>
-#include "gtensor/gtensor.h"
+#include <gtensor/gtensor.h>
 #include <iostream>
 #include <random>
 #include "bricksetup.h"
@@ -35,7 +35,12 @@ constexpr bElem pi = 3.14159265358979323846;
 #define PADDING_l 8
 #define PADDING_m 8
 #define PADDING PADDING_i,PADDING_j,PADDING_k,PADDING_l,PADDING_m
-#define GHOST_ZONE 0,0,0,0,0
+#define GHOST_ZONE_i 0
+#define GHOST_ZONE_j 0
+#define GHOST_ZONE_k 0
+#define GHOST_ZONE_l 0
+#define GHOST_ZONE_m 0
+#define GHOST_ZONE GHOST_ZONE_i,GHOST_ZONE_j,GHOST_ZONE_k,GHOST_ZONE_l,GHOST_ZONE_m
 // tiling
 #define _TILEFOR5D _Pragma("omp parallel for collapse(4)") \
 for (long tm = PADDING_m; tm < PADDING_m + EXTENT_m; tm += TILE) \
@@ -60,23 +65,31 @@ constexpr unsigned TILE = 8;
 #define BDIM_m 4
 #define BDIM BDIM_i,BDIM_j,BDIM_k,BDIM_l,BDIM_m
 #define VFOLD 2,4,4
-// extents
+// num elements in each direction
 #define EXTENT_i 72
-#define EXTENT_j 34
+#define EXTENT_j 32
 #define EXTENT_k 24
-#define EXTENT_l 22
+#define EXTENT_l 24
 #define EXTENT_m 32
 #define EXTENT EXTENT_i,EXTENT_j,EXTENT_k,EXTENT_l,EXTENT_m
-#define BLOCK_GRID_EXTENT_i EXTENT_i / BDIM_i
-#define BLOCK_GRID_EXTENT_j EXTENT_j / BDIM_j
-#define BLOCK_GRID_EXTENT_k EXTENT_k / BDIM_k
-#define BLOCK_GRID_EXTENT_l EXTENT_l / BDIM_l
-#define BLOCK_GRID_EXTENT_m EXTENT_m / BDIM_m
-#define EXTENT EXTENT_i,EXTENT_j,EXTENT_k,EXTENT_l,EXTENT_m
+// num elements in each direction + padding + ghosts
+#define PADDED_EXTENT_i EXTENT_i + 2 * (PADDING_i + GHOST_ZONE_i)
+#define PADDED_EXTENT_j EXTENT_j + 2 * (PADDING_j + GHOST_ZONE_j)
+#define PADDED_EXTENT_k EXTENT_k + 2 * (PADDING_k + GHOST_ZONE_k)
+#define PADDED_EXTENT_l EXTENT_l + 2 * (PADDING_l + GHOST_ZONE_l)
+#define PADDED_EXTENT_m EXTENT_m + 2 * (PADDING_m + GHOST_ZONE_m)
+#define PADDED_EXTENT PADDED_EXTENT_i,PADDED_EXTENT_j,PADDED_EXTENT_k,PADDED_EXTENT_l,PADDED_EXTENT_m
+// number of blocks (including padded blocks)
+#define BRICK_GRID_EXTENT_i (EXTENT_i + 2 * GHOST_ZONE_i) / BDIM_i
+#define BRICK_GRID_EXTENT_j (EXTENT_j + 2 * GHOST_ZONE_j) / BDIM_j
+#define BRICK_GRID_EXTENT_k (EXTENT_k + 2 * GHOST_ZONE_k) / BDIM_k
+#define BRICK_GRID_EXTENT_l (EXTENT_l + 2 * GHOST_ZONE_l) / BDIM_l
+#define BRICK_GRID_EXTENT_m (EXTENT_m + 2 * GHOST_ZONE_m) / BDIM_m
+#define BRICK_GRID_EXTENT BRICK_GRID_EXTENT_i,BRICK_GRID_EXTENT_j,BRICK_GRID_EXTENT_k,BRICK_GRID_EXTENT_l,BRICK_GRID_EXTENT_m
 
 // relevant types
-using ComplexElement5DArray = bComplexElem(*) [EXTENT_l][EXTENT_k][EXTENT_j][EXTENT_i];
-using Brick5DGrid = unsigned(*) [BLOCK_GRID_EXTENT_l][BLOCK_GRID_EXTENT_k][BLOCK_GRID_EXTENT_j][BLOCK_GRID_EXTENT_i];
+using ComplexElement5DArray = bComplexElem(*) [PADDED_EXTENT_l][PADDED_EXTENT_k][PADDED_EXTENT_j][PADDED_EXTENT_i];
+using Brick5DGrid = unsigned(*) [BRICK_GRID_EXTENT_l][BRICK_GRID_EXTENT_k][BRICK_GRID_EXTENT_j][BRICK_GRID_EXTENT_i];
 using Brick5D = Brick<Dim<BDIM>, Dim<VFOLD> >;
 using ComplexBrick5D = Brick<Dim<BDIM>, Dim<VFOLD>, true>;
 
@@ -90,11 +103,16 @@ void ij_deriv() {
   // setup brick-info and raray of bricks on the device
   unsigned *grid_ptr;
   const unsigned long NUM_ELEMENTS = EXTENT_i * EXTENT_j * EXTENT_k * EXTENT_l * EXTENT_m;
+  const unsigned long NUM_BRICKS = BRICK_GRID_EXTENT_i *
+                                   BRICK_GRID_EXTENT_j *
+                                   BRICK_GRID_EXTENT_k *
+                                   BRICK_GRID_EXTENT_l *
+                                   BRICK_GRID_EXTENT_m;
 
-  auto bInfo = init_grid<DIM>(grid_ptr, {EXTENT});
+  auto bInfo = init_grid<DIM>(grid_ptr, {BRICK_GRID_EXTENT});
   unsigned *grid_dev;
   {
-    unsigned size = NUM_ELEMENTS * sizeof(unsigned);
+    unsigned size = NUM_BRICKS * sizeof(unsigned);
     cudaMalloc(&grid_dev, size);
     cudaMemcpy(grid_dev, grid_ptr, size, cudaMemcpyHostToDevice);
   }
@@ -109,8 +127,8 @@ void ij_deriv() {
 
   // build arrays to hold our input/output fields
   unsigned size = NUM_ELEMENTS * sizeof(bComplexElem);
-  bComplexElem *in_ptr = randomComplexArray({EXTENT});
-  bComplexElem *out_ptr = zeroComplexArray({EXTENT});
+  bComplexElem *in_ptr = randomComplexArray({PADDED_EXTENT});
+  bComplexElem *out_ptr = zeroComplexArray({PADDED_EXTENT});
   ComplexElement5DArray arr_in = (ComplexElement5DArray) in_ptr;
   ComplexElement5DArray arr_out = (ComplexElement5DArray) out_ptr;
 
@@ -159,20 +177,20 @@ void ij_deriv() {
 
   auto arr_func = [&arr_in, &arr_out, &i_deriv_coeff, &j_scale]() -> void {
     _TILEFOR5D {
-      arr_out[m][l][k][j][i] *= 2;
-      // arr_out[m][l][k][j][i] = j_scale[j] * (
-      //   i_deriv_coeff[0] * arr_in[m][l][k][j][i - 2] +
-      //   i_deriv_coeff[1] * arr_in[m][l][k][j][i - 1] +
-      //   i_deriv_coeff[2] * arr_in[m][l][k][j][i] +
-      //   i_deriv_coeff[3] * arr_in[m][l][k][j][i + 1] +
-      //   i_deriv_coeff[4] * arr_in[m][l][k][j][i + 2]
-      //   );
+      arr_out[m][l][k][j][i] = j_scale[j] * (
+        i_deriv_coeff[0] * arr_in[m][l][k][j][i - 2] +
+        i_deriv_coeff[1] * arr_in[m][l][k][j][i - 1] +
+        i_deriv_coeff[2] * arr_in[m][l][k][j][i] +
+        i_deriv_coeff[3] * arr_in[m][l][k][j][i + 1] +
+        i_deriv_coeff[4] * arr_in[m][l][k][j][i + 2]
+        );
     }
   };
 
   std::cout << "i-j derivative" << std::endl;
   // perform stencil computations
   arr_func();
+  std::cout << "done" << std::endl;
 
   // free memory
   free(in_ptr);
