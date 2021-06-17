@@ -9,6 +9,20 @@ set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(IgnoreMe "${CMAKE_C_COMPILER}")
 
+# If using tensor examples, set CXX standard to 14
+option(BRICKS_BUILD_GTENSOR_BENCHMARKS "Set to ON to build benchmarks involving gtensor. Requires c++14 compatible compiler." OFF)
+if(BRICKS_BUILD_GTENSOR_BENCHMARKS)
+    # set default device
+    if(NOT GTENSOR_DEVICE)
+        set(GTENSOR_DEVICE cuda)
+    endif()
+    message(STATUS "Setting CXX standard to 14 for compatability with gtensor")
+    set(CMAKE_CXX_STANDARD 14)
+    find_package(gtensor REQUIRED)
+    message(STATUS "gtensor found")
+endif()
+
+
 include(CheckLanguage)
 include(CheckCXXCompilerFlag)
 check_language(CUDA)
@@ -18,17 +32,6 @@ if (CMAKE_CUDA_COMPILER)
     set(CMAKE_CUDA_STANDARD ${CMAKE_CXX_STANDARD})
     set(CMAKE_CUDA_SEPARABLE_COMPILATION OFF)
     set(CMAKE_CUDA_FLAGS ${CMAKE_CUDA_FLAGS} --expt-relaxed-constexpr )
-endif ()
-
-# use gtensor if available
-if(CMAKE_CUDA_COMPILER)
-    # set(GTENSOR_DEVICE "cuda")
-    # find_package(gtensor)
-    # if(gtensor_FOUND)
-        # message("gtensor installation found")
-    # else()
-        # message("No gtensor installation found")
-    # endif ()
 endif ()
 
 find_package(OpenMP REQUIRED)
