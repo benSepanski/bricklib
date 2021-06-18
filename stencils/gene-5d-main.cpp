@@ -3,8 +3,11 @@
 template<typename Space>
 using gtensor5D = gt::gtensor<gt::complex<bElem>, 5, Space>;
 
-// copied from 
-// https://github.com/wdmapp/gtensor/blob/41cf4fe26625f8d7ba2d0d3886a54ae6415a2017/benchmarks/bench_hypz.cxx#L14-L24
+/**
+ * @brief Return a shifted view of the array
+ * copied from 
+ * https://github.com/wdmapp/gtensor/blob/41cf4fe26625f8d7ba2d0d3886a54ae6415a2017/benchmarks/bench_hypz.cxx#L14-L24
+ */
 template <int N, typename E>
 inline auto stencil(E&& e, std::array<int, N> shift)
 {
@@ -46,8 +49,6 @@ void ij_deriv_gtensor(bComplexElem *out_ptr, bComplexElem *in_ptr,
   auto gt_p2 = gt::adapt(reinterpret_cast<gt::complex<bElem>*>(p2), shape4D);
   auto gt_ikj = gt::adapt(reinterpret_cast<gt::complex<bElem>*>(ikj), shape_ikj);
   auto gt_i_deriv_coeff = gt::adapt(i_deriv_coeff, gt::shape(5));
-  // complexArray5D in_arr = (complexArray5D) in_ptr;
-  // _TILEFOR5D { gt_in(i, j, k, l, m) = reinterpret_cast<const gt::complex<bElem>&>(in_arr[m][l][k][j][i]); }
 
   // copy the in-arrays to device
   auto gt_in_dev = gt::empty_device<gt::complex<bElem> >(shape5D);
@@ -90,13 +91,8 @@ void ij_deriv_gtensor(bComplexElem *out_ptr, bComplexElem *in_ptr,
   std::cout << "gtensor: " << 1000 * cutime_func(compute_ij_deriv) << " avg ms/computation" << std::endl;
 
   // copy output data back to host
-  // auto gt_out = gt::empty_like(gt_in);
   auto gt_out = gt::adapt(reinterpret_cast<gt::complex<bElem>*>(out_ptr), shape5D);
   gt::copy(gt_out_dev, gt_out);
-
-  // copy host to out_ptr
-  // complexArray5D out_arr = (complexArray5D) out_ptr;
-  // _TILEFOR5D out_arr[m][l][k][j][i] = reinterpret_cast<const bComplexElem&>(gt_out(i, j, k, l, m));
 }
 
 /**
@@ -127,9 +123,8 @@ void ij_deriv() {
 }
 
 int main() {
-  // std::random_device r;
-  // std::mt19937_64 mt(r());
-  // std::uniform_real_distribution<bElem> u(0, 1);
+  std::cout << "WARM UP:" << CU_WARMUP << std::endl;
+  std::cout << "ITERATIONS:" << CU_ITER << std::endl;
   ij_deriv();
   return 0;
 }
