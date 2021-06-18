@@ -25,13 +25,27 @@
 #undef VFOLD
 #undef _TILEFOR
 
-// tiling
-#define _TILEFOR5D _Pragma("omp parallel for collapse(4)") \
+// tiled for loop, ignoring padded regions
+#define _PADDED_TILEFOR5D _Pragma("omp parallel for collapse(4)") \
 for (long tm = PADDING_m; tm < PADDING_m + EXTENT_m; tm += TILE) \
 for (long tl = PADDING_l; tl < PADDING_l + EXTENT_l; tl += TILE) \
 for (long tk = PADDING_k; tk < PADDING_k + EXTENT_k; tk += TILE) \
 for (long tj = PADDING_j; tj < PADDING_j + EXTENT_j; tj += TILE) \
 for (long ti = PADDING_i; ti < PADDING_i + EXTENT_i; ti += TILE) \
+for (long m = tm; m < tm + TILE; ++m) \
+for (long l = tl; l < tl + TILE; ++l) \
+for (long k = tk; k < tk + TILE; ++k) \
+for (long j = tj; j < tj + TILE; ++j) \
+_Pragma("omp simd") \
+for (long i = ti; i < ti + TILE; ++i)
+
+// tiled for loop over entire padded extent
+#define _TILEFOR5D _Pragma("omp parallel for collapse(4)") \
+for (long tm = 0; tm < PADDED_EXTENT_m; tm += TILE) \
+for (long tl = 0; tl < PADDED_EXTENT_l; tl += TILE) \
+for (long tk = 0; tk < PADDED_EXTENT_k; tk += TILE) \
+for (long tj = 0; tj < PADDED_EXTENT_j; tj += TILE) \
+for (long ti = 0; ti < PADDED_EXTENT_i; ti += TILE) \
 for (long m = tm; m < tm + TILE; ++m) \
 for (long l = tl; l < tl + TILE; ++l) \
 for (long k = tk; k < tk + TILE; ++k) \

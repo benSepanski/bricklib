@@ -5,11 +5,13 @@ using gtensor5D = gt::gtensor<gt::complex<bElem>, 5, Space>;
 
 void ij_deriv_gtensor(bComplexElem *in_ptr, bComplexElem *out_ptr)
 {
+  using namespace gt::placeholders;
+
   auto shape = gt::shape(PADDED_EXTENT);
   // copy in-array to gtensor
-  gtensor5D<gt::space::host> gt_in(shape);
+  auto gt_in = gt::empty<gt::complex<bElem> >(shape);
   complexArray5D in_arr = (complexArray5D) in_ptr;
-  _TILEFOR5D gt_in(i, j, k, l, m) = reinterpret_cast<const gt::complex<bElem>&>(in_arr[m][l][k][j][i]);
+  _TILEFOR5D { gt_in(i, j, k, l, m) = reinterpret_cast<const gt::complex<bElem>&>(in_arr[m][l][k][j][i]); }
 
   // copy the in-array to device
   auto gt_in_dev = gt::empty_device<gt::complex<bElem> >(shape);
@@ -17,7 +19,8 @@ void ij_deriv_gtensor(bComplexElem *in_ptr, bComplexElem *out_ptr)
 
   // compute our stencil
   gtensor5D<gt::space::device> gt_out_dev(shape);
-  gt_out_dev = gt::eval(2.0 * gt_in_dev);
+  gt_out_dev.view(_all, _all, _all, _all, _all) = 2.0 * gt_in_dev.view(_all, _all, _all, _all, _all);
+  gt::synchronize();
 
   // copy output data back to host
   auto gt_out = gt::empty_like(gt_in);
@@ -42,7 +45,6 @@ void ij_deriv() {
     std::cout << "ij_deriv" << std::endl;
     ij_deriv_gtensor(in_ptr, out_ptr);
     std::cout << "done" << std::endl;
-    std::cout << out_ptr[0] << " = 2.0 * " << in_ptr[0] << std::endl;
 
     free(out_ptr);
     free(in_ptr);
