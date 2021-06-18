@@ -60,8 +60,8 @@ if(BRICKS_BUILD_GTENSOR_BENCHMARKS)
     message(STATUS "Linking with gtensor from ${GTENSOR_INCLUDES}")
     set(GENE5D_INCLUDE_DIRS "${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES}" "${GTENSOR_INCLUDES}")
 
-    VSTARGET(GENE5D ../stencils/gene-5d.cu ../stencils/gene-5d-out.cu)
-    add_executable(single-gene5d ${VSTARGET_GENE5D_OUTPUT})
+    VSTARGET(GENE5D ../stencils/gene-5d-main.cpp ../stencils/gene-5d-main-out.cpp)
+    add_executable(single-gene5d ${VSTARGET_GENE5D_OUTPUT} ../stencils/gene-5d.cu)
     target_gtensor_sources(single-gene5d PRIVATE ${VSTARGET_GENE5D_OUTPUT})
     target_link_libraries(single-gene5d brickhelper gtensor::gtensor)
 
