@@ -92,7 +92,4 @@ constexpr unsigned TILE = 8;
 
 void cudaDouble(gt::complex<bElem> *inPtr, gt::complex<bElem> *outPtr);
 
-typedef bComplexElem (*complexArray5D)[EXTENT_l][EXTENT_k][EXTENT_j][EXTENT_i];
-typedef bComplexElem (*coeffArray4D)[EXTENT_l][EXTENT_k][EXTENT_i];
-
 #endif // BRICK_GENE_5D_H

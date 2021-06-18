@@ -40,7 +40,7 @@
 // real first) it's more convenient for us to just build our own
 // compatible struct that works on device and host code.
 
-struct bComplexElem
+struct alignas(sizeof(bElem[2])) bComplexElem
 {
     bElem value[2];
 

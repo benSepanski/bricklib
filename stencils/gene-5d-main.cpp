@@ -1,5 +1,9 @@
 #include "gene-5d.h"
 
+// convenient typedefs for arrays of pointers
+typedef bComplexElem (*complexArray5D)[PADDED_EXTENT_l][PADDED_EXTENT_k][PADDED_EXTENT_j][PADDED_EXTENT_i];
+typedef bComplexElem (*coeffArray4D)[EXTENT_l][EXTENT_k][EXTENT_i];
+
 /**
  * @brief check that a and b are close in values
  * 
@@ -12,7 +16,14 @@ void check_close(complexArray5D a, complexArray5D b)
     std::complex<bElem> z = a[m][l][k][j][i],
                         w = b[m][l][k][j][i];
     bElem diff = std::abs(z - w);
-    if(diff > 1e-6) throw std::runtime_error("Result mismatch!");
+    if(diff > 1e-6) 
+    {
+      char errorMsg[1000];
+      sprintf(errorMsg, "Result mismatch at (m, l, k, j, i) = (%d, %d, %d, %d, %d)! %f+%f*I != %f+%f*I",
+              m, l, k, j, i,
+              z.real(), z.imag(), w.real(), w.imag());
+      throw std::runtime_error(errorMsg);
+    }
   }
 }
 
@@ -55,6 +66,9 @@ void ij_deriv_gtensor(bComplexElem *out_ptr, bComplexElem *in_ptr,
                       bComplexElem *p1, bComplexElem *p2,
                       bComplexElem ikj[PADDED_EXTENT_j], bElem i_deriv_coeff[5])
 {
+  static_assert(sizeof(bComplexElem) == sizeof(gt::complex<bElem>));
+  static_assert(alignof(bComplexElem) == alignof(gt::complex<bElem>));
+
   auto shape5D = gt::shape(PADDED_EXTENT);
   auto shape4D = gt::shape(PADDED_EXTENT_i, PADDED_EXTENT_k, PADDED_EXTENT_l, PADDED_EXTENT_m);
   auto shape_ikj = gt::shape(PADDED_EXTENT_j);
@@ -64,6 +78,21 @@ void ij_deriv_gtensor(bComplexElem *out_ptr, bComplexElem *in_ptr,
   auto gt_p2 = gt::adapt(reinterpret_cast<gt::complex<bElem>*>(p2), shape4D);
   auto gt_ikj = gt::adapt(reinterpret_cast<gt::complex<bElem>*>(ikj), shape_ikj);
   auto gt_i_deriv_coeff = gt::adapt(i_deriv_coeff, gt::shape(5));
+
+complexArray5D in_arr = (complexArray5D) in_ptr;
+_TILEFOR5D {
+  std::complex<bElem> z = gt_in(i, j, k, l, m),
+                      w = in_arr[m][l][k][j][i];
+  bElem diff = std::abs(z - w);
+  if(diff > 1e-6) 
+  {
+    char errorMsg[1000];
+    sprintf(errorMsg, "Input copy failure at (m, l, k, j, i) = (%d, %d, %d, %d, %d)! %f+%f*I != %f+%f*I",
+            m, l, k, j, i,
+            z.real(), z.imag(), w.real(), w.imag());
+    throw std::runtime_error(errorMsg);
+  }
+}
 
   // copy the in-arrays to device
   auto gt_in_dev = gt::empty_device<gt::complex<bElem> >(shape5D);
@@ -104,40 +133,32 @@ void ij_deriv_gtensor(bComplexElem *out_ptr, bComplexElem *in_ptr,
 
   // time the function
   std::cout << "gtensor: " << 1000 * cutime_func(compute_ij_deriv) << " avg ms/computation" << std::endl;
+  {
+    using namespace gt::placeholders;
+    std::cout << gt_out_dev(8, 0, 8, 8, 0) << std::endl;
+    std::cout << gt_out_dev(8, 0, 8, 8, 16) << std::endl;
+    std::cout << gt_out_dev.view(_s(PADDING_i, PADDING_i + 10), PADDING_j, PADDING_k, PADDING_l, PADDING_m) << std::endl;
+  }
 
   // copy output data back to host
   auto gt_out = gt::adapt(reinterpret_cast<gt::complex<bElem>*>(out_ptr), shape5D);
   gt::copy(gt_out_dev, gt_out);
+
+  complexArray5D out_arr = (complexArray5D) out_ptr;
+  _TILEFOR5D {
+    std::complex<bElem> z = gt_out(i, j, k, l, m),
+                        w = out_arr[m][l][k][j][i];
+    bElem diff = std::abs(z - w);
+    if(diff > 1e-6) 
+    {
+      char errorMsg[1000];
+      sprintf(errorMsg, "Result copy failure at (m, l, k, j, i) = (%d, %d, %d, %d, %d)! %f+%f*I != %f+%f*I",
+              m, l, k, j, i,
+              z.real(), z.imag(), w.real(), w.imag());
+      throw std::runtime_error(errorMsg);
+    }
+  }
 }
-
-/**
- * @brief Compute the i-j derivative using a tiled GPU algorithm
- */
-// void ij_deriv_arr_tile(bComplexElem *out_ptr, bComplexElem *in_ptr,
-//                        bComplexElem *p1, bComplexElem *p2,
-//                        bComplexElem ikj[PADDED_EXTENT_j], bElem i_deriv_coeff[5])
-// {
-//   // convert to pointer-to-arrays
-//   complexArray5D out_arr = (complexArr5D) out_ptr;
-//   complexArray5D in_arr = (complexArr5D) in_ptr;
-//   coeffArray4D p1_arr = (coeffArray4D) p1;
-//   coeffArray4D p2_arr = (coeffArray4D) p2;
-//   dim3 block(NUM_PADDED_ELEMENTS / PADDED_EXTENT_i / PADDED_EXTENT_j, PADDED_EXTENT_j, PADDED_EXTENT_i),
-//       thread(BDIM);
-//   d3cond_arr << < block, thread >> > (arr_in, arr_out, coeff_dev);
-//   // define function which computes the stencil
-//   auto compute_ij_deriv[&out_arr, &in_arr, &p1_arr, &p2_arr, &ikj, &i_deriv_coeff] -> void {
-//     _TILEFOR5D out_arr[m][l][k][j][i] = p1_arr[m][l][k][i] * (
-//       i_deriv_coeff[0] * in_arr[m][l][k][j][i - 2] +
-//       i_deriv_coeff[1] * in_arr[m][l][k][j][i - 1] +
-//       i_deriv_coeff[2] * in_arr[m][l][k][j][i + 0] +
-//       i_deriv_coeff[3] * in_arr[m][l][k][j][i + 1] +
-//       i_deriv_coeff[4] * in_arr[m][l][k][j][i + 2]
-//     ) + p2_arr[m][l][k][i] * ikj[j] * in_arr[m][l][k][j][i];
-//   }
-
-//   // time the function
-// }
 
 /**
  * @brief 1-D stencil fused with multiplication by 1-D array
@@ -156,6 +177,7 @@ void ij_deriv() {
   bElem i_deriv_coeff[5] = {1. / 12., -2. / 3., 0., 2. / 3., -1 / 12.};
 
   // compute stencil on CPU for correctness check
+  std::cout << "Computing correctness check" << std::endl;
   bComplexElem *out_check_ptr = zeroComplexArray({PADDED_EXTENT});
   complexArray5D out_check_arr = (complexArray5D) out_check_ptr;
   complexArray5D in_arr = (complexArray5D) in_ptr;
@@ -172,7 +194,7 @@ void ij_deriv() {
   complexArray5D out_arr = (complexArray5D) out_ptr;
 
   // run computations
-  std::cout << "ij_deriv" << std::endl;
+  std::cout << "Starting ij_deriv benchmarks" << std::endl;
   ij_deriv_gtensor(out_ptr, in_ptr, p1, p2, ikj, i_deriv_coeff);
   check_close(out_arr, out_check_arr);
   std::cout << "done" << std::endl;
