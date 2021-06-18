@@ -2,7 +2,7 @@
 
 // convenient typedefs for arrays of pointers
 typedef bComplexElem (*complexArray5D)[PADDED_EXTENT_l][PADDED_EXTENT_k][PADDED_EXTENT_j][PADDED_EXTENT_i];
-typedef bComplexElem (*coeffArray4D)[EXTENT_l][EXTENT_k][EXTENT_i];
+typedef bComplexElem (*coeffArray4D)[PADDED_EXTENT_l][PADDED_EXTENT_k][PADDED_EXTENT_i];
 
 /**
  * @brief check that a and b are close in values
@@ -133,12 +133,6 @@ _TILEFOR5D {
 
   // time the function
   std::cout << "gtensor: " << 1000 * cutime_func(compute_ij_deriv) << " avg ms/computation" << std::endl;
-  {
-    using namespace gt::placeholders;
-    std::cout << gt_out_dev(8, 0, 8, 8, 0) << std::endl;
-    std::cout << gt_out_dev(8, 0, 8, 8, 16) << std::endl;
-    std::cout << gt_out_dev.view(_s(PADDING_i, PADDING_i + 10), PADDING_j, PADDING_k, PADDING_l, PADDING_m) << std::endl;
-  }
 
   // copy output data back to host
   auto gt_out = gt::adapt(reinterpret_cast<gt::complex<bElem>*>(out_ptr), shape5D);
