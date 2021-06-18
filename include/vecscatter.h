@@ -7,6 +7,7 @@
 #define BRICK_VECSCATTER_H
 
 #include <complex>
+#include <iostream>
 #if defined(__CUDACC__)
 #include <cuComplex.h>
 #endif
@@ -197,6 +198,14 @@ FORCUDA
 bComplexElem operator-(const bComplexElem &z)
 {
     return bComplexElem(-z.real(), -z.imag());
+}
+
+// pretty-printing
+inline
+std::ostream &operator<<(std::ostream &out, const bComplexElem& z)
+{
+    out << z.real() << "+" << z.imag() << "*I";
+    return out;
 }
 
 #define VS_STRING(...) #__VA_ARGS__
