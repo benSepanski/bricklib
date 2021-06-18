@@ -8,11 +8,12 @@
 #include <brick-cuda.h>
 #include "stencils.h"
 
+#define CU_WARMUP 5
 #define CU_ITER 100
 
 template<typename T>
 double cutime_func(T func) {
-  func(); // Warm up
+  for(int i = 0; i < CU_WARMUP; ++i) func(); // Warm up
   cudaEvent_t start, stop;
   float elapsed;
   cudaDeviceSynchronize();

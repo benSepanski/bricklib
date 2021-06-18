@@ -57,10 +57,10 @@ for (long i = ti; i < ti + TILE; ++i)
 constexpr bElem pi = 3.14159265358979323846;
 
 #define PADDING_i 8
-#define PADDING_j 8
+#define PADDING_j 0
 #define PADDING_k 8
 #define PADDING_l 8
-#define PADDING_m 8
+#define PADDING_m 0
 #define PADDING PADDING_i,PADDING_j,PADDING_k,PADDING_l,PADDING_m
 #define GHOST_ZONE_i 0
 #define GHOST_ZONE_j 0
