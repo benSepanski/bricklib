@@ -1,5 +1,18 @@
 #include "gene-5d.h"
 
+/**
+ * @brief wrap timing function with more convenient output
+ * 
+ * @param f function to time
+ * @return std::string a description of the time in GStencil/s
+ */
+std::string gene5d_cutime_func(std::function<void()> f)
+{
+  std::ostringstream string_stream;
+  string_stream << NUM_ELEMENTS / cutime_func(f) / 1000000000 << " avg GStencils/s";
+  return string_stream.str();
+}
+
 // convenient typedefs for arrays of pointers
 typedef bComplexElem (*complexArray5D)[PADDED_EXTENT_l][PADDED_EXTENT_k][PADDED_EXTENT_j][PADDED_EXTENT_i];
 typedef bComplexElem (*coeffArray4D)[PADDED_EXTENT_l][PADDED_EXTENT_k][PADDED_EXTENT_i];
@@ -138,7 +151,7 @@ void ij_deriv_gtensor(bComplexElem *out_ptr, bComplexElem *in_ptr,
   };
 
   // time the function
-  std::cout << "gtensor: " << 1000 * cutime_func(compute_ij_deriv) << " avg ms/computation" << std::endl;
+  std::cout << "gtensor: " << gene5d_cutime_func(compute_ij_deriv) << std::endl;
 
   // copy output data back to host
   auto gt_out = gt::adapt(reinterpret_cast<gt::complex<bElem>*>(out_ptr), shape5D);
@@ -274,7 +287,7 @@ void ij_deriv_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr,
   };
 
   // time function
-  std::cout << "bricks: " << 1000 * cutime_func(compute_ij_deriv) << " avg ms/computation" << std::endl;
+  std::cout << "bricks: " << gene5d_cutime_func(compute_ij_deriv) << std::endl;
 
   // copy back to host
   cudaCheck(cudaMemcpy(fieldBrickStorage.dat.get(),
