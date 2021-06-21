@@ -58,13 +58,6 @@ constexpr bElem pi = 3.14159265358979323846;
 // blocking dimensions
 constexpr unsigned DIM = 5;
 constexpr unsigned TILE = 8;
-#define BDIM_i 4
-#define BDIM_j 4
-#define BDIM_k 4
-#define BDIM_l 4
-#define BDIM_m 4
-#define BDIM BDIM_i,BDIM_j,BDIM_k,BDIM_l,BDIM_m
-#define VFOLD 2,4,4
 // num elements in each direction
 #define EXTENT_i 72
 #define EXTENT_j 32
