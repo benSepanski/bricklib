@@ -58,6 +58,12 @@ constexpr bElem pi = 3.14159265358979323846;
 // blocking dimensions
 constexpr unsigned DIM = 5;
 constexpr unsigned TILE = 8;
+// set brick sizes
+constexpr unsigned BDIM_i = 4;
+constexpr unsigned BDIM_j = 4;
+constexpr unsigned BDIM_k = 4;
+constexpr unsigned BDIM_l = 4;
+constexpr unsigned BDIM_m = 1;
 // num elements in each direction
 #define EXTENT_i 72
 #define EXTENT_j 32
@@ -82,7 +88,26 @@ constexpr unsigned TILE = 8;
 #define BRICK_GRID_EXTENT_m (EXTENT_m + 2 * GHOST_ZONE_m) / BDIM_m
 #define BRICK_GRID_EXTENT BRICK_GRID_EXTENT_i,BRICK_GRID_EXTENT_j,BRICK_GRID_EXTENT_k,BRICK_GRID_EXTENT_l,BRICK_GRID_EXTENT_m
 #define NUM_BRICKS BRICK_GRID_EXTENT_i * BRICK_GRID_EXTENT_j * BRICK_GRID_EXTENT_k * BRICK_GRID_EXTENT_l * BRICK_GRID_EXTENT_m
+// figure out number of bricks in each direction
+constexpr unsigned BRICK_EXTENT_i = PADDED_EXTENT_i / BDIM_i;
+constexpr unsigned BRICK_EXTENT_j = PADDED_EXTENT_j / BDIM_j;
+constexpr unsigned BRICK_EXTENT_k = PADDED_EXTENT_k / BDIM_k;
+constexpr unsigned BRICK_EXTENT_l = PADDED_EXTENT_l / BDIM_l;
+constexpr unsigned BRICK_EXTENT_m = PADDED_EXTENT_m / BDIM_m;
 
-void cudaDouble(gt::complex<bElem> *inPtr, gt::complex<bElem> *outPtr);
+// set our brick types
+typedef Brick<Dim<BDIM_i, BDIM_j, BDIM_k, BDIM_l, BDIM_m>, Dim<2,4,4>, true> FieldBrick ;
+typedef Brick<Dim<BDIM_i, BDIM_k, BDIM_l, BDIM_m>, Dim<2,4,4>, true> PreCoeffBrick;
+
+// declare cuda kernels
+__global__ void
+ij_deriv_brick_kernel(unsigned (*fieldGrid)[BRICK_EXTENT_l][BRICK_EXTENT_k][BRICK_EXTENT_j][BRICK_EXTENT_i],
+                      unsigned (*coeffGrid)[BRICK_EXTENT_l][BRICK_EXTENT_k][BRICK_EXTENT_i],
+                      FieldBrick bIn,
+                      FieldBrick bOut,
+                      PreCoeffBrick bP1,
+                      PreCoeffBrick bP2,
+                      bComplexElem *ikj,
+                      bElem *i_deriv_coeff);
 
 #endif // BRICK_GENE_5D_H

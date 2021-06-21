@@ -1,16 +1,41 @@
 #include "gene-5d.h"
 
-template<typename elemType>
-__global__ void kernel_double(const elemType* in, elemType* out)
-{
-  int i = threadIdx.x + blockDim.x * blockIdx.x;
-  if (i < NUM_PADDED_ELEMENTS) {
-    out[i] = 2 * in[i];;
-  }
-}
+constexpr unsigned GB_i = GHOST_ZONE_i / BDIM_i;
+constexpr unsigned GB_j = GHOST_ZONE_j / BDIM_j;
+constexpr unsigned GB_k = GHOST_ZONE_k / BDIM_k;
+constexpr unsigned GB_l = GHOST_ZONE_l / BDIM_l;
+constexpr unsigned GB_m = GHOST_ZONE_m / BDIM_m;
 
-void cudaDouble(gt::complex<bElem> *inPtr, gt::complex<bElem> *outPtr)
+__global__ void
+ij_deriv_brick_kernel(unsigned (*fieldGrid)[BRICK_EXTENT_l][BRICK_EXTENT_k][BRICK_EXTENT_j][BRICK_EXTENT_i],
+                      unsigned (*coeffGrid)[BRICK_EXTENT_l][BRICK_EXTENT_k][BRICK_EXTENT_i],
+                      FieldBrick bIn,
+                      FieldBrick bOut,
+                      PreCoeffBrick bP1,
+                      PreCoeffBrick bP2,
+                      bComplexElem *ikj,
+                      bElem *i_deriv_coeff) 
 {
-    kernel_double<<<NUM_PADDED_ELEMENTS / 256, 256>>>(inPtr, outPtr);
-    cudaDeviceSynchronize();
+  // compute indices
+  long tm = GB_m + blockIdx.z / (BRICK_EXTENT_m * BRICK_EXTENT_l);
+  long tl = GB_l + (blockIdx.z % BRICK_EXTENT_m) / BRICK_EXTENT_l;
+  long tk = GB_k + blockIdx.z % (BRICK_EXTENT_l * BRICK_EXTENT_m);
+  long tj = GB_j + blockIdx.y;
+  long ti = GB_i + blockIdx.x;
+  long m = threadIdx.z / (BDIM_l * BDIM_m);
+  long l = (threadIdx.z % BDIM_m) / BDIM_m;
+  long k = threadIdx.z % (BDIM_l * BDIM_m);
+  long j = threadIdx.y;
+  long i = threadIdx.x;
+  unsigned bFieldIndex = fieldGrid[tm][tl][tk][tj][ti];
+  unsigned bCoeffIndex = coeffGrid[tm][tl][tk][ti];
+  // perform computation
+  bOut[bFieldIndex][m][l][k][j][i] = bP1[bCoeffIndex][m][l][k][i] * (
+    i_deriv_coeff[0] * bIn[bFieldIndex][m][l][k][j][i - 2] +
+    i_deriv_coeff[1] * bIn[bFieldIndex][m][l][k][j][i - 1] +
+    i_deriv_coeff[2] * bIn[bFieldIndex][m][l][k][j][i + 0] +
+    i_deriv_coeff[3] * bIn[bFieldIndex][m][l][k][j][i + 1] +
+    i_deriv_coeff[4] * bIn[bFieldIndex][m][l][k][j][i + 2]
+  ) + 
+  bP2[bCoeffIndex][m][l][k][i] * ikj[j] * bIn[bFieldIndex][m][l][k][j][i];
 }
