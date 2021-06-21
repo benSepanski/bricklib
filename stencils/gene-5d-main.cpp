@@ -13,6 +13,11 @@ typedef bComplexElem (*coeffArray4D)[PADDED_EXTENT_l][PADDED_EXTENT_k][PADDED_EX
 void check_close(complexArray5D a, complexArray5D b)
 {
   _TILEFOR5D {
+    if(i < 2 * PADDING_i || i > EXTENT_i) continue;
+    if(j < 2 * PADDING_j || j > EXTENT_j) continue;
+    if(k < 2 * PADDING_k || k > EXTENT_k) continue;
+    if(l < 2 * PADDING_l || l > EXTENT_l) continue;
+    if(m < 2 * PADDING_m || m > EXTENT_m) continue;
     std::complex<bElem> z = a[m][l][k][j][i],
                         w = b[m][l][k][j][i];
     bElem diff = std::abs(z - w);
@@ -174,20 +179,20 @@ void ij_deriv_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr,
   {
     unsigned num_field_bricks = BRICK_EXTENT_i * BRICK_EXTENT_j * BRICK_EXTENT_k * BRICK_EXTENT_l * BRICK_EXTENT_m;
     unsigned num_coeff_bricks = BRICK_EXTENT_i * BRICK_EXTENT_k * BRICK_EXTENT_l * BRICK_EXTENT_m;
-    cudaMalloc(&field_grid_ptr_dev, num_field_bricks * sizeof(unsigned));
-    cudaMalloc(&coeff_grid_ptr_dev, num_coeff_bricks * sizeof(unsigned));
-    cudaMemcpy(field_grid_ptr_dev, field_grid_ptr, num_field_bricks * sizeof(unsigned), cudaMemcpyHostToDevice);
-    cudaMemcpy(coeff_grid_ptr_dev, coeff_grid_ptr, num_coeff_bricks * sizeof(unsigned), cudaMemcpyHostToDevice);
+    cudaCheck(cudaMalloc(&field_grid_ptr_dev, num_field_bricks * sizeof(unsigned)));
+    cudaCheck(cudaMalloc(&coeff_grid_ptr_dev, num_coeff_bricks * sizeof(unsigned)));
+    cudaCheck(cudaMemcpy(field_grid_ptr_dev, field_grid_ptr, num_field_bricks * sizeof(unsigned), cudaMemcpyHostToDevice));
+    cudaCheck(cudaMemcpy(coeff_grid_ptr_dev, coeff_grid_ptr, num_coeff_bricks * sizeof(unsigned), cudaMemcpyHostToDevice));
   }
   BrickInfo<DIM> *fieldBrickInfo_dev;
   BrickInfo<DIM - 1> *coeffBrickInfo_dev;
   BrickInfo<DIM> _fieldBrickInfo_dev = movBrickInfo(fieldBrickInfo, cudaMemcpyHostToDevice);
   BrickInfo<DIM - 1> _coeffBrickInfo_dev = movBrickInfo(coeffBrickInfo, cudaMemcpyHostToDevice);
   {
-    cudaMalloc(&fieldBrickInfo_dev, sizeof(decltype(fieldBrickInfo)));
-    cudaMalloc(&coeffBrickInfo_dev, sizeof(decltype(coeffBrickInfo)));
-    cudaMemcpy(fieldBrickInfo_dev, &_fieldBrickInfo_dev, sizeof(decltype(fieldBrickInfo)), cudaMemcpyHostToDevice);
-    cudaMemcpy(coeffBrickInfo_dev, &_coeffBrickInfo_dev, sizeof(decltype(coeffBrickInfo)), cudaMemcpyHostToDevice);
+    cudaCheck(cudaMalloc(&fieldBrickInfo_dev, sizeof(decltype(fieldBrickInfo))));
+    cudaCheck(cudaMalloc(&coeffBrickInfo_dev, sizeof(decltype(coeffBrickInfo))));
+    cudaCheck(cudaMemcpy(fieldBrickInfo_dev, &_fieldBrickInfo_dev, sizeof(decltype(fieldBrickInfo)), cudaMemcpyHostToDevice));
+    cudaCheck(cudaMemcpy(coeffBrickInfo_dev, &_coeffBrickInfo_dev, sizeof(decltype(coeffBrickInfo)), cudaMemcpyHostToDevice));
   }
 
   // setup brick storage on host
@@ -199,9 +204,22 @@ void ij_deriv_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr,
   PreCoeffBrick bP1(&coeffBrickInfo, coeffBrickStorage, 0);
   PreCoeffBrick bP2(&coeffBrickInfo, coeffBrickStorage, PreCoeffBrick::BRICKSIZE);
 
-  copyToBrick<DIM>({EXTENT}, {PADDING}, {GHOST_ZONE}, in_ptr, field_grid_ptr, bIn);
+  copyToBrick<DIM>({GZ_EXTENT}, {PADDING}, {GHOST_ZONE}, in_ptr, field_grid_ptr, bIn);
 
-  const std::vector<long> coeffDimList = {EXTENT_i, EXTENT_k, EXTENT_l, EXTENT_m};
+  // double-check our copying process
+  std::cout << "starting input check" << std::endl;
+  iter_grid<DIM>({GZ_EXTENT}, {PADDING}, {GHOST_ZONE}, in_ptr, field_grid_ptr, bIn, [](bComplexElem &brick, bComplexElem *arr) -> void {
+    if(brick != *arr)
+    {
+      char errorMsg[1000];
+      sprintf(errorMsg, "OOPS! %f+%f*I != %f+%f*I",
+              brick.real(), brick.imag(), arr->real(), arr->imag());
+      throw std::runtime_error(errorMsg);
+    }
+  });
+  std::cout << "input check passed" << std::endl;
+
+  const std::vector<long> coeffDimList = {GZ_EXTENT_i, GZ_EXTENT_k, GZ_EXTENT_l, GZ_EXTENT_m};
   const std::vector<long> coeffPadding = {PADDING_i, PADDING_k, PADDING_l, PADDING_m};
   const std::vector<long> coeffGZ = {GHOST_ZONE_i, GHOST_ZONE_k, GHOST_ZONE_l, GHOST_ZONE_m};
   copyToBrick<DIM - 1>(coeffDimList, coeffPadding, coeffGZ, p1, coeff_grid_ptr, bP1);
@@ -215,10 +233,14 @@ void ij_deriv_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr,
   bComplexElem *ikj_dev = nullptr;
   bElem *i_deriv_coeff_dev = nullptr;
   {
-    cudaMalloc(&ikj_dev, sizeof(decltype(ikj)));
-    cudaMalloc(&i_deriv_coeff_dev, sizeof(decltype(i_deriv_coeff)));
-    cudaMemcpy(ikj_dev, ikj, sizeof(decltype(ikj)), cudaMemcpyHostToDevice);
-    cudaMemcpy(i_deriv_coeff_dev, i_deriv_coeff, sizeof(decltype(i_deriv_coeff)), cudaMemcpyHostToDevice);
+    // don't copy over padding, if any
+    unsigned ikj_size = EXTENT_j * sizeof(bComplexElem);
+    cudaCheck(cudaMalloc(&ikj_dev, ikj_size));
+    cudaCheck(cudaMemcpy(ikj_dev, ikj + PADDING_j, ikj_size, cudaMemcpyHostToDevice));
+
+    unsigned i_deriv_coeff_size = 5 * sizeof(bElem);
+    cudaCheck(cudaMalloc(&i_deriv_coeff_dev, i_deriv_coeff_size));
+    cudaCheck(cudaMemcpy(i_deriv_coeff_dev, i_deriv_coeff, i_deriv_coeff_size, cudaMemcpyHostToDevice));
   }
 
   // build function to actually run computation
@@ -238,8 +260,8 @@ void ij_deriv_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr,
     FieldBrick bOut(fieldBrickInfo_dev, fieldBrickStorage_dev, FieldBrick::BRICKSIZE);
     PreCoeffBrick bP1(coeffBrickInfo_dev, coeffBrickStorage_dev, 0);
     PreCoeffBrick bP2(coeffBrickInfo_dev, coeffBrickStorage_dev, PreCoeffBrick::BRICKSIZE);
-    dim3 block(BRICK_EXTENT_i, BRICK_EXTENT_j, BRICK_EXTENT_k * BRICK_EXTENT_l * BRICK_EXTENT_m / (32 / BDIM_i / BDIM_j)),
-        thread(BDIM_i, BDIM_j, 32 / BDIM_i / BDIM_j);
+    dim3 block(BRICK_EXTENT_i, BRICK_EXTENT_j, BRICK_EXTENT_k * BRICK_EXTENT_l * BRICK_EXTENT_m),
+        thread(BDIM_i, BDIM_j,  BDIM_k * BDIM_l * BDIM_m);
     ij_deriv_brick_kernel<< < block, thread >> >(
                           (unsigned (*)[BRICK_EXTENT_l][BRICK_EXTENT_k][BRICK_EXTENT_j][BRICK_EXTENT_i]) field_grid_ptr_dev,
                           (unsigned (*)[BRICK_EXTENT_l][BRICK_EXTENT_k][BRICK_EXTENT_i]) coeff_grid_ptr_dev,
@@ -255,26 +277,26 @@ void ij_deriv_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr,
   std::cout << "bricks: " << 1000 * cutime_func(compute_ij_deriv) << " avg ms/computation" << std::endl;
 
   // copy back to host
-  cudaMemcpy(fieldBrickStorage.dat.get(),
-             fieldBrickStorage_dev.dat.get(),
-             fieldBrickStorage.chunks * fieldBrickStorage.step * sizeof(bElem),
-             cudaMemcpyDeviceToHost);
+  cudaCheck(cudaMemcpy(fieldBrickStorage.dat.get(),
+                       fieldBrickStorage_dev.dat.get(),
+                       fieldBrickStorage.chunks * fieldBrickStorage.step * sizeof(bElem),
+                       cudaMemcpyDeviceToHost));
   cudaDeviceSynchronize();
   copyFromBrick<DIM>({EXTENT}, {PADDING}, {GHOST_ZONE}, out_ptr, field_grid_ptr, bOut);
 
   // free allocated memory
-  cudaFree(i_deriv_coeff_dev);
-  cudaFree(ikj_dev);
-  cudaFree(_coeffBrickInfo_dev.adj);
-  cudaFree(_fieldBrickInfo_dev.adj);
-  cudaFree(coeffBrickInfo_dev);
-  cudaFree(fieldBrickInfo_dev);
-  cudaFree(coeff_grid_ptr_dev);
-  cudaFree(field_grid_ptr_dev);
-  free(coeffBrickInfo.adj);
-  free(fieldBrickInfo.adj);
-  cudaFree(coeff_grid_ptr);
-  cudaFree(field_grid_ptr);
+  cudaCheck(cudaFree(i_deriv_coeff_dev));
+  cudaCheck(cudaFree(ikj_dev));
+  cudaCheck(cudaFree(_coeffBrickInfo_dev.adj));
+  cudaCheck(cudaFree(_fieldBrickInfo_dev.adj));
+  cudaCheck(cudaFree(coeffBrickInfo_dev));
+  cudaCheck(cudaFree(fieldBrickInfo_dev));
+  cudaCheck(cudaFree(coeff_grid_ptr_dev));
+  cudaCheck(cudaFree(field_grid_ptr_dev));
+  cudaCheck(free(coeffBrickInfo.adj));
+  cudaCheck(free(fieldBrickInfo.adj));
+  cudaCheck(cudaFree(coeff_grid_ptr));
+  cudaCheck(cudaFree(field_grid_ptr));
 }
 
 /**
@@ -289,7 +311,7 @@ void ij_deriv() {
   // build coefficients needed for stencil computation
   bComplexElem *p1 = randomComplexArray({PADDED_EXTENT_i, PADDED_EXTENT_k, PADDED_EXTENT_l, PADDED_EXTENT_m}),
                *p2 = randomComplexArray({PADDED_EXTENT_i, PADDED_EXTENT_k, PADDED_EXTENT_l, PADDED_EXTENT_m});
-  bComplexElem ikj[EXTENT_j];
+  bComplexElem ikj[PADDED_EXTENT_j];
   for(int j = PADDING_j; j < PADDING_j + EXTENT_j; ++j) ikj[j] = bComplexElem(0, 2 * pi * (j - PADDING_j));
   bElem i_deriv_coeff[5] = {1. / 12., -2. / 3., 0., 2. / 3., -1 / 12.};
 
@@ -306,7 +328,8 @@ void ij_deriv() {
     i_deriv_coeff[2] * in_arr[m][l][k][j][i + 0] +
     i_deriv_coeff[3] * in_arr[m][l][k][j][i + 1] +
     i_deriv_coeff[4] * in_arr[m][l][k][j][i + 2]
-  ) + p2_arr[m][l][k][i] * ikj[j] * in_arr[m][l][k][j][i];
+  ) + 
+  p2_arr[m][l][k][i] * ikj[j] * in_arr[m][l][k][j][i];
 
   complexArray5D out_arr = (complexArray5D) out_ptr;
 
@@ -314,8 +337,10 @@ void ij_deriv() {
   std::cout << "Starting ij_deriv benchmarks" << std::endl;
   ij_deriv_bricks(out_ptr, in_ptr, p1, p2, ikj, i_deriv_coeff);
   check_close(out_arr, out_check_arr);
+
   ij_deriv_gtensor(out_ptr, in_ptr, p1, p2, ikj, i_deriv_coeff);
   check_close(out_arr, out_check_arr);
+
   std::cout << "done" << std::endl;
 
   free((void *)p2);

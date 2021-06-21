@@ -30,14 +30,12 @@ ij_deriv_brick_kernel(unsigned (*fieldGrid)[BRICK_EXTENT_l][BRICK_EXTENT_k][BRIC
   unsigned bFieldIndex = fieldGrid[tm][tl][tk][tj][ti];
   unsigned bCoeffIndex = coeffGrid[tm][tl][tk][ti];
   // perform computation
-  bOut[bFieldIndex][m][l][k][j][i] = bIn[bFieldIndex][m][l][k][j][i];
-  
-  // bP1[bCoeffIndex][m][l][k][i] * (
-  //   i_deriv_coeff[0] * bIn[bFieldIndex][m][l][k][j][i - 2] +
-  //   i_deriv_coeff[1] * bIn[bFieldIndex][m][l][k][j][i - 1] +
-  //   i_deriv_coeff[2] * bIn[bFieldIndex][m][l][k][j][i + 0] +
-  //   i_deriv_coeff[3] * bIn[bFieldIndex][m][l][k][j][i + 1] +
-  //   i_deriv_coeff[4] * bIn[bFieldIndex][m][l][k][j][i + 2]
-  // ) + 
-  // bP2[bCoeffIndex][m][l][k][i] * ikj[PADDING_j + tj * BDIM_j + j] * bIn[bFieldIndex][m][l][k][j][i];
+  bOut[bFieldIndex][m][l][k][j][i] = bP1[bCoeffIndex][m][l][k][i] * (
+    i_deriv_coeff[0] * bIn[bFieldIndex][m][l][k][j][i - 2] +
+    i_deriv_coeff[1] * bIn[bFieldIndex][m][l][k][j][i - 1] +
+    i_deriv_coeff[2] * bIn[bFieldIndex][m][l][k][j][i + 0] +
+    i_deriv_coeff[3] * bIn[bFieldIndex][m][l][k][j][i + 1] +
+    i_deriv_coeff[4] * bIn[bFieldIndex][m][l][k][j][i + 2]
+  ) + 
+  bP2[bCoeffIndex][m][l][k][i] * ikj[PADDING_j + tj * BDIM_j + j] * bIn[bFieldIndex][m][l][k][j][i];
 }
