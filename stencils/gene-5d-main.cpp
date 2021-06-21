@@ -293,10 +293,10 @@ void ij_deriv_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr,
   cudaCheck(cudaFree(fieldBrickInfo_dev));
   cudaCheck(cudaFree(coeff_grid_ptr_dev));
   cudaCheck(cudaFree(field_grid_ptr_dev));
-  cudaCheck(free(coeffBrickInfo.adj));
-  cudaCheck(free(fieldBrickInfo.adj));
-  cudaCheck(cudaFree(coeff_grid_ptr));
-  cudaCheck(cudaFree(field_grid_ptr));
+  free(coeffBrickInfo.adj);
+  free(fieldBrickInfo.adj);
+  free(coeff_grid_ptr);
+  free(field_grid_ptr);
 }
 
 /**
