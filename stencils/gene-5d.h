@@ -42,10 +42,10 @@ for (long i = ti; i < ti + TILE; ++i)
 // useful constants
 constexpr bElem pi = 3.14159265358979323846;
 
-#define PADDING_i 8
+#define PADDING_i 4
 #define PADDING_j 0
-#define PADDING_k 8
-#define PADDING_l 8
+#define PADDING_k 4
+#define PADDING_l 4
 #define PADDING_m 0
 #define PADDING PADDING_i,PADDING_j,PADDING_k,PADDING_l,PADDING_m
 #define GHOST_ZONE_i 0
@@ -73,21 +73,13 @@ constexpr unsigned BDIM_m = 1;
 #define EXTENT EXTENT_i,EXTENT_j,EXTENT_k,EXTENT_l,EXTENT_m
 #define NUM_ELEMENTS EXTENT_i * EXTENT_j * EXTENT_k * EXTENT_l * EXTENT_m
 // num elements in each direction + padding + ghosts
-#define PADDED_EXTENT_i EXTENT_i + 2 * (PADDING_i + GHOST_ZONE_i)
-#define PADDED_EXTENT_j EXTENT_j + 2 * (PADDING_j + GHOST_ZONE_j)
-#define PADDED_EXTENT_k EXTENT_k + 2 * (PADDING_k + GHOST_ZONE_k)
-#define PADDED_EXTENT_l EXTENT_l + 2 * (PADDING_l + GHOST_ZONE_l)
-#define PADDED_EXTENT_m EXTENT_m + 2 * (PADDING_m + GHOST_ZONE_m)
+#define PADDED_EXTENT_i (EXTENT_i + 2 * (PADDING_i + GHOST_ZONE_i))
+#define PADDED_EXTENT_j (EXTENT_j + 2 * (PADDING_j + GHOST_ZONE_j))
+#define PADDED_EXTENT_k (EXTENT_k + 2 * (PADDING_k + GHOST_ZONE_k))
+#define PADDED_EXTENT_l (EXTENT_l + 2 * (PADDING_l + GHOST_ZONE_l))
+#define PADDED_EXTENT_m (EXTENT_m + 2 * (PADDING_m + GHOST_ZONE_m))
 #define PADDED_EXTENT PADDED_EXTENT_i,PADDED_EXTENT_j,PADDED_EXTENT_k,PADDED_EXTENT_l,PADDED_EXTENT_m
-#define NUM_PADDED_ELEMENTS PADDED_EXTENT_i * PADDED_EXTENT_j * PADDED_EXTENT_k * PADDED_EXTENT_l * PADDED_EXTENT_m
-// number of blocks (including padded blocks)
-#define BRICK_GRID_EXTENT_i (EXTENT_i + 2 * GHOST_ZONE_i) / BDIM_i
-#define BRICK_GRID_EXTENT_j (EXTENT_j + 2 * GHOST_ZONE_j) / BDIM_j
-#define BRICK_GRID_EXTENT_k (EXTENT_k + 2 * GHOST_ZONE_k) / BDIM_k
-#define BRICK_GRID_EXTENT_l (EXTENT_l + 2 * GHOST_ZONE_l) / BDIM_l
-#define BRICK_GRID_EXTENT_m (EXTENT_m + 2 * GHOST_ZONE_m) / BDIM_m
-#define BRICK_GRID_EXTENT BRICK_GRID_EXTENT_i,BRICK_GRID_EXTENT_j,BRICK_GRID_EXTENT_k,BRICK_GRID_EXTENT_l,BRICK_GRID_EXTENT_m
-#define NUM_BRICKS BRICK_GRID_EXTENT_i * BRICK_GRID_EXTENT_j * BRICK_GRID_EXTENT_k * BRICK_GRID_EXTENT_l * BRICK_GRID_EXTENT_m
+#define NUM_PADDED_ELEMENTS (PADDED_EXTENT_i * PADDED_EXTENT_j * PADDED_EXTENT_k * PADDED_EXTENT_l * PADDED_EXTENT_m)
 // figure out number of bricks in each direction
 constexpr unsigned BRICK_EXTENT_i = PADDED_EXTENT_i / BDIM_i;
 constexpr unsigned BRICK_EXTENT_j = PADDED_EXTENT_j / BDIM_j;

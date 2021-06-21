@@ -23,7 +23,7 @@ ij_deriv_brick_kernel(unsigned (*fieldGrid)[BRICK_EXTENT_l][BRICK_EXTENT_k][BRIC
   long tj = GB_j + blockIdx.y;
   long ti = GB_i + blockIdx.x;
   long m = threadIdx.z / (BDIM_l * BDIM_m);
-  long l = (threadIdx.z % BDIM_m) / BDIM_m;
+  long l = (threadIdx.z % BDIM_m) / BDIM_l;
   long k = threadIdx.z % (BDIM_l * BDIM_m);
   long j = threadIdx.y;
   long i = threadIdx.x;

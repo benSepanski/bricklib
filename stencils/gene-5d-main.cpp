@@ -160,8 +160,8 @@ void ij_deriv_gtensor(bComplexElem *out_ptr, bComplexElem *in_ptr,
  * @brief the i-j deriv kernel using hand-written bricks code
  */
 void ij_deriv_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr,
-                       bComplexElem *p1, bComplexElem *p2,
-                       bComplexElem ikj[PADDED_EXTENT_j], bElem i_deriv_coeff[5])
+                     bComplexElem *p1, bComplexElem *p2,
+                     bComplexElem ikj[PADDED_EXTENT_j], bElem i_deriv_coeff[5])
 {
   // set up brick info and move to device
   unsigned *field_grid_ptr;
@@ -199,16 +199,11 @@ void ij_deriv_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr,
   PreCoeffBrick bP1(&coeffBrickInfo, coeffBrickStorage, 0);
   PreCoeffBrick bP2(&coeffBrickInfo, coeffBrickStorage, PreCoeffBrick::BRICKSIZE);
 
-  const std::vector<long> fieldDimList = {EXTENT_i, EXTENT_j, EXTENT_k, EXTENT_l * PADDED_EXTENT_m};
-  static_assert(PADDING_m == 0);
-  const std::vector<long> fieldPadding = {PADDING_i, PADDING_j, PADDING_k, PADDING_l};
-  static_assert(GHOST_ZONE_m == 0);
-  const std::vector<long> fieldGZ = {GHOST_ZONE_i, GHOST_ZONE_j, GHOST_ZONE_k, GHOST_ZONE_l};
-  copyToBrick<DIM>(fieldDimList, fieldPadding, fieldGZ, in_ptr, field_grid_ptr, bIn);
+  copyToBrick<DIM>({EXTENT}, {PADDING}, {GHOST_ZONE}, in_ptr, field_grid_ptr, bIn);
 
-  const std::vector<long> coeffDimList = {EXTENT_i, EXTENT_k, EXTENT_l * PADDED_EXTENT_m};
-  const std::vector<long> coeffPadding = {PADDING_i, PADDING_k, PADDING_l};
-  const std::vector<long> coeffGZ = {GHOST_ZONE_i, GHOST_ZONE_k, GHOST_ZONE_l};
+  const std::vector<long> coeffDimList = {EXTENT_i, EXTENT_k, EXTENT_l, EXTENT_m};
+  const std::vector<long> coeffPadding = {PADDING_i, PADDING_k, PADDING_l, PADDING_m};
+  const std::vector<long> coeffGZ = {GHOST_ZONE_i, GHOST_ZONE_k, GHOST_ZONE_l, GHOST_ZONE_m};
   copyToBrick<DIM - 1>(coeffDimList, coeffPadding, coeffGZ, p1, coeff_grid_ptr, bP1);
   copyToBrick<DIM - 1>(coeffDimList, coeffPadding, coeffGZ, p2, coeff_grid_ptr, bP2);
 
@@ -265,7 +260,7 @@ void ij_deriv_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr,
              fieldBrickStorage.chunks * fieldBrickStorage.step * sizeof(bElem),
              cudaMemcpyDeviceToHost);
   cudaDeviceSynchronize();
-  copyFromBrick<DIM>(fieldDimList, fieldPadding, fieldGZ, out_ptr, field_grid_ptr, bOut);
+  copyFromBrick<DIM>({EXTENT}, {PADDING}, {GHOST_ZONE}, out_ptr, field_grid_ptr, bOut);
 
   // free allocated memory
   cudaFree(i_deriv_coeff_dev);
