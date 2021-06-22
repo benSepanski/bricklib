@@ -103,7 +103,9 @@ class BackendAVX512(Backend):
         block.append("bElem {}[{}] __attribute__((aligned({})));".format(name, self.VECLEN, align))
         # block.append("vfloat{} {};".format(self.VECLEN, name))
 
-    def declare_vec(self, name, block: CodeBlock):
+    def declare_vec(self, name, block: CodeBlock, complex_valued: bool):
+        if complex_valued:
+            raise ValueError("Complex values not supported yet in AVX")
         block.append("__m512i {};".format(name))
 
     def store_vecbuf(self, vecbuf_name, reg_name, block: CodeBlock):
