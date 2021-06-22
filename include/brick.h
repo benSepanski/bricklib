@@ -338,6 +338,51 @@ struct _BrickAccessor<T, Dim<D, BDims...>, Dim<Folds...>, void> {
 template<typename BrickDims, typename VectorFold, bool isComplex = false>
 struct Brick;
 
+namespace 
+{
+  /**
+   * @brief generic template for specialization
+   * 
+   * @tparam bdims the brick dimensions
+   * @tparam folds the vector folds
+   */
+  template<typename bdims, typename folds, bool bdimsAndFoldsSameLength>
+  struct _folds_divide_bdims;
+
+  /**
+   * @brief base case
+   */
+  template<>
+  struct _folds_divide_bdims<Dim<>, Dim<>, true>
+  {
+    static constexpr bool value = true;
+  };
+
+  /**
+   * @brief len(vfolds) != len(bdims) case
+   */
+  template<unsigned LastBDim, unsigned ... BDims, unsigned ... Folds>
+  struct _folds_divide_bdims<Dim<LastBDim, BDims...>,
+                             Dim<Folds...>,
+                             false
+                             >
+  {
+    static constexpr bool value = _folds_divide_bdims<Dim<BDims...>, Dim<Folds...>, sizeof...(BDims) == sizeof...(Folds)>::value;
+  };
+
+  /**
+   * @brief len(vfolds) == len(bdims) case
+   */
+  template<unsigned LastBDim, unsigned LastVFold, unsigned ... BDims, unsigned ... Folds>
+  struct _folds_divide_bdims<Dim<LastBDim, BDims...>,
+                             Dim<LastVFold, Folds...>,
+                             true
+                             >
+  {
+    static constexpr bool value = (LastBDim % LastVFold == 0) && _folds_divide_bdims<Dim<BDims...>, Dim<Folds...>, true>::value;
+  };
+}
+
 /**
  * @brief Brick data structure
  * @tparam isComplex (default false) true if the elements are complex.
@@ -358,6 +403,10 @@ template<
     unsigned ... BDims,
     unsigned ... Folds>
 struct Brick<Dim<BDims...>, Dim<Folds...>, isComplex> {
+  // make sure vector fold dimensions divide block dimensions
+  static_assert(_folds_divide_bdims<Dim<BDims...>, Dim<Folds...>, sizeof...(BDims) == sizeof...(Folds)>::value,
+                "Vector folds do not divide corresponding brick dimensions.");
+
   typedef Brick<Dim<BDims...>, Dim<Folds...>, isComplex> mytype;    ///< Shorthand for this struct's type
   typedef BrickInfo<sizeof...(BDims)> myBrickInfo;        ///< Shorthand for type of the metadata
   typedef typename std::conditional<isComplex, bComplexElem, bElem>::type elemType; ///< the type of elements in this brick
