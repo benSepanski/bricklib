@@ -108,7 +108,7 @@ void ij_deriv_gtensor(bComplexElem *out_ptr, bComplexElem *in_ptr,
     if(diff > 1e-6) 
     {
       char errorMsg[1000];
-      sprintf(errorMsg, "Input copy failure at (n, m, l, k, j, i) = (%d, %d, %d, %d, %d, %d)! %f+%f*I != %f+%f*I",
+      sprintf(errorMsg, "gtensor input copy failure at (n, m, l, k, j, i) = (%d, %d, %d, %d, %d, %d)! %f+%f*I != %f+%f*I",
               n, m, l, k, j, i,
               z.real(), z.imag(), w.real(), w.imag());
       throw std::runtime_error(errorMsg);
@@ -165,12 +165,11 @@ void ij_deriv_gtensor(bComplexElem *out_ptr, bComplexElem *in_ptr,
   _TILEFOR6D {
     std::complex<bElem> z = gt_out(i, j, k, l, m, n),
                         w = out_arr[n][m][l][k][j][i];
-    if(n == 1) std::runtime_error("n==1");
     bElem diff = std::abs(z - w);
     if(diff > 1e-6) 
     {
       char errorMsg[1000];
-      sprintf(errorMsg, "Result copy failure at (n, m, l, k, j, i) = (%d, %d, %d, %d, %d, %d)! %f+%f*I != %f+%f*I",
+      sprintf(errorMsg, "gtensor result copy failure at (n, m, l, k, j, i) = (%d, %d, %d, %d, %d, %d)! %f+%f*I != %f+%f*I",
               n, m, l, k, j, i,
               z.real(), z.imag(), w.real(), w.imag());
       throw std::runtime_error(errorMsg);
@@ -224,7 +223,6 @@ void ij_deriv_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr,
   copyToBrick<DIM>({GZ_EXTENT}, {PADDING}, {GHOST_ZONE}, in_ptr, field_grid_ptr, bIn);
 
   // double-check our copying process
-  std::cout << "starting input check" << std::endl;
   iter_grid<DIM>({GZ_EXTENT}, {PADDING}, {GHOST_ZONE}, in_ptr, field_grid_ptr, bIn, [](bComplexElem &brick, bComplexElem *arr) -> void {
     if(brick != *arr)
     {
@@ -234,7 +232,6 @@ void ij_deriv_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr,
       throw std::runtime_error(errorMsg);
     }
   });
-  std::cout << "input check passed" << std::endl;
 
   const std::vector<long> coeffDimList = {GZ_EXTENT_i, GZ_EXTENT_k, GZ_EXTENT_l, GZ_EXTENT_m, GZ_EXTENT_n};
   const std::vector<long> coeffPadding = {PADDING_i, PADDING_k, PADDING_l, PADDING_m, PADDING_n};
@@ -322,15 +319,13 @@ void ij_deriv_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr,
  * Based on https://github.com/wdmapp/gtensor/blob/d07000b15d253cdeb44942b52f3d2caf4522faa0/benchmarks/ij_deriv.cxx
  */
 void ij_deriv() {
-  std::cout << "Allocating 6D arrays." << std::endl;
+  std::cout << "Setting up i-j deriv arrays" << std::endl;
   // build in/out arrays
   bComplexElem *in_ptr = randomComplexArray({PADDED_EXTENT}),
                *out_ptr = zeroComplexArray({PADDED_EXTENT});
-  std::cout << "Allocating 5D arrays." << std::endl;
   // build coefficients needed for stencil computation
   bComplexElem *p1 = randomComplexArray({PADDED_EXTENT_i, PADDED_EXTENT_k, PADDED_EXTENT_l, PADDED_EXTENT_m, PADDED_EXTENT_n}),
                *p2 = randomComplexArray({PADDED_EXTENT_i, PADDED_EXTENT_k, PADDED_EXTENT_l, PADDED_EXTENT_m, PADDED_EXTENT_n});
-  std::cout << "Building ikj." << std::endl;
   bComplexElem ikj[PADDED_EXTENT_j];
   for(int j = PADDING_j; j < PADDING_j + EXTENT_j; ++j) ikj[j] = bComplexElem(0, 2 * pi * (j - PADDING_j));
   bElem i_deriv_coeff[5] = {1. / 12., -2. / 3., 0., 2. / 3., -1 / 12.};
@@ -368,6 +363,7 @@ void ij_deriv() {
   free(out_ptr);
   free((void *)in_ptr);
 }
+
 
 int main() {
   std::cout << "WARM UP:" << CU_WARMUP << std::endl;
