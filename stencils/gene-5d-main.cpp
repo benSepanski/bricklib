@@ -37,12 +37,17 @@ void check_close(complexArray6D a, complexArray6D b, std::string name = "")
     bElem diff = std::abs(z - w);
     if(diff > 1e-6) 
     {
-      char errorMsg[1000];
-      strcpy(errorMsg, name.data());
-      sprintf(errorMsg + name.length(), " result mismatch at [n, m, l, k, j, i] = [%d, %d, %d, %d, %d, %d]! %f+%f*I != %f+%f*I",
-              n, m, l, k, j, i,
-              z.real(), z.imag(), w.real(), w.imag());
-      throw std::runtime_error(errorMsg);
+      std::ostringstream errorMsgStream;
+      errorMsgStream << name << " result mismatch at [n, m, l, k, j, i] = ["
+                     << n << ", "
+                     << m << ", "
+                     << l << ", "
+                     << k << ", "
+                     << j << ", "
+                     << i << "]: "
+                     << z.real() << "+" << z.imag() << "I != "
+                     << w.real() << "+" << w.imag() << "I";
+      throw std::runtime_error(errorMsgStream.str());
     }
   }
 }
@@ -351,10 +356,10 @@ void ij_deriv() {
   // run computations
   std::cout << "Starting ij_deriv benchmarks" << std::endl;
   ij_deriv_bricks(out_ptr, in_ptr, p1, p2, ikj, i_deriv_coeff);
-  check_close(out_arr, out_check_arr);
+  check_close(out_arr, out_check_arr, "bricks");
 
   ij_deriv_gtensor(out_ptr, in_ptr, p1, p2, ikj, i_deriv_coeff);
-  check_close(out_arr, out_check_arr);
+  check_close(out_arr, out_check_arr, "gtensor");
 
   std::cout << "done" << std::endl;
 
