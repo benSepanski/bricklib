@@ -75,7 +75,7 @@ template <int N, typename E>
 inline auto stencil(E&& e, std::array<int, N> shift)
 {
   static_assert(N <= DIM);
-  constexpr int bnd[DIM] = {PADDING_i, PADDING_j, PADDING_k, PADDING_l, PADDING_m, PADDING_n};
+  constexpr int bnd[DIM] = {GHOST_ZONE};
 
   std::vector<gt::gdesc> slices;
   slices.reserve(N);
@@ -384,10 +384,163 @@ void ij_deriv() {
 
   std::cout << "done" << std::endl;
 
-  free((void *)p2);
-  free((void *)p1);
+  free(out_check_ptr);
+  free(p2);
+  free(p1);
   free(out_ptr);
-  free((void *)in_ptr);
+  free(in_ptr);
+}
+
+/**
+ * @brief Compute the arakawa derivative using gtensor
+ * 
+ * @param out_ptr[out]
+ * @param in_ptr[in]
+ * @param coeff[in]
+ */
+void semi_arakawa_gtensor(bComplexElem *out_ptr, bComplexElem *in_ptr, bElem *coeff)
+{
+  auto shape6D = gt::shape(GZ_EXTENT);
+  auto coeffShape = gt::shape(EXTENT_i, ARAKAWA_STENCIL_SIZE, EXTENT_k, EXTENT_l, EXTENT_m, EXTENT_n);
+  // copy in-arrays to gtensor (stripping off the padding)
+  auto gt_in = gt::empty<gt::complex<bElem> >(shape6D);
+  auto gt_coeff = gt::empty<bElem>(coeffShape);
+  complexArray6D in_arr = (complexArray6D) in_ptr;
+  auto coeff_arr = (bElem (*)[PADDED_EXTENT_m][PADDED_EXTENT_l][PADDED_EXTENT_k][PADDED_EXTENT_i][ARAKAWA_STENCIL_SIZE]) coeff;
+  _TILEFOR6D {
+    gt_in(i - PADDING_i, j - PADDING_j, k - PADDING_k, l - PADDING_l, m - PADDING_m, n - PADDING_n) = in_arr[n][m][l][k][j][i];
+    // don't copy ghost-zone into coefficients!
+    if(   n < PADDING_n + GHOST_ZONE_n || n >= PADDING_n + GHOST_ZONE_n + EXTENT_n
+       || m < PADDING_m + GHOST_ZONE_m || m >= PADDING_m + GHOST_ZONE_m + EXTENT_m
+       || l < PADDING_l + GHOST_ZONE_l || l >= PADDING_l + GHOST_ZONE_l + EXTENT_l
+       || k < PADDING_k + GHOST_ZONE_k || k >= PADDING_k + GHOST_ZONE_k + EXTENT_k
+       || j != 0
+       || i < PADDING_i + GHOST_ZONE_i || i >= PADDING_i + GHOST_ZONE_i + EXTENT_i)
+    {
+      continue;
+    }
+    for(int coeff_index = 0; coeff_index < ARAKAWA_STENCIL_SIZE; ++coeff_index)
+    {
+      gt_coeff(i - PADDING_i - GHOST_ZONE_i,
+              coeff_index,
+              k - PADDING_k - GHOST_ZONE_k,
+              l - PADDING_l - GHOST_ZONE_l,
+              m - PADDING_m - GHOST_ZONE_m,
+              n - PADDING_n - GHOST_ZONE_n) = coeff_arr[n][m][l][k][i][coeff_index];
+    }
+  }
+
+  // copy the in-arrays to device
+  auto gt_in_dev = gt::empty_device<gt::complex<bElem> >(shape6D);
+  auto gt_coeff_dev = gt::empty_device<bElem>(coeffShape);
+  gt::copy(gt_in, gt_in_dev);
+  gt::copy(gt_coeff, gt_coeff_dev);
+
+  // declare our out-array
+  gtensor6D<gt::space::device> gt_out_dev(shape6D);
+
+  // build a function which computes our stencil
+  auto compute_semi_arakawa = [&gt_out_dev, &gt_in_dev, &gt_coeff_dev]() -> void {
+    using namespace gt::placeholders;
+    auto _si = _s(GHOST_ZONE_i, GHOST_ZONE_i + EXTENT_i),
+         _sj = _s(GHOST_ZONE_j, GHOST_ZONE_j + EXTENT_j),
+         _sk = _s(GHOST_ZONE_k, GHOST_ZONE_k + EXTENT_k),
+         _sl = _s(GHOST_ZONE_l, GHOST_ZONE_l + EXTENT_l),
+         _sm = _s(GHOST_ZONE_m, GHOST_ZONE_m + EXTENT_m),
+         _sn = _s(GHOST_ZONE_n, GHOST_ZONE_n + EXTENT_n);
+
+    auto coeff = [&](int s) { return gt_coeff_dev.view(_all, s, _newaxis, _all, _all, _all, _all); };
+    gt_out_dev.view(_si, _sj, _sk, _sl, _sm, _sn) =
+      coeff(0 ) * stencil<DIM>(gt_in_dev, {0, 0, +0, -2, 0, 0}) +
+      coeff(1 ) * stencil<DIM>(gt_in_dev, {0, 0, -1, -1, 0, 0}) +
+      coeff(2 ) * stencil<DIM>(gt_in_dev, {0, 0, +0, -1, 0, 0}) +
+      coeff(3 ) * stencil<DIM>(gt_in_dev, {0, 0, +1, -1, 0, 0}) +
+      coeff(4 ) * stencil<DIM>(gt_in_dev, {0, 0, -2, +0, 0, 0}) +
+      coeff(5 ) * stencil<DIM>(gt_in_dev, {0, 0, -1, +0, 0, 0}) +
+      coeff(6 ) * stencil<DIM>(gt_in_dev, {0, 0, +0, +0, 0, 0}) +
+      coeff(7 ) * stencil<DIM>(gt_in_dev, {0, 0, +1, +0, 0, 0}) +
+      coeff(8 ) * stencil<DIM>(gt_in_dev, {0, 0, +2, +0, 0, 0}) +
+      coeff(9 ) * stencil<DIM>(gt_in_dev, {0, 0, -1, +1, 0, 0}) +
+      coeff(10) * stencil<DIM>(gt_in_dev, {0, 0, +0, +1, 0, 0}) +
+      coeff(11) * stencil<DIM>(gt_in_dev, {0, 0, +1, +1, 0, 0}) +
+      coeff(12) * stencil<DIM>(gt_in_dev, {0, 0, +0, +2, 0, 0});  
+
+    // actually compute the result
+    gt::synchronize();
+  };
+
+  // time the function
+  std::cout << "gtensor: " << gene_cutime_func(compute_semi_arakawa) << std::endl;
+
+  // copy output data back to host
+  auto gt_out = gt::empty<gt::complex<bElem> >(shape6D);
+  gt::copy(gt_out_dev, gt_out);
+
+  // copy data from gtensor back to padded array
+  complexArray6D out_arr = (complexArray6D) out_ptr;
+  _TILEFOR6D {
+    out_arr[n][m][l][k][j][i]
+      = reinterpret_cast<bComplexElem&>(gt_out(i - PADDING_i, j - PADDING_j, k - PADDING_k, l - PADDING_l, m - PADDING_m, n - PADDING_n));
+  }
+}
+
+/**
+ * @brief the arakawa deriv kernel using hand-written bricks code
+ */
+void semi_arakawa_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr, bElem *coeff)
+{
+}
+
+/**
+ * @brief 2-D stencil with variable coefficients
+ * 
+ * Based on https://github.com/wdmapp/gtensor/blob/41cf4fe26625f8d7ba2d0d3886a54ae6415a2017/benchmarks/bench_hypz.cxx#L30-L49
+ */
+void semi_arakawa() {
+  std::cout << "Setting up semi-arakawa arrays" << std::endl;
+  // build in/out arrays
+  bComplexElem *in_ptr = randomComplexArray({PADDED_EXTENT}),
+               *out_ptr = zeroComplexArray({PADDED_EXTENT});
+  // build coefficients needed for stencil computation
+  bElem *coeff = randomArray({ARAKAWA_STENCIL_SIZE, PADDED_EXTENT_i, PADDED_EXTENT_k, PADDED_EXTENT_l, PADDED_EXTENT_m, PADDED_EXTENT_n});
+
+  // compute stencil on CPU for correctness check
+  std::cout << "Computing correctness check" << std::endl;
+  bComplexElem *out_check_ptr = zeroComplexArray({PADDED_EXTENT});
+  complexArray6D out_check_arr = (complexArray6D) out_check_ptr;
+  complexArray6D in_arr = (complexArray6D) in_ptr;
+  auto coeff_arr = (bElem (*)[PADDED_EXTENT_m][PADDED_EXTENT_l][PADDED_EXTENT_k][PADDED_EXTENT_i][ARAKAWA_STENCIL_SIZE]) coeff;
+  _TILEFOR6D out_check_arr[n][m][l][k][j][i] = 
+      coeff_arr[n][m][k][l][i][ 0] * in_arr[n][m][l-2][k+0][j][i] +
+      coeff_arr[n][m][k][l][i][ 1] * in_arr[n][m][l-1][k-1][j][i] +
+      coeff_arr[n][m][k][l][i][ 2] * in_arr[n][m][l-1][k+0][j][i] +
+      coeff_arr[n][m][k][l][i][ 3] * in_arr[n][m][l-1][k+1][j][i] +
+      coeff_arr[n][m][k][l][i][ 4] * in_arr[n][m][l+0][k-2][j][i] +
+      coeff_arr[n][m][k][l][i][ 5] * in_arr[n][m][l+0][k-1][j][i] +
+      coeff_arr[n][m][k][l][i][ 6] * in_arr[n][m][l+0][k+0][j][i] +
+      coeff_arr[n][m][k][l][i][ 7] * in_arr[n][m][l+0][k+1][j][i] +
+      coeff_arr[n][m][k][l][i][ 8] * in_arr[n][m][l+0][k+2][j][i] +
+      coeff_arr[n][m][k][l][i][ 9] * in_arr[n][m][l+1][k-1][j][i] +
+      coeff_arr[n][m][k][l][i][10] * in_arr[n][m][l+1][k+0][j][i] +
+      coeff_arr[n][m][k][l][i][11] * in_arr[n][m][l+1][k+1][j][i] +
+      coeff_arr[n][m][k][l][i][12] * in_arr[n][m][l+2][k+0][j][i];
+
+  complexArray6D out_arr = (complexArray6D) out_ptr;
+
+  // run computations
+  std::cout << "Starting semi_arakawa benchmarks" << std::endl;
+  // semi_arakawa_bricks(out_ptr, in_ptr, coeff);
+  // check_close(out_arr, out_check_arr, "bricks");
+
+  semi_arakawa_gtensor(out_ptr, in_ptr, coeff);
+  check_close(out_arr, out_check_arr, "gtensor");
+
+  std::cout << "done" << std::endl;
+
+  free(out_check_ptr);
+  free(coeff);
+  free(out_ptr);
+  free(in_ptr);
 }
 
 // usage: (Optional) [num iterations] (Optional) [num warmup iterations]
@@ -399,5 +552,6 @@ int main(int argc, char * const argv[]) {
   std::cout << "WARM UP:" << NUM_WARMUP_ITERS << std::endl;
   std::cout << "ITERATIONS:" << NUM_ITERS << std::endl;
   ij_deriv();
+  semi_arakawa();
   return 0;
 }
