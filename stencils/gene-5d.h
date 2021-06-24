@@ -120,7 +120,7 @@ static_assert(GZ_EXTENT_l % TILE == 0);
 static_assert(GZ_EXTENT_j % TILE == 0);
 static_assert(GZ_EXTENT_k % TILE == 0);
 static_assert(GZ_EXTENT_i % TILE == 0);
-// tiled for loop, ignoring padded regions
+// tiled for loop over normal elements and ghost elements, but ignoring padded regions
 #define _TILEFOR6D _Pragma("omp parallel for collapse(5)") \
 for (long n = PADDING_n; n < PADDING_n + GZ_EXTENT_n; n += 1) \
 for (long tm = PADDING_m; tm < PADDING_m + GZ_EXTENT_m; tm += TILE) \

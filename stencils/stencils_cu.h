@@ -12,20 +12,20 @@
 #define CU_ITER 100
 
 template<typename T>
-double cutime_func(T func) {
-  for(int i = 0; i < CU_WARMUP; ++i) func(); // Warm up
+double cutime_func(T func, unsigned cu_warmup = CU_WARMUP, unsigned cu_iter = CU_ITER) {
+  for(int i = 0; i < cu_warmup; ++i) func(); // Warm up
   cudaEvent_t start, stop;
   float elapsed;
   cudaDeviceSynchronize();
   cudaEventCreate(&start);
   cudaEventCreate(&stop);
   cudaEventRecord(start);
-  for (int i = 0; i < CU_ITER; ++i)
+  for (int i = 0; i < cu_iter; ++i)
     func();
   cudaEventRecord(stop);
   cudaEventSynchronize(stop);
   cudaEventElapsedTime(&elapsed, start, stop);
-  return elapsed / CU_ITER / 1000;
+  return elapsed / cu_iter / 1000;
 }
 
 void d3pt7cu();

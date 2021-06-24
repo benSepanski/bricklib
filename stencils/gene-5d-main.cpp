@@ -1,5 +1,9 @@
 #include "gene-5d.h"
 
+// constants for number of times to run functions
+unsigned NUM_WARMUP_ITERS = CU_WARMUP;
+unsigned NUM_ITERS = CU_ITER;
+
 /**
  * @brief wrap timing function with more convenient output
  * 
@@ -9,7 +13,7 @@
 std::string gene_cutime_func(std::function<void()> f)
 {
   std::ostringstream string_stream;
-  string_stream << NUM_ELEMENTS / cutime_func(f) / 1000000000 << " avg GStencils/s";
+  string_stream << NUM_ELEMENTS / cutime_func(f, NUM_WARMUP_ITERS, NUM_ITERS) / 1000000000 << " avg GStencils/s";
   return string_stream.str();
 }
 
@@ -49,12 +53,7 @@ void check_close(complexArray6D a, complexArray6D b, std::string name = "")
     {
       std::ostringstream errorMsgStream;
       errorMsgStream << name << " result mismatch at [n, m, l, k, j, i] = ["
-                    << n << ", "
-                    << m << ", "
-                    << l << ", "
-                    << k << ", "
-                    << j << ", "
-                    << i << "]: "
+                    << n << ", " << m << ", " << l << ", " << k << ", " << j << ", " << i << "]: "
                     << z.real() << "+" << z.imag() << "I != "
                     << w.real() << "+" << w.imag() << "I";
       *e = std::runtime_error(errorMsgStream.str());
@@ -109,31 +108,41 @@ void ij_deriv_gtensor(bComplexElem *out_ptr, bComplexElem *in_ptr,
   static_assert(sizeof(bComplexElem) == sizeof(gt::complex<bElem>));
   static_assert(alignof(bComplexElem) == alignof(gt::complex<bElem>));
 
-  auto shape6D = gt::shape(PADDED_EXTENT);
-  auto shape5D = gt::shape(PADDED_EXTENT_i, PADDED_EXTENT_k, PADDED_EXTENT_l, PADDED_EXTENT_m, PADDED_EXTENT_n);
-  auto shape_ikj = gt::shape(PADDED_EXTENT_j);
-  // adapt in-arrays to gtensor
-  auto gt_in = gt::adapt(reinterpret_cast<gt::complex<bElem>*>(in_ptr), shape6D);
-  auto gt_p1 = gt::adapt(reinterpret_cast<gt::complex<bElem>*>(p1), shape5D);
-  auto gt_p2 = gt::adapt(reinterpret_cast<gt::complex<bElem>*>(p2), shape5D);
-  auto gt_ikj = gt::adapt(reinterpret_cast<gt::complex<bElem>*>(ikj), shape_ikj);
-  auto gt_i_deriv_coeff = gt::adapt(i_deriv_coeff, gt::shape(5));
-
-  // double check data copied in correctly
+  auto shape6D = gt::shape(GZ_EXTENT);
+  auto shape5D = gt::shape(EXTENT_i, EXTENT_k, EXTENT_l, EXTENT_m, EXTENT_n);
+  auto shape_ikj = gt::shape(EXTENT_j);
+  // copy in-arrays to gtensor
+  auto gt_in = gt::empty<gt::complex<bElem> >(shape6D);
+  auto gt_p1 = gt::empty<gt::complex<bElem> >(shape5D);
+  auto gt_p2 = gt::empty<gt::complex<bElem> >(shape5D);
+  auto gt_ikj = gt::adapt(reinterpret_cast<gt::complex<bElem>*>(ikj + PADDING_j + GHOST_ZONE_j), shape_ikj);
   complexArray6D in_arr = (complexArray6D) in_ptr;
+  coeffArray5D p1_arr = (coeffArray5D) p1;
+  coeffArray5D p2_arr = (coeffArray5D) p2;
   _TILEFOR6D {
-    std::complex<bElem> z = gt_in(i, j, k, l, m, n),
-                        w = in_arr[n][m][l][k][j][i];
-    bElem diff = std::abs(z - w);
-    if(diff > 1e-6) 
+    gt_in(i - PADDING_i, j - PADDING_j, k - PADDING_k, l - PADDING_l, m - PADDING_m, n - PADDING_n) = in_arr[n][m][l][k][j][i];
+    // don't copy ghost-zone into coefficients!
+    if(   n < PADDING_n + GHOST_ZONE_n || n >= PADDING_n + GHOST_ZONE_n + EXTENT_n
+       || m < PADDING_m + GHOST_ZONE_m || m >= PADDING_m + GHOST_ZONE_m + EXTENT_m
+       || l < PADDING_l + GHOST_ZONE_l || l >= PADDING_l + GHOST_ZONE_l + EXTENT_l
+       || k < PADDING_k + GHOST_ZONE_k || k >= PADDING_k + GHOST_ZONE_k + EXTENT_k
+       || j != 0
+       || i < PADDING_i + GHOST_ZONE_i || i >= PADDING_i + GHOST_ZONE_i + EXTENT_i)
     {
-      char errorMsg[1000];
-      sprintf(errorMsg, "gtensor input copy failure at (n, m, l, k, j, i) = (%d, %d, %d, %d, %d, %d)! %f+%f*I != %f+%f*I",
-              n, m, l, k, j, i,
-              z.real(), z.imag(), w.real(), w.imag());
-      throw std::runtime_error(errorMsg);
+      continue;
     }
+    gt_p1(i - PADDING_i - GHOST_ZONE_i,
+          k - PADDING_k - GHOST_ZONE_k,
+          l - PADDING_l - GHOST_ZONE_l,
+          m - PADDING_m - GHOST_ZONE_m,
+          n - PADDING_n - GHOST_ZONE_n) = p1_arr[n][m][l][k][i];
+    gt_p2(i - PADDING_i - GHOST_ZONE_i,
+          k - PADDING_k - GHOST_ZONE_k,
+          l - PADDING_l - GHOST_ZONE_l,
+          m - PADDING_m - GHOST_ZONE_m,
+          n - PADDING_n - GHOST_ZONE_n) = p2_arr[n][m][l][k][i];
   }
+  auto gt_i_deriv_coeff = gt::adapt(i_deriv_coeff, gt::shape(5));
 
   // copy the in-arrays to device
   auto gt_in_dev = gt::empty_device<gt::complex<bElem> >(shape6D);
@@ -151,22 +160,22 @@ void ij_deriv_gtensor(bComplexElem *out_ptr, bComplexElem *in_ptr,
   // build a function which computes our stencil
   auto compute_ij_deriv = [&gt_out_dev, &gt_in_dev, &gt_p1_dev, &gt_p2_dev, &gt_ikj_dev, &gt_i_deriv_coeff]() -> void {
     using namespace gt::placeholders;
-    auto _si = _s(PADDING_i + GHOST_ZONE_i, PADDING_i + GHOST_ZONE_i + EXTENT_i),
-         _sj = _s(PADDING_j + GHOST_ZONE_j, PADDING_j + GHOST_ZONE_j + EXTENT_j),
-         _sk = _s(PADDING_k + GHOST_ZONE_k, PADDING_k + GHOST_ZONE_k + EXTENT_k),
-         _sl = _s(PADDING_l + GHOST_ZONE_l, PADDING_l + GHOST_ZONE_l + EXTENT_l),
-         _sm = _s(PADDING_m + GHOST_ZONE_m, PADDING_m + GHOST_ZONE_m + EXTENT_m),
-         _sn = _s(PADDING_n + GHOST_ZONE_n, PADDING_n + GHOST_ZONE_n + EXTENT_n);
+    auto _si = _s(GHOST_ZONE_i, GHOST_ZONE_i + EXTENT_i),
+         _sj = _s(GHOST_ZONE_j, GHOST_ZONE_j + EXTENT_j),
+         _sk = _s(GHOST_ZONE_k, GHOST_ZONE_k + EXTENT_k),
+         _sl = _s(GHOST_ZONE_l, GHOST_ZONE_l + EXTENT_l),
+         _sm = _s(GHOST_ZONE_m, GHOST_ZONE_m + EXTENT_m),
+         _sn = _s(GHOST_ZONE_n, GHOST_ZONE_n + EXTENT_n);
     gt_out_dev.view(_si, _sj, _sk, _sl, _sm, _sn) =
-        gt_p1_dev.view(_si, _newaxis, _sk, _sl, _sm, _sn) * (
+        gt_p1_dev.view(_all, _newaxis, _all, _all, _all, _all) * (
             gt_i_deriv_coeff(0) * stencil<DIM>(gt_in_dev, {-2, 0, 0, 0, 0, 0}) +
             gt_i_deriv_coeff(1) * stencil<DIM>(gt_in_dev, {-1, 0, 0, 0, 0, 0}) +
             gt_i_deriv_coeff(2) * stencil<DIM>(gt_in_dev, { 0, 0, 0, 0, 0, 0}) +
             gt_i_deriv_coeff(3) * stencil<DIM>(gt_in_dev, {+1, 0, 0, 0, 0, 0}) +
             gt_i_deriv_coeff(4) * stencil<DIM>(gt_in_dev, {+2, 0, 0, 0, 0, 0})
         ) +
-        gt_p2_dev.view(_si, _newaxis, _sk, _sl, _sm, _sn) *
-          gt_ikj_dev.view(_newaxis, _sj, _newaxis, _newaxis, _newaxis, _newaxis) *
+        gt_p2_dev.view(_all, _newaxis, _all, _all, _all, _all) *
+          gt_ikj_dev.view(_newaxis, _all, _newaxis, _newaxis, _newaxis, _newaxis) *
           gt_in_dev.view(_si, _sj, _sk, _sl, _sm, _sn);
 
     // actually compute the result
@@ -177,23 +186,14 @@ void ij_deriv_gtensor(bComplexElem *out_ptr, bComplexElem *in_ptr,
   std::cout << "gtensor: " << gene_cutime_func(compute_ij_deriv) << std::endl;
 
   // copy output data back to host
-  auto gt_out = gt::adapt(reinterpret_cast<gt::complex<bElem>*>(out_ptr), shape6D);
+  auto gt_out = gt::empty<gt::complex<bElem> >(shape6D);
   gt::copy(gt_out_dev, gt_out);
 
-  // double check data copied out correctly
+  // copy data from gtensor back to padded array
   complexArray6D out_arr = (complexArray6D) out_ptr;
   _TILEFOR6D {
-    std::complex<bElem> z = gt_out(i, j, k, l, m, n),
-                        w = out_arr[n][m][l][k][j][i];
-    bElem diff = std::abs(z - w);
-    if(diff > 1e-6) 
-    {
-      char errorMsg[1000];
-      sprintf(errorMsg, "gtensor result copy failure at (n, m, l, k, j, i) = (%d, %d, %d, %d, %d, %d)! %f+%f*I != %f+%f*I",
-              n, m, l, k, j, i,
-              z.real(), z.imag(), w.real(), w.imag());
-      throw std::runtime_error(errorMsg);
-    }
+    out_arr[n][m][l][k][j][i]
+      = reinterpret_cast<bComplexElem&>(gt_out(i - PADDING_i, j - PADDING_j, k - PADDING_k, l - PADDING_l, m - PADDING_m, n - PADDING_n));
   }
 }
 
@@ -390,10 +390,14 @@ void ij_deriv() {
   free((void *)in_ptr);
 }
 
+// usage: (Optional) [num iterations] (Optional) [num warmup iterations]
+int main(int argc, char * const argv[]) {
+  if(argc > 3) throw std::runtime_error("Expected at most 2 arguments");
+  if(argc >= 2) NUM_ITERS = std::stoi(argv[1]);
+  if(argc >= 3) NUM_WARMUP_ITERS = std::stoi(argv[2]);
 
-int main() {
-  std::cout << "WARM UP:" << CU_WARMUP << std::endl;
-  std::cout << "ITERATIONS:" << CU_ITER << std::endl;
+  std::cout << "WARM UP:" << NUM_WARMUP_ITERS << std::endl;
+  std::cout << "ITERATIONS:" << NUM_ITERS << std::endl;
   ij_deriv();
   return 0;
 }
