@@ -102,6 +102,7 @@ constexpr unsigned NUM_GZ_BRICKS = GZ_BRICK_EXTENT_i * GZ_BRICK_EXTENT_j * GZ_BR
 // set our brick types
 typedef Brick<Dim<BDIM_n, BDIM_m, BDIM_l, BDIM_k, BDIM_j, BDIM_i>, Dim<4,4,1,4>, true> FieldBrick ;
 typedef Brick<Dim<BDIM_n, BDIM_m, BDIM_l, BDIM_k, BDIM_i>, Dim<2,4,4>, true> PreCoeffBrick;
+typedef Brick<Dim<BDIM_n, BDIM_m, BDIM_l, BDIM_k, BDIM_i>, Dim<2,4,4>> RealCoeffBrick;
 
 // useful constants for stencil computations
 constexpr unsigned ARAKAWA_STENCIL_SIZE = 13;
@@ -116,6 +117,13 @@ ij_deriv_brick_kernel(unsigned (*fieldGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l
                       PreCoeffBrick bP2,
                       bComplexElem *ikj,
                       bElem *i_deriv_coeff);
+
+__global__ void
+semi_arakawa_brick_kernel(unsigned (*fieldGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l][GZ_BRICK_EXTENT_k][GZ_BRICK_EXTENT_j][GZ_BRICK_EXTENT_i],
+                          unsigned (*coeffGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l][GZ_BRICK_EXTENT_k][GZ_BRICK_EXTENT_i],
+                          FieldBrick bIn,
+                          FieldBrick bOut,
+                          RealCoeffBrick *coeff);
 
 // Require this for iteration to work
 static_assert(GZ_EXTENT_m % TILE == 0);
