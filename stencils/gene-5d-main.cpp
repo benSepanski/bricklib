@@ -25,13 +25,23 @@ typedef bComplexElem (*coeffArray5D)[PADDED_EXTENT_m][PADDED_EXTENT_l][PADDED_EX
  */
 void check_close(complexArray6D a, complexArray6D b, std::string name = "")
 {
-  _TILEFOR6D {
-    if(i < PADDING_i + GHOST_ZONE_i || i > EXTENT_i + PADDING_i + GHOST_ZONE_i) continue;
-    if(j < PADDING_j + GHOST_ZONE_j || j > EXTENT_j + PADDING_j + GHOST_ZONE_j) continue;
-    if(k < PADDING_k + GHOST_ZONE_k || k > EXTENT_k + PADDING_k + GHOST_ZONE_k) continue;
-    if(l < PADDING_l + GHOST_ZONE_l || l > EXTENT_l + PADDING_l + GHOST_ZONE_l) continue;
-    if(m < PADDING_m + GHOST_ZONE_m || m > EXTENT_m + PADDING_m + GHOST_ZONE_m) continue;
-    if(n < PADDING_n + GHOST_ZONE_n || n > EXTENT_n + PADDING_n + GHOST_ZONE_n) continue;
+  std::exception *e = nullptr;
+
+  // iterate over non-ghost zone elements
+  #pragma omp parallel for collapse(5) shared(e)
+  for (long n = PADDING_n + GHOST_ZONE_n; n < PADDING_n + GZ_EXTENT_n; n += 1)
+  for (long tm = PADDING_m + GHOST_ZONE_m; tm < PADDING_m + GZ_EXTENT_m; tm += TILE)
+  for (long tl = PADDING_l + GHOST_ZONE_l; tl < PADDING_l + GZ_EXTENT_l; tl += TILE)
+  for (long tk = PADDING_k + GHOST_ZONE_k; tk < PADDING_k + GZ_EXTENT_k; tk += TILE)
+  for (long tj = PADDING_j + GHOST_ZONE_j; tj < PADDING_j + GZ_EXTENT_j; tj += TILE)
+  for (long ti = PADDING_i + GHOST_ZONE_i; ti < PADDING_i + GZ_EXTENT_i; ti += TILE)
+  for (long m = tm; m < tm + TILE; ++m)
+  for (long l = tl; l < tl + TILE; ++l)
+  for (long k = tk; k < tk + TILE; ++k)
+  for (long j = tj; j < tj + TILE; ++j)
+  #pragma omp simd
+  for (long i = ti; i < ti + TILE; ++i)
+  {
     std::complex<bElem> z = a[n][m][l][k][j][i],
                         w = b[n][m][l][k][j][i];
     bElem diff = std::abs(z - w);
@@ -39,16 +49,21 @@ void check_close(complexArray6D a, complexArray6D b, std::string name = "")
     {
       std::ostringstream errorMsgStream;
       errorMsgStream << name << " result mismatch at [n, m, l, k, j, i] = ["
-                     << n << ", "
-                     << m << ", "
-                     << l << ", "
-                     << k << ", "
-                     << j << ", "
-                     << i << "]: "
-                     << z.real() << "+" << z.imag() << "I != "
-                     << w.real() << "+" << w.imag() << "I";
-      throw std::runtime_error(errorMsgStream.str());
+                    << n << ", "
+                    << m << ", "
+                    << l << ", "
+                    << k << ", "
+                    << j << ", "
+                    << i << "]: "
+                    << z.real() << "+" << z.imag() << "I != "
+                    << w.real() << "+" << w.imag() << "I";
+      *e = std::runtime_error(errorMsgStream.str());
     }
+  }
+  // throw error if there was one
+  if(e != nullptr)
+  {
+    throw *e;
   }
 }
 
@@ -136,12 +151,12 @@ void ij_deriv_gtensor(bComplexElem *out_ptr, bComplexElem *in_ptr,
   // build a function which computes our stencil
   auto compute_ij_deriv = [&gt_out_dev, &gt_in_dev, &gt_p1_dev, &gt_p2_dev, &gt_ikj_dev, &gt_i_deriv_coeff]() -> void {
     using namespace gt::placeholders;
-    auto _si = _s(PADDING_i, PADDING_i + EXTENT_i),
-         _sj = _s(PADDING_j, PADDING_j + EXTENT_j),
-         _sk = _s(PADDING_k, PADDING_k + EXTENT_k),
-         _sl = _s(PADDING_l, PADDING_l + EXTENT_l),
-         _sm = _s(PADDING_m, PADDING_m + EXTENT_m),
-         _sn = _s(PADDING_n, PADDING_n + EXTENT_n);
+    auto _si = _s(PADDING_i + GHOST_ZONE_i, PADDING_i + GHOST_ZONE_i + EXTENT_i),
+         _sj = _s(PADDING_j + GHOST_ZONE_j, PADDING_j + GHOST_ZONE_j + EXTENT_j),
+         _sk = _s(PADDING_k + GHOST_ZONE_k, PADDING_k + GHOST_ZONE_k + EXTENT_k),
+         _sl = _s(PADDING_l + GHOST_ZONE_l, PADDING_l + GHOST_ZONE_l + EXTENT_l),
+         _sm = _s(PADDING_m + GHOST_ZONE_m, PADDING_m + GHOST_ZONE_m + EXTENT_m),
+         _sn = _s(PADDING_n + GHOST_ZONE_n, PADDING_n + GHOST_ZONE_n + EXTENT_n);
     gt_out_dev.view(_si, _sj, _sk, _sl, _sm, _sn) =
         gt_p1_dev.view(_si, _newaxis, _sk, _sl, _sm, _sn) * (
             gt_i_deriv_coeff(0) * stencil<DIM>(gt_in_dev, {-2, 0, 0, 0, 0, 0}) +
@@ -285,7 +300,7 @@ void ij_deriv_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr,
     FieldBrick bOut(fieldBrickInfo_dev, fieldBrickStorage_dev, FieldBrick::BRICKSIZE);
     PreCoeffBrick bP1(coeffBrickInfo_dev, coeffBrickStorage_dev, 0);
     PreCoeffBrick bP2(coeffBrickInfo_dev, coeffBrickStorage_dev, PreCoeffBrick::BRICKSIZE);
-    dim3 block(GZ_BRICK_EXTENT_i, GZ_BRICK_EXTENT_j, NUM_GZ_BRICKS / GZ_BRICK_EXTENT_i / GZ_BRICK_EXTENT_j),
+    dim3 block(BRICK_EXTENT_i, BRICK_EXTENT_j, NUM_BRICKS / BRICK_EXTENT_i / BRICK_EXTENT_j),
         thread(BDIM_i, BDIM_j,  NUM_ELEMENTS_PER_BRICK / BDIM_i / BDIM_j);
     ij_deriv_brick_kernel<< < block, thread >> >(
                           (unsigned (*)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l][GZ_BRICK_EXTENT_k][GZ_BRICK_EXTENT_j][GZ_BRICK_EXTENT_i]) field_grid_ptr_dev,

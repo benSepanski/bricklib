@@ -8,10 +8,8 @@
 #include <brick-cuda.h>
 #include "stencils.h"
 
-// #define CU_WARMUP 5
-// #define CU_ITER 100
-#define CU_WARMUP 0
-#define CU_ITER 1
+#define CU_WARMUP 5
+#define CU_ITER 100
 
 template<typename T>
 double cutime_func(T func) {

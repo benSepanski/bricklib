@@ -8,6 +8,9 @@ constexpr unsigned GB_l = GHOST_ZONE_l / BDIM_l;
 constexpr unsigned GB_m = GHOST_ZONE_m / BDIM_m;
 constexpr unsigned GB_n = GHOST_ZONE_n / BDIM_n;
 
+/**
+ * @brief Compute on the non-ghost bricks
+ */
 __global__ void
 ij_deriv_brick_kernel(unsigned (*fieldGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l][GZ_BRICK_EXTENT_k][GZ_BRICK_EXTENT_j][GZ_BRICK_EXTENT_i],
                       unsigned (*coeffGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l][GZ_BRICK_EXTENT_k][GZ_BRICK_EXTENT_i],
@@ -19,12 +22,12 @@ ij_deriv_brick_kernel(unsigned (*fieldGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l
                       bElem *i_deriv_coeff) 
 {
   // compute indices
-  long tn = blockIdx.z / (GZ_BRICK_EXTENT_k * GZ_BRICK_EXTENT_l * GZ_BRICK_EXTENT_m);
-  long tm = blockIdx.z / (GZ_BRICK_EXTENT_k * GZ_BRICK_EXTENT_l) % GZ_BRICK_EXTENT_m;
-  long tl = (blockIdx.z / GZ_BRICK_EXTENT_k) % GZ_BRICK_EXTENT_l;
-  long tk = blockIdx.z % GZ_BRICK_EXTENT_k;
-  long tj = blockIdx.y;
-  long ti = blockIdx.x;
+  long tn = GB_n + blockIdx.z / (BRICK_EXTENT_k * BRICK_EXTENT_l * BRICK_EXTENT_m);
+  long tm = GB_m + blockIdx.z / (BRICK_EXTENT_k * BRICK_EXTENT_l) % BRICK_EXTENT_m;
+  long tl = GB_l + (blockIdx.z / BRICK_EXTENT_k) % BRICK_EXTENT_l;
+  long tk = GB_k + blockIdx.z % BRICK_EXTENT_k;
+  long tj = GB_j + blockIdx.y;
+  long ti = GB_i + blockIdx.x;
   long n = threadIdx.z / (BDIM_k * BDIM_l * BDIM_m);
   long m = threadIdx.z / (BDIM_k * BDIM_l) % BDIM_m;
   long l = (threadIdx.z / BDIM_k) % BDIM_l;
