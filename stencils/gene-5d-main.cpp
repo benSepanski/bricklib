@@ -111,7 +111,7 @@ void ij_deriv_gtensor(bComplexElem *out_ptr, bComplexElem *in_ptr,
   auto shape6D = gt::shape(GZ_EXTENT);
   auto shape5D = gt::shape(EXTENT_i, EXTENT_k, EXTENT_l, EXTENT_m, EXTENT_n);
   auto shape_ikj = gt::shape(EXTENT_j);
-  // copy in-arrays to gtensor
+  // copy in-arrays to gtensor (stripping off the padding)
   auto gt_in = gt::empty<gt::complex<bElem> >(shape6D);
   auto gt_p1 = gt::empty<gt::complex<bElem> >(shape5D);
   auto gt_p2 = gt::empty<gt::complex<bElem> >(shape5D);
