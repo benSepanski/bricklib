@@ -20,6 +20,7 @@ if(BRICKS_BUILD_GTENSOR_BENCHMARKS)
     set(CMAKE_CXX_STANDARD 14)
     find_package(gtensor REQUIRED)
     message(STATUS "gtensor found")
+    set(CMAKE_CUDA_FLAGS_DEBUG "-g -G")
 endif()
 
 
