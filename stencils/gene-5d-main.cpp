@@ -62,6 +62,17 @@ void check_close(complexArray6D a, complexArray6D b, std::string name = "")
 }
 
 /**
+ * @brief print CUDA memory usage to stdout and flush buffer
+ */
+void printCudaMemUsage()
+{
+  size_t free, total;
+  cudaMemGetInfo(&free, &total);
+  std::cout << std::scientific;
+  std::cout << (double) (total - free) << " bytes / " << (double) total << " bytes in use." << std::endl;
+}
+
+/**
  * @brief Return a shifted view of the array
  * copied from 
  * https://github.com/wdmapp/gtensor/blob/41cf4fe26625f8d7ba2d0d3886a54ae6415a2017/benchmarks/bench_hypz.cxx#L14-L24
@@ -190,6 +201,8 @@ void ij_deriv_gtensor(bComplexElem *out_ptr, bComplexElem *in_ptr,
 
   // copy output data back to host
   auto gt_out = gt::empty<gt::complex<bElem> >(shape6D);
+  std::cout << "gtensor peak usage:";
+  printCudaMemUsage();
   gt::copy(gt_out_dev, gt_out);
 
   // copy data from gtensor back to padded array
@@ -316,6 +329,8 @@ void ij_deriv_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr,
 
   // time function
   std::cout << "bricks: " << gene_cutime_func(compute_ij_deriv) << std::endl;
+  std::cout << "bricks peak usage:";
+  printCudaMemUsage();
 
   // copy back to host
   cudaCheck(cudaMemcpy(fieldBrickStorage.dat.get(),
@@ -388,11 +403,18 @@ void ij_deriv() {
 
   // run computations
   std::cout << "Starting ij_deriv benchmarks" << std::endl;
+  std::cout << "starting ij_deriv_bricks." << std::endl;
+  printCudaMemUsage();
   ij_deriv_bricks(out_ptr, in_ptr, p1, p2, ikj, i_deriv_coeff);
   check_close(out_arr, out_check_arr, "bricks");
 
+  std::cout << "ij_deriv_bricks complete" << std::endl;
+  printCudaMemUsage();
+  std::cout << "starting ij_deriv_gtensor." << std::endl;
   ij_deriv_gtensor(out_ptr, in_ptr, p1, p2, ikj, i_deriv_coeff);
   check_close(out_arr, out_check_arr, "gtensor");
+  std::cout << "ij_deriv_gtensor complete" << std::endl;
+  printCudaMemUsage();
 
   std::cout << "done" << std::endl;
 
@@ -522,11 +544,11 @@ void semi_arakawa_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr, bElem *coe
   auto reordered_coeff_arr = (bElem (*)[PADDED_EXTENT_n][PADDED_EXTENT_m][PADDED_EXTENT_l][PADDED_EXTENT_k][PADDED_EXTENT_i]) reordered_coeff;
   auto coeff_arr = (bElem (*)[PADDED_EXTENT_m][PADDED_EXTENT_l][PADDED_EXTENT_k][PADDED_EXTENT_i][ARAKAWA_STENCIL_SIZE]) coeff;
   #pragma omp parallel for collapse(5)
-  for (long n = 0; n < PADDED_EXTENT_n; n++)
-  for (long m = 0; m < PADDED_EXTENT_m; m++)
-  for (long l = 0; l < PADDED_EXTENT_l; l++)
-  for (long k = 0; k < PADDED_EXTENT_k; k++)
-  for (long i = 0; i < PADDED_EXTENT_i; i++)
+  for(long n = 0; n < PADDED_EXTENT_n; n++)
+  for(long m = 0; m < PADDED_EXTENT_m; m++)
+  for(long l = 0; l < PADDED_EXTENT_l; l++)
+  for(long k = 0; k < PADDED_EXTENT_k; k++)
+  for(long i = 0; i < PADDED_EXTENT_i; i++)
   for(unsigned j = 0; j < ARAKAWA_STENCIL_SIZE; ++j)
   reordered_coeff_arr[j][n][m][l][k][i] = coeff_arr[n][m][l][k][i][j];
 
@@ -580,10 +602,13 @@ void semi_arakawa_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr, bElem *coe
     bElem *coeff_i_ptr = reordered_coeff + i * NUM_PADDED_ELEMENTS / PADDED_EXTENT_j;
     copyToBrick<DIM - 1>(coeffDimList, coeffPadding, coeffGZ, coeff_i_ptr, coeff_grid_ptr, bCoeffs[i]);
   }
+  std::cout << "allocating field brick storage:" << std::endl;
 
   // move storage to device
   BrickStorage fieldBrickStorage_dev = movBrickStorage(fieldBrickStorage, cudaMemcpyHostToDevice);
+  std::cout << "field brick storage allocation complete. Allocating coeff brick storage:" << std::endl;
   BrickStorage coeffBrickStorage_dev = movBrickStorage(coeffBrickStorage, cudaMemcpyHostToDevice);
+  std::cout << "coeff brick storage complete" << std::endl;
 
   // copy coefficient bricks to device
   RealCoeffBrick *bCoeffs_dev = nullptr;
@@ -709,13 +734,22 @@ void semi_arakawa() {
 
 // usage: (Optional) [num iterations] (Optional) [num warmup iterations]
 int main(int argc, char * const argv[]) {
+  #ifndef NDEBUG
+  std::cout << "NDEBUG is not defined" << std::endl;
+  #else
+  std::cout << "NDEBUG is defined" << std::endl;
+  #endif
   if(argc > 3) throw std::runtime_error("Expected at most 2 arguments");
   if(argc >= 2) NUM_ITERS = std::stoi(argv[1]);
   if(argc >= 3) NUM_WARMUP_ITERS = std::stoi(argv[2]);
 
   std::cout << "WARM UP:" << NUM_WARMUP_ITERS << std::endl;
   std::cout << "ITERATIONS:" << NUM_ITERS << std::endl;
+
+  printCudaMemUsage();
   ij_deriv();
+  printCudaMemUsage();
   semi_arakawa();
+  printCudaMemUsage();
   return 0;
 }
