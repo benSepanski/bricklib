@@ -13,7 +13,7 @@
 /**
  * @brief Check the return of CUDA calls, do nothing during release build
  */
-#ifndef NDEBUG
+#ifdef NDEBUG
 #define cudaCheck(x) x
 #else
 
@@ -77,7 +77,7 @@ inline BrickStorage movBrickStorage(BrickStorage &bStorage, cudaMemcpyKind kind)
   }
   cudaCheck(cudaMemcpy(datptr, bStorage.dat.get(), size, kind));
   if (isToDevice) {
-    ret.dat = std::shared_ptr<bElem>(datptr, [](bElem *p) { cudaFree(p); });
+    ret.dat = std::shared_ptr<bElem>(datptr, [](bElem *p) { cudaCheck(cudaFree(p));});
   } else {
     ret.dat = std::shared_ptr<bElem>(datptr, [](bElem *p) { free(p); });
   }
