@@ -33,18 +33,13 @@ void check_close(complexArray6D a, complexArray6D b, std::string name = "")
 
   // iterate over non-ghost zone elements
   #pragma omp parallel for collapse(5) shared(e)
-  for (long n = PADDING_n + GHOST_ZONE_n; n < PADDING_n + GZ_EXTENT_n; n += 1)
-  for (long tm = PADDING_m + GHOST_ZONE_m; tm < PADDING_m + GZ_EXTENT_m; tm += TILE)
-  for (long tl = PADDING_l + GHOST_ZONE_l; tl < PADDING_l + GZ_EXTENT_l; tl += TILE)
-  for (long tk = PADDING_k + GHOST_ZONE_k; tk < PADDING_k + GZ_EXTENT_k; tk += TILE)
-  for (long tj = PADDING_j + GHOST_ZONE_j; tj < PADDING_j + GZ_EXTENT_j; tj += TILE)
-  for (long ti = PADDING_i + GHOST_ZONE_i; ti < PADDING_i + GZ_EXTENT_i; ti += TILE)
-  for (long m = tm; m < tm + TILE; ++m)
-  for (long l = tl; l < tl + TILE; ++l)
-  for (long k = tk; k < tk + TILE; ++k)
-  for (long j = tj; j < tj + TILE; ++j)
+  for (long n = PADDING_n + GHOST_ZONE_n; n < PADDING_n + GHOST_ZONE_n + EXTENT_n; n++)
+  for (long m = PADDING_m + GHOST_ZONE_m; m < PADDING_m + GHOST_ZONE_m + EXTENT_m; m++)
+  for (long l = PADDING_l + GHOST_ZONE_l; l < PADDING_l + GHOST_ZONE_l + EXTENT_l; l++)
+  for (long k = PADDING_k + GHOST_ZONE_k; k < PADDING_k + GHOST_ZONE_k + EXTENT_k; k++)
+  for (long j = PADDING_j + GHOST_ZONE_j; j < PADDING_j + GHOST_ZONE_j + EXTENT_j; j++)
   #pragma omp simd
-  for (long i = ti; i < ti + TILE; ++i)
+  for (long i = PADDING_i + GHOST_ZONE_i; i < PADDING_i + GHOST_ZONE_i + EXTENT_i; i++)
   {
     std::complex<bElem> z = a[n][m][l][k][j][i],
                         w = b[n][m][l][k][j][i];
@@ -119,7 +114,15 @@ void ij_deriv_gtensor(bComplexElem *out_ptr, bComplexElem *in_ptr,
   complexArray6D in_arr = (complexArray6D) in_ptr;
   coeffArray5D p1_arr = (coeffArray5D) p1;
   coeffArray5D p2_arr = (coeffArray5D) p2;
-  _TILEFOR6D {
+  #pragma omp parallel for collapse(5)
+  for(long n = PADDING_n; n < PADDING_n + GZ_EXTENT_n; ++n)
+  for(long m = PADDING_m; m < PADDING_m + GZ_EXTENT_m; ++m)
+  for(long l = PADDING_l; l < PADDING_l + GZ_EXTENT_l; ++l)
+  for(long k = PADDING_k; k < PADDING_k + GZ_EXTENT_k; ++k)
+  for(long j = PADDING_j; j < PADDING_j + GZ_EXTENT_j; ++j)
+  #pragma omp simd
+  for(long i = PADDING_i; i < PADDING_i + GZ_EXTENT_i; ++i)
+  {
     gt_in(i - PADDING_i, j - PADDING_j, k - PADDING_k, l - PADDING_l, m - PADDING_m, n - PADDING_n) = in_arr[n][m][l][k][j][i];
     // don't copy ghost-zone into coefficients!
     if(   n < PADDING_n + GHOST_ZONE_n || n >= PADDING_n + GHOST_ZONE_n + EXTENT_n
@@ -191,7 +194,15 @@ void ij_deriv_gtensor(bComplexElem *out_ptr, bComplexElem *in_ptr,
 
   // copy data from gtensor back to padded array
   complexArray6D out_arr = (complexArray6D) out_ptr;
-  _TILEFOR6D {
+  #pragma omp parallel for collapse(5)
+  for(long n = PADDING_n + GHOST_ZONE_n; n < PADDING_n + GHOST_ZONE_n + EXTENT_n; ++n)
+  for(long m = PADDING_m + GHOST_ZONE_m; m < PADDING_m + GHOST_ZONE_m + EXTENT_m; ++m)
+  for(long l = PADDING_l + GHOST_ZONE_l; l < PADDING_l + GHOST_ZONE_l + EXTENT_l; ++l)
+  for(long k = PADDING_k + GHOST_ZONE_k; k < PADDING_k + GHOST_ZONE_k + EXTENT_k; ++k)
+  for(long j = PADDING_j + GHOST_ZONE_j; j < PADDING_j + GHOST_ZONE_j + EXTENT_j; ++j)
+  #pragma omp simd
+  for(long i = PADDING_i + GHOST_ZONE_i; i < PADDING_i + GHOST_ZONE_i + EXTENT_i; ++i)
+  {
     out_arr[n][m][l][k][j][i]
       = reinterpret_cast<bComplexElem&>(gt_out(i - PADDING_i, j - PADDING_j, k - PADDING_k, l - PADDING_l, m - PADDING_m, n - PADDING_n));
   }
@@ -264,16 +275,10 @@ void ij_deriv_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr,
   BrickStorage fieldBrickStorage_dev = movBrickStorage(fieldBrickStorage, cudaMemcpyHostToDevice);
   BrickStorage coeffBrickStorage_dev = movBrickStorage(coeffBrickStorage, cudaMemcpyHostToDevice);
 
-  cudaCheck(cudaMemcpy(coeffBrickStorage.dat.get(),
-                       coeffBrickStorage_dev.dat.get(),
-                       coeffBrickStorage.chunks * coeffBrickStorage.step * sizeof(bElem),
-                       cudaMemcpyDeviceToHost));
-
   // set up i-k-j and i-deriv coefficients on the device
   bComplexElem *ikj_dev = nullptr;
   bElem *i_deriv_coeff_dev = nullptr;
   {
-    // don't copy over padding, if any
     unsigned ikj_size = PADDED_EXTENT_j * sizeof(bComplexElem);
     cudaCheck(cudaMalloc(&ikj_dev, ikj_size));
     cudaCheck(cudaMemcpy(ikj_dev, ikj, ikj_size, cudaMemcpyHostToDevice));
@@ -290,10 +295,6 @@ void ij_deriv_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr,
                            &coeffBrickStorage_dev,
                            &field_grid_ptr_dev,
                            &coeff_grid_ptr_dev,
-                           &bIn,
-                           &bOut,
-                           &bP1,
-                           &bP2,
                            &ikj_dev,
                            &i_deriv_coeff_dev]() -> void {
     FieldBrick bIn(fieldBrickInfo_dev, fieldBrickStorage_dev, 0);
@@ -363,14 +364,25 @@ void ij_deriv() {
   complexArray6D in_arr = (complexArray6D) in_ptr;
   coeffArray5D p1_arr = (coeffArray5D) p1;
   coeffArray5D p2_arr = (coeffArray5D) p2;
-  _TILEFOR6D out_check_arr[n][m][l][k][j][i] = p1_arr[n][m][l][k][i] * (
-    i_deriv_coeff[0] * in_arr[n][m][l][k][j][i - 2] +
-    i_deriv_coeff[1] * in_arr[n][m][l][k][j][i - 1] +
-    i_deriv_coeff[2] * in_arr[n][m][l][k][j][i + 0] +
-    i_deriv_coeff[3] * in_arr[n][m][l][k][j][i + 1] +
-    i_deriv_coeff[4] * in_arr[n][m][l][k][j][i + 2]
-  ) + 
-  p2_arr[n][m][l][k][i] * ikj[j] * in_arr[n][m][l][k][j][i];
+
+  #pragma omp parallel for collapse(5)
+  for(long n = PADDING_n + GHOST_ZONE_n; n < PADDING_n + GHOST_ZONE_n + EXTENT_n; ++n)
+  for(long m = PADDING_m + GHOST_ZONE_m; m < PADDING_m + GHOST_ZONE_m + EXTENT_m; ++m)
+  for(long l = PADDING_l + GHOST_ZONE_l; l < PADDING_l + GHOST_ZONE_l + EXTENT_l; ++l)
+  for(long k = PADDING_k + GHOST_ZONE_k; k < PADDING_k + GHOST_ZONE_k + EXTENT_k; ++k)
+  for(long j = PADDING_j + GHOST_ZONE_j; j < PADDING_j + GHOST_ZONE_j + EXTENT_j; ++j)
+  #pragma omp simd
+  for(long i = PADDING_i + GHOST_ZONE_i; i < PADDING_i + GHOST_ZONE_i + EXTENT_i; ++i)
+  {
+    out_check_arr[n][m][l][k][j][i] = p1_arr[n][m][l][k][i] * (
+      i_deriv_coeff[0] * in_arr[n][m][l][k][j][i - 2] +
+      i_deriv_coeff[1] * in_arr[n][m][l][k][j][i - 1] +
+      i_deriv_coeff[2] * in_arr[n][m][l][k][j][i + 0] +
+      i_deriv_coeff[3] * in_arr[n][m][l][k][j][i + 1] +
+      i_deriv_coeff[4] * in_arr[n][m][l][k][j][i + 2]
+    ) + 
+    p2_arr[n][m][l][k][i] * ikj[j] * in_arr[n][m][l][k][j][i];
+  }
 
   complexArray6D out_arr = (complexArray6D) out_ptr;
 
@@ -407,7 +419,15 @@ void semi_arakawa_gtensor(bComplexElem *out_ptr, bComplexElem *in_ptr, bElem *co
   auto gt_coeff = gt::empty<bElem>(coeffShape);
   complexArray6D in_arr = (complexArray6D) in_ptr;
   auto coeff_arr = (bElem (*)[PADDED_EXTENT_m][PADDED_EXTENT_l][PADDED_EXTENT_k][PADDED_EXTENT_i][ARAKAWA_STENCIL_SIZE]) coeff;
-  _TILEFOR6D {
+  #pragma omp parallel for collapse(5)
+  for(long n = PADDING_n; n < PADDING_n + GZ_EXTENT_n; ++n)
+  for(long m = PADDING_m; m < PADDING_m + GZ_EXTENT_m; ++m)
+  for(long l = PADDING_l; l < PADDING_l + GZ_EXTENT_l; ++l)
+  for(long k = PADDING_k; k < PADDING_k + GZ_EXTENT_k; ++k)
+  for(long j = PADDING_j; j < PADDING_j + GZ_EXTENT_j; ++j)
+  #pragma omp simd
+  for(long i = PADDING_i; i < PADDING_i + GZ_EXTENT_i; ++i)
+  {
     gt_in(i - PADDING_i, j - PADDING_j, k - PADDING_k, l - PADDING_l, m - PADDING_m, n - PADDING_n) = in_arr[n][m][l][k][j][i];
     // don't copy ghost-zone into coefficients!
     if(   n < PADDING_n + GHOST_ZONE_n || n >= PADDING_n + GHOST_ZONE_n + EXTENT_n
@@ -478,7 +498,15 @@ void semi_arakawa_gtensor(bComplexElem *out_ptr, bComplexElem *in_ptr, bElem *co
 
   // copy data from gtensor back to padded array
   complexArray6D out_arr = (complexArray6D) out_ptr;
-  _TILEFOR6D {
+  #pragma omp parallel for collapse(5)
+  for(long n = PADDING_n + GHOST_ZONE_n; n < PADDING_n + GHOST_ZONE_n + EXTENT_n; ++n)
+  for(long m = PADDING_m + GHOST_ZONE_m; m < PADDING_m + GHOST_ZONE_m + EXTENT_m; ++m)
+  for(long l = PADDING_l + GHOST_ZONE_l; l < PADDING_l + GHOST_ZONE_l + EXTENT_l; ++l)
+  for(long k = PADDING_k + GHOST_ZONE_k; k < PADDING_k + GHOST_ZONE_k + EXTENT_k; ++k)
+  for(long j = PADDING_j + GHOST_ZONE_j; j < PADDING_j + GHOST_ZONE_j + EXTENT_j; ++j)
+  #pragma omp simd
+  for(long i = PADDING_i + GHOST_ZONE_i; i < PADDING_i + GHOST_ZONE_i + EXTENT_i; ++i)
+  {
     out_arr[n][m][l][k][j][i]
       = reinterpret_cast<bComplexElem&>(gt_out(i - PADDING_i, j - PADDING_j, k - PADDING_k, l - PADDING_l, m - PADDING_m, n - PADDING_n));
   }
@@ -489,6 +517,127 @@ void semi_arakawa_gtensor(bComplexElem *out_ptr, bComplexElem *in_ptr, bElem *co
  */
 void semi_arakawa_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr, bElem *coeff)
 {
+  // copy coeff from STENCIL_SIZE x GRID to GRID x STENCIL_SIZE
+  bElem *reordered_coeff = zeroArray({PADDED_EXTENT_i, PADDED_EXTENT_k, PADDED_EXTENT_l, PADDED_EXTENT_m, PADDED_EXTENT_n, ARAKAWA_STENCIL_SIZE});
+  auto reordered_coeff_arr = (bElem (*)[PADDED_EXTENT_n][PADDED_EXTENT_m][PADDED_EXTENT_l][PADDED_EXTENT_k][PADDED_EXTENT_i]) reordered_coeff;
+  auto coeff_arr = (bElem (*)[PADDED_EXTENT_m][PADDED_EXTENT_l][PADDED_EXTENT_k][PADDED_EXTENT_i][ARAKAWA_STENCIL_SIZE]) coeff;
+  #pragma omp parallel for collapse(5)
+  for (long n = 0; n < PADDED_EXTENT_n; n++)
+  for (long m = 0; m < PADDED_EXTENT_m; m++)
+  for (long l = 0; l < PADDED_EXTENT_l; l++)
+  for (long k = 0; k < PADDED_EXTENT_k; k++)
+  for (long i = 0; i < PADDED_EXTENT_i; i++)
+  for(unsigned j = 0; j < ARAKAWA_STENCIL_SIZE; ++j)
+  reordered_coeff_arr[j][n][m][l][k][i] = coeff_arr[n][m][l][k][i][j];
+
+  // set up brick info and move to device
+  unsigned *field_grid_ptr = nullptr;
+  unsigned *coeff_grid_ptr = nullptr;
+
+  auto fieldBrickInfo = init_grid<DIM>(field_grid_ptr, {GZ_BRICK_EXTENT});
+  auto coeffBrickInfo = init_grid<DIM - 1>(coeff_grid_ptr, {GZ_BRICK_EXTENT_i, GZ_BRICK_EXTENT_k, GZ_BRICK_EXTENT_l, GZ_BRICK_EXTENT_m, GZ_BRICK_EXTENT_n});
+  unsigned *field_grid_ptr_dev = nullptr;
+  unsigned *coeff_grid_ptr_dev = nullptr;
+  {
+    unsigned num_field_bricks = NUM_GZ_BRICKS;
+    unsigned num_coeff_bricks = NUM_GZ_BRICKS / GZ_BRICK_EXTENT_j;
+    cudaCheck(cudaMalloc(&field_grid_ptr_dev, num_field_bricks * sizeof(unsigned)));
+    cudaCheck(cudaMalloc(&coeff_grid_ptr_dev, num_coeff_bricks * sizeof(unsigned)));
+    cudaCheck(cudaMemcpy(field_grid_ptr_dev, field_grid_ptr, num_field_bricks * sizeof(unsigned), cudaMemcpyHostToDevice));
+    cudaCheck(cudaMemcpy(coeff_grid_ptr_dev, coeff_grid_ptr, num_coeff_bricks * sizeof(unsigned), cudaMemcpyHostToDevice));
+  }
+  BrickInfo<DIM> *fieldBrickInfo_dev = nullptr;
+  BrickInfo<DIM - 1> *coeffBrickInfo_dev = nullptr;
+  BrickInfo<DIM> _fieldBrickInfo_dev = movBrickInfo(fieldBrickInfo, cudaMemcpyHostToDevice);
+  BrickInfo<DIM - 1> _coeffBrickInfo_dev = movBrickInfo(coeffBrickInfo, cudaMemcpyHostToDevice);
+  {
+    cudaCheck(cudaMalloc(&fieldBrickInfo_dev, sizeof(decltype(fieldBrickInfo))));
+    cudaCheck(cudaMalloc(&coeffBrickInfo_dev, sizeof(decltype(coeffBrickInfo))));
+    cudaCheck(cudaMemcpy(fieldBrickInfo_dev, &_fieldBrickInfo_dev, sizeof(decltype(fieldBrickInfo)), cudaMemcpyHostToDevice));
+    cudaCheck(cudaMemcpy(coeffBrickInfo_dev, &_coeffBrickInfo_dev, sizeof(decltype(coeffBrickInfo)), cudaMemcpyHostToDevice));
+  }
+
+  // setup brick storage on host
+  auto fieldBrickStorage = BrickStorage::allocate(fieldBrickInfo.nbricks, 2 * FieldBrick::BRICKSIZE);
+
+  FieldBrick bIn(&fieldBrickInfo, fieldBrickStorage, 0);
+  FieldBrick bOut(&fieldBrickInfo, fieldBrickStorage, FieldBrick::BRICKSIZE);
+
+  auto coeffBrickStorage = BrickStorage::allocate(coeffBrickInfo.nbricks, ARAKAWA_STENCIL_SIZE * RealCoeffBrick::BRICKSIZE);
+  std::vector<RealCoeffBrick> bCoeffs;
+  bCoeffs.reserve(ARAKAWA_STENCIL_SIZE);
+  for(unsigned i = 0; i < ARAKAWA_STENCIL_SIZE; ++i)
+  {
+    bCoeffs.push_back(RealCoeffBrick(&coeffBrickInfo, coeffBrickStorage, i * RealCoeffBrick::BRICKSIZE));
+  }
+
+  copyToBrick<DIM>({GZ_EXTENT}, {PADDING}, {0,0,0,0,0,0}, in_ptr, field_grid_ptr, bIn);
+  const std::vector<long> coeffDimList = {GZ_EXTENT_i, GZ_EXTENT_k, GZ_EXTENT_l, GZ_EXTENT_m, GZ_EXTENT_n};
+  const std::vector<long> coeffPadding = {PADDING_i, PADDING_k, PADDING_l, PADDING_m, PADDING_n};
+  const std::vector<long> coeffGZ = {0,0,0,0,0};
+  for(unsigned i = 0; i < ARAKAWA_STENCIL_SIZE; ++i)
+  {
+    bElem *coeff_i_ptr = reordered_coeff + i * NUM_PADDED_ELEMENTS / PADDED_EXTENT_j;
+    copyToBrick<DIM - 1>(coeffDimList, coeffPadding, coeffGZ, coeff_i_ptr, coeff_grid_ptr, bCoeffs[i]);
+  }
+
+  // move storage to device
+  BrickStorage fieldBrickStorage_dev = movBrickStorage(fieldBrickStorage, cudaMemcpyHostToDevice);
+  BrickStorage coeffBrickStorage_dev = movBrickStorage(coeffBrickStorage, cudaMemcpyHostToDevice);
+
+  // copy coefficient bricks to device
+  RealCoeffBrick *bCoeffs_dev = nullptr;
+  cudaCheck(cudaMalloc(&bCoeffs_dev, ARAKAWA_STENCIL_SIZE * sizeof(RealCoeffBrick)));
+  for(unsigned i = 0; i < ARAKAWA_STENCIL_SIZE; ++i)
+  {
+    RealCoeffBrick brickToCopy(coeffBrickInfo_dev, coeffBrickStorage_dev, i * RealCoeffBrick::BRICKSIZE);
+    cudaCheck(cudaMemcpy(bCoeffs_dev + i, &brickToCopy, sizeof(RealCoeffBrick), cudaMemcpyHostToDevice));
+  }
+
+  // build function to actually run computation
+  auto compute_semi_arakawa = [&fieldBrickInfo_dev,
+                               &fieldBrickStorage_dev,
+                               &coeffBrickInfo_dev,
+                               &coeffBrickStorage_dev,
+                               &field_grid_ptr_dev,
+                               &coeff_grid_ptr_dev,
+                               &bCoeffs_dev]() -> void {
+    FieldBrick bIn(fieldBrickInfo_dev, fieldBrickStorage_dev, 0);
+    FieldBrick bOut(fieldBrickInfo_dev, fieldBrickStorage_dev, FieldBrick::BRICKSIZE);
+    dim3 block(BRICK_EXTENT_i, BRICK_EXTENT_j, NUM_BRICKS / BRICK_EXTENT_i / BRICK_EXTENT_j),
+        thread(BDIM_i, BDIM_j,  NUM_ELEMENTS_PER_BRICK / BDIM_i / BDIM_j);
+    semi_arakawa_brick_kernel<< < block, thread >> >(
+                          (unsigned (*)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l][GZ_BRICK_EXTENT_k][GZ_BRICK_EXTENT_j][GZ_BRICK_EXTENT_i]) field_grid_ptr_dev,
+                          (unsigned (*)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l][GZ_BRICK_EXTENT_k][GZ_BRICK_EXTENT_i]) coeff_grid_ptr_dev,
+                          bIn,
+                          bOut,
+                          bCoeffs_dev);
+  };
+
+  // time function
+  std::cout << "bricks: " << gene_cutime_func(compute_semi_arakawa) << std::endl;
+
+  // copy back to host
+  cudaCheck(cudaMemcpy(fieldBrickStorage.dat.get(),
+                       fieldBrickStorage_dev.dat.get(),
+                       fieldBrickStorage.chunks * fieldBrickStorage.step * sizeof(bElem),
+                       cudaMemcpyDeviceToHost));
+  cudaDeviceSynchronize();
+  copyFromBrick<DIM>({EXTENT}, {PADDING}, {GHOST_ZONE}, out_ptr, field_grid_ptr, bOut);
+
+  // free allocated memory
+  cudaCheck(cudaFree(bCoeffs_dev));
+  cudaCheck(cudaFree(_coeffBrickInfo_dev.adj));
+  cudaCheck(cudaFree(_fieldBrickInfo_dev.adj));
+  cudaCheck(cudaFree(coeffBrickInfo_dev));
+  cudaCheck(cudaFree(fieldBrickInfo_dev));
+  cudaCheck(cudaFree(coeff_grid_ptr_dev));
+  cudaCheck(cudaFree(field_grid_ptr_dev));
+  free(coeffBrickInfo.adj);
+  free(fieldBrickInfo.adj);
+  free(coeff_grid_ptr);
+  free(field_grid_ptr);
+  free(reordered_coeff);
 }
 
 /**
@@ -510,27 +659,42 @@ void semi_arakawa() {
   complexArray6D out_check_arr = (complexArray6D) out_check_ptr;
   complexArray6D in_arr = (complexArray6D) in_ptr;
   auto coeff_arr = (bElem (*)[PADDED_EXTENT_m][PADDED_EXTENT_l][PADDED_EXTENT_k][PADDED_EXTENT_i][ARAKAWA_STENCIL_SIZE]) coeff;
-  _TILEFOR6D out_check_arr[n][m][l][k][j][i] = 
-      coeff_arr[n][m][k][l][i][ 0] * in_arr[n][m][l-2][k+0][j][i] +
-      coeff_arr[n][m][k][l][i][ 1] * in_arr[n][m][l-1][k-1][j][i] +
-      coeff_arr[n][m][k][l][i][ 2] * in_arr[n][m][l-1][k+0][j][i] +
-      coeff_arr[n][m][k][l][i][ 3] * in_arr[n][m][l-1][k+1][j][i] +
-      coeff_arr[n][m][k][l][i][ 4] * in_arr[n][m][l+0][k-2][j][i] +
-      coeff_arr[n][m][k][l][i][ 5] * in_arr[n][m][l+0][k-1][j][i] +
-      coeff_arr[n][m][k][l][i][ 6] * in_arr[n][m][l+0][k+0][j][i] +
-      coeff_arr[n][m][k][l][i][ 7] * in_arr[n][m][l+0][k+1][j][i] +
-      coeff_arr[n][m][k][l][i][ 8] * in_arr[n][m][l+0][k+2][j][i] +
-      coeff_arr[n][m][k][l][i][ 9] * in_arr[n][m][l+1][k-1][j][i] +
-      coeff_arr[n][m][k][l][i][10] * in_arr[n][m][l+1][k+0][j][i] +
-      coeff_arr[n][m][k][l][i][11] * in_arr[n][m][l+1][k+1][j][i] +
-      coeff_arr[n][m][k][l][i][12] * in_arr[n][m][l+2][k+0][j][i];
+
+  static_assert(EXTENT_l % TILE == 0);
+  static_assert(EXTENT_k % TILE == 0);
+  #pragma omp parallel for collapse(4)
+  for(long n = PADDING_n + GHOST_ZONE_n; n < PADDING_n + GHOST_ZONE_n + EXTENT_n; ++n)
+  for(long m = PADDING_m + GHOST_ZONE_m; m < PADDING_m + GHOST_ZONE_m + EXTENT_m; ++m)
+  for(long tl = PADDING_l + GHOST_ZONE_l; tl < PADDING_l + GHOST_ZONE_l + EXTENT_l; tl += TILE)
+  for(long tk = PADDING_k + GHOST_ZONE_k; tk < PADDING_k + GHOST_ZONE_k + EXTENT_k; tk += TILE)
+  for(long l = tl; l < tl + TILE; l++)
+  for(long k = tk; k < tk + TILE; k++)
+  for(long j = PADDING_j + GHOST_ZONE_j; j < PADDING_j + GHOST_ZONE_j + EXTENT_j; j++)
+  #pragma omp simd
+  for(long i = PADDING_i + GHOST_ZONE_i; i < PADDING_i + GHOST_ZONE_i + EXTENT_i; i++)
+  {
+    out_check_arr[n][m][l][k][j][i] = 
+        coeff_arr[n][m][k][l][i][ 0] * in_arr[n][m][l-2][k+0][j][i] +
+        coeff_arr[n][m][k][l][i][ 1] * in_arr[n][m][l-1][k-1][j][i] +
+        coeff_arr[n][m][k][l][i][ 2] * in_arr[n][m][l-1][k+0][j][i] +
+        coeff_arr[n][m][k][l][i][ 3] * in_arr[n][m][l-1][k+1][j][i] +
+        coeff_arr[n][m][k][l][i][ 4] * in_arr[n][m][l+0][k-2][j][i] +
+        coeff_arr[n][m][k][l][i][ 5] * in_arr[n][m][l+0][k-1][j][i] +
+        coeff_arr[n][m][k][l][i][ 6] * in_arr[n][m][l+0][k+0][j][i] +
+        coeff_arr[n][m][k][l][i][ 7] * in_arr[n][m][l+0][k+1][j][i] +
+        coeff_arr[n][m][k][l][i][ 8] * in_arr[n][m][l+0][k+2][j][i] +
+        coeff_arr[n][m][k][l][i][ 9] * in_arr[n][m][l+1][k-1][j][i] +
+        coeff_arr[n][m][k][l][i][10] * in_arr[n][m][l+1][k+0][j][i] +
+        coeff_arr[n][m][k][l][i][11] * in_arr[n][m][l+1][k+1][j][i] +
+        coeff_arr[n][m][k][l][i][12] * in_arr[n][m][l+2][k+0][j][i];
+  }
 
   complexArray6D out_arr = (complexArray6D) out_ptr;
 
   // run computations
   std::cout << "Starting semi_arakawa benchmarks" << std::endl;
-  // semi_arakawa_bricks(out_ptr, in_ptr, coeff);
-  // check_close(out_arr, out_check_arr, "bricks");
+  semi_arakawa_bricks(out_ptr, in_ptr, coeff);
+  check_close(out_arr, out_check_arr, "bricks");
 
   semi_arakawa_gtensor(out_ptr, in_ptr, coeff);
   check_close(out_arr, out_check_arr, "gtensor");

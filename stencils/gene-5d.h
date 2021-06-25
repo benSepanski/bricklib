@@ -125,25 +125,4 @@ semi_arakawa_brick_kernel(unsigned (*fieldGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTE
                           FieldBrick bOut,
                           RealCoeffBrick *coeff);
 
-// Require this for iteration to work
-static_assert(GZ_EXTENT_m % TILE == 0);
-static_assert(GZ_EXTENT_l % TILE == 0);
-static_assert(GZ_EXTENT_j % TILE == 0);
-static_assert(GZ_EXTENT_k % TILE == 0);
-static_assert(GZ_EXTENT_i % TILE == 0);
-// tiled for loop over normal elements and ghost elements, but ignoring padded regions
-#define _TILEFOR6D _Pragma("omp parallel for collapse(5)") \
-for (long n = PADDING_n; n < PADDING_n + GZ_EXTENT_n; n += 1) \
-for (long tm = PADDING_m; tm < PADDING_m + GZ_EXTENT_m; tm += TILE) \
-for (long tl = PADDING_l; tl < PADDING_l + GZ_EXTENT_l; tl += TILE) \
-for (long tk = PADDING_k; tk < PADDING_k + GZ_EXTENT_k; tk += TILE) \
-for (long tj = PADDING_j; tj < PADDING_j + GZ_EXTENT_j; tj += TILE) \
-for (long ti = PADDING_i; ti < PADDING_i + GZ_EXTENT_i; ti += TILE) \
-for (long m = tm; m < tm + TILE; ++m) \
-for (long l = tl; l < tl + TILE; ++l) \
-for (long k = tk; k < tk + TILE; ++k) \
-for (long j = tj; j < tj + TILE; ++j) \
-_Pragma("omp simd") \
-for (long i = ti; i < ti + TILE; ++i)
-
 #endif // BRICK_GENE_5D_H

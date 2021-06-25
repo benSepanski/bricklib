@@ -15,16 +15,16 @@ template<typename T>
 double cutime_func(T func, unsigned cu_warmup = CU_WARMUP, unsigned cu_iter = CU_ITER) {
   for(int i = 0; i < cu_warmup; ++i) func(); // Warm up
   cudaEvent_t start, stop;
-  float elapsed;
-  cudaDeviceSynchronize();
-  cudaEventCreate(&start);
-  cudaEventCreate(&stop);
-  cudaEventRecord(start);
+  float elapsed = 0.0;
+  cudaCheck(cudaDeviceSynchronize());
+  cudaCheck(cudaEventCreate(&start));
+  cudaCheck(cudaEventCreate(&stop));
+  cudaCheck(cudaEventRecord(start));
   for (int i = 0; i < cu_iter; ++i)
     func();
-  cudaEventRecord(stop);
-  cudaEventSynchronize(stop);
-  cudaEventElapsedTime(&elapsed, start, stop);
+  cudaCheck(cudaEventRecord(stop));
+  cudaCheck(cudaEventSynchronize(stop));
+  cudaCheck(cudaEventElapsedTime(&elapsed, start, stop));
   return elapsed / cu_iter / 1000;
 }
 

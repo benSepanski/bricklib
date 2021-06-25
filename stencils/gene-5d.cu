@@ -73,7 +73,7 @@ semi_arakawa_brick_kernel(unsigned (*fieldGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTE
                           unsigned (*coeffGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l][GZ_BRICK_EXTENT_k][GZ_BRICK_EXTENT_i],
                           FieldBrick bIn,
                           FieldBrick bOut,
-                          RealCoeffBrick* coeff)
+                          RealCoeffBrick *coeff)
 {
   // compute indices
   long tn = GB_n + blockIdx.z / (BRICK_EXTENT_k * BRICK_EXTENT_l * BRICK_EXTENT_m);
@@ -107,7 +107,7 @@ semi_arakawa_brick_kernel(unsigned (*fieldGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTE
   unsigned bCoeffIndex = coeffGrid[tn][tm][tl][tk][ti];
 
   // perform computation
-  bOut[bFieldIndex][n][m][l][k][j][i] = 
+  bOut[bFieldIndex][n][m][l][k][j][i] =
       coeff[ 0][bCoeffIndex][n][m][k][l][i] * bIn[bFieldIndex][n][m][l-2][k+0][j][i] +
       coeff[ 1][bCoeffIndex][n][m][k][l][i] * bIn[bFieldIndex][n][m][l-1][k-1][j][i] +
       coeff[ 2][bCoeffIndex][n][m][k][l][i] * bIn[bFieldIndex][n][m][l-1][k+0][j][i] +
