@@ -52,15 +52,38 @@ ij_deriv_brick_kernel(unsigned (*fieldGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l
   unsigned bFieldIndex = fieldGrid[tn][tm][tl][tk][tj][ti];
   unsigned bCoeffIndex = coeffGrid[tn][tm][tl][tk][ti];
 
+  // load data in lock-step
+  // __shared__ bComplexElem in[NUM_ELEMENTS_PER_BRICK];
+  // unsigned idx = threadIdx.z * (blockDim.x * blockDim.y)
+  //               + threadIdx.y * blockDim.x
+  //               + threadIdx.x;
+  // bElem *blockStart = reinterpret_cast<bElem*>(&(bIn[bFieldIndex][n][m][l][k][j][i]));
+  // for(unsigned i = idx; i < NUM_ELEMENTS_PER_BRICK * 2; i += blockDim.x * blockDim.y * blockDim.z)
+  // {
+  //   reinterpret_cast<bElem*>(in)[i] = blockStart[i];
+  // }
+
+  // load data together so that memory accesses get coalesced
+  bComplexElem in[5];
+  in[0] = bIn[bFieldIndex][n][m][l][k][j][i - 2];
+  in[0] = bIn[bFieldIndex][n][m][l][k][j][i - 1];
+  in[0] = bIn[bFieldIndex][n][m][l][k][j][i];
+  in[0] = bIn[bFieldIndex][n][m][l][k][j][i + 1];
+  in[0] = bIn[bFieldIndex][n][m][l][k][j][i + 2];
+
+  bComplexElem p1 = bP1[bCoeffIndex][n][m][l][k][i],
+               p2 = bP2[bCoeffIndex][n][m][l][k][i],
+               my_ikj = ikj[PADDING_j + tj * BDIM_j + j];
+
   // perform computation
-  bOut[bFieldIndex][n][m][l][k][j][i] = bP1[bCoeffIndex][n][m][l][k][i] * (
-    i_deriv_coeff[0] * bIn[bFieldIndex][n][m][l][k][j][i - 2] +
-    i_deriv_coeff[1] * bIn[bFieldIndex][n][m][l][k][j][i - 1] +
-    i_deriv_coeff[2] * bIn[bFieldIndex][n][m][l][k][j][i + 0] +
-    i_deriv_coeff[3] * bIn[bFieldIndex][n][m][l][k][j][i + 1] +
-    i_deriv_coeff[4] * bIn[bFieldIndex][n][m][l][k][j][i + 2]
-  ) + 
-  bP2[bCoeffIndex][n][m][l][k][i] * ikj[PADDING_j + tj * BDIM_j + j] * bIn[bFieldIndex][n][m][l][k][j][i];
+  bComplexElem out = p1 * (i_deriv_coeff[0] * in[0] +
+                           i_deriv_coeff[1] * in[1] +
+                           i_deriv_coeff[2] * in[2] +
+                           i_deriv_coeff[3] * in[3] +
+                           i_deriv_coeff[4] * in[4]) + p2 * my_ikj * in[2];
+
+  // store computation
+  bOut[bFieldIndex][n][m][l][k][j][i] = out;
 }
 
 /**

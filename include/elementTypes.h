@@ -55,22 +55,18 @@ struct alignas(sizeof(bElem[2])) bComplexElem
     bComplexElem(const int &real) : value{(bElem) real, 0.0} { }
     FORCUDA
     bComplexElem(const long &real) : value{(bElem) real, 0.0} { }
-    FORCUDA
-    bComplexElem(const bComplexElem &that) : value{that.real(), that.imag()} { }
 
     // conversion from std/cuda
-    bComplexElem(const std::complex<bElem> &that) 
+    bComplexElem(const std::complex<bElem> &that)
     {
-        value[0] = reinterpret_cast<const bElem(&)[2]>(that)[0];
-        value[1] = reinterpret_cast<const bElem(&)[2]>(that)[1];
+        *this = reinterpret_cast<const bComplexElem &>(that);
     }
 
     #if defined(__CUDACC__) || defined(__HIP__)
     FORCUDA inline
     bComplexElem(bCuComplexElem &that) 
     {
-        value[0] = reinterpret_cast<const bElem(&)[2]>(that)[0];
-        value[1] = reinterpret_cast<const bElem(&)[2]>(that)[1];
+        *this = reinterpret_cast<const bComplexElem &>(that);
     }
     #endif
 
@@ -95,15 +91,6 @@ struct alignas(sizeof(bElem[2])) bComplexElem
         }
     #endif
     #endif
-
-    // assignment
-    FORCUDA inline
-    bComplexElem &operator=(const bComplexElem &that)
-    {
-        this->value[0] = that.real();
-        this->value[1] = that.imag();
-        return *this;
-    }
 
     // basic complex operations
     FORCUDA inline
