@@ -1,3 +1,4 @@
+#define GTENSOR_DEFAULT_DEVICE_ALLOCATOR(T) gt::device_allocator<T>
 #include "gene-5d.h"
 #include <iomanip>
 
@@ -346,7 +347,7 @@ void ij_deriv_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr,
  * 
  * Based on https://github.com/wdmapp/gtensor/blob/d07000b15d253cdeb44942b52f3d2caf4522faa0/benchmarks/ij_deriv.cxx
  */
-void ij_deriv() {
+void ij_deriv(bool run_bricks, bool run_gtensor) {
   std::cout << "Setting up i-j deriv arrays" << std::endl;
   // build in/out arrays
   bComplexElem *in_ptr = randomComplexArray({PADDED_EXTENT}),
@@ -389,13 +390,19 @@ void ij_deriv() {
 
   // run computations
   std::cout << "Starting ij_deriv benchmarks" << std::endl;
-  ij_deriv_bricks(out_ptr, in_ptr, p1, p2, ikj, i_deriv_coeff);
-  check_close(out_arr, out_check_arr, "bricks");
-  std::cout << " PASSED" << std::endl;
+  if(run_bricks)
+  {
+    ij_deriv_bricks(out_ptr, in_ptr, p1, p2, ikj, i_deriv_coeff);
+    check_close(out_arr, out_check_arr, "bricks");
+    std::cout << " PASSED" << std::endl;
+  }
 
-  ij_deriv_gtensor(out_ptr, in_ptr, p1, p2, ikj, i_deriv_coeff);
-  check_close(out_arr, out_check_arr, "gtensor");
-  std::cout << " PASSED" << std::endl;
+  if(run_gtensor)
+  {
+    ij_deriv_gtensor(out_ptr, in_ptr, p1, p2, ikj, i_deriv_coeff);
+    check_close(out_arr, out_check_arr, "gtensor");
+    std::cout << " PASSED" << std::endl;
+  }
 
   std::cout << "done" << std::endl;
 
@@ -648,7 +655,7 @@ void semi_arakawa_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr, bElem *coe
  * 
  * Based on https://github.com/wdmapp/gtensor/blob/41cf4fe26625f8d7ba2d0d3886a54ae6415a2017/benchmarks/bench_hypz.cxx#L30-L49
  */
-void semi_arakawa() {
+void semi_arakawa(bool run_bricks, bool run_gtensor) {
   std::cout << "Setting up semi-arakawa arrays" << std::endl;
   // build in/out arrays
   bComplexElem *in_ptr = randomComplexArray({PADDED_EXTENT}),
@@ -696,13 +703,19 @@ void semi_arakawa() {
 
   // run computations
   std::cout << "Starting semi_arakawa benchmarks" << std::endl;
-  semi_arakawa_bricks(out_ptr, in_ptr, coeff);
-  check_close(out_arr, out_check_arr, "bricks");
-  std::cout << " PASSED" << std::endl;
+  if(run_bricks)
+  {
+    semi_arakawa_bricks(out_ptr, in_ptr, coeff);
+    check_close(out_arr, out_check_arr, "bricks");
+    std::cout << " PASSED" << std::endl;
+  }
 
-  semi_arakawa_gtensor(out_ptr, in_ptr, coeff);
-  check_close(out_arr, out_check_arr, "gtensor");
-  std::cout << " PASSED" << std::endl;
+  if(run_gtensor)
+  {
+    semi_arakawa_gtensor(out_ptr, in_ptr, coeff);
+    check_close(out_arr, out_check_arr, "gtensor");
+    std::cout << " PASSED" << std::endl;
+  }
 
   std::cout << "done" << std::endl;
 
@@ -712,14 +725,17 @@ void semi_arakawa() {
   free(in_ptr);
 }
 
-// usage: (Optional) [num iterations] (Optional) [num warmup iterations] (Optional) [which kernel (ij or arakawa)]
+// usage: (Optional) [num iterations] 
+//        (Optional) [num warmup iterations] 
+//        (Optional) [which kernel (ij or arakawa)] 
+//        (Optional) [g for just gtensor, b for just bricks]
 int main(int argc, char * const argv[]) {
   #ifndef NDEBUG
   std::cout << "NDEBUG is not defined" << std::endl;
   #else
   std::cout << "NDEBUG is defined" << std::endl;
   #endif
-  if(argc > 4) throw std::runtime_error("Expected at most 2 arguments");
+  if(argc > 5) throw std::runtime_error("Expected at most 2 arguments");
   if(argc >= 2) NUM_ITERS = std::stoi(argv[1]);
   if(argc >= 3) NUM_WARMUP_ITERS = std::stoi(argv[2]);
   bool run_ij = true,
@@ -731,17 +747,26 @@ int main(int argc, char * const argv[]) {
     else if(which_kernel[0] == 'a') run_ij = false;
     else throw std::runtime_error("Expected 'ij' or 'arakawa'");
   }
+  bool run_bricks = true,
+       run_gtensor = true;
+  if(argc >= 5)
+  {
+    std::string which_method(argv[4]);
+    if(which_method[0] == 'g') run_bricks = false;
+    else if(which_method[0] == 'b') run_gtensor = false;
+    else throw std::runtime_error("Expected 'g' or 'b'");
+  }
 
   std::cout << "WARM UP:" << NUM_WARMUP_ITERS << std::endl;
   std::cout << "ITERATIONS:" << NUM_ITERS << std::endl;
 
   if(run_ij)
   {
-    ij_deriv();
+    ij_deriv(run_bricks, run_gtensor);
   }
   if(run_arakawa)
   {
-    semi_arakawa();
+    semi_arakawa(run_bricks, run_gtensor);
   }
   return 0;
 }
