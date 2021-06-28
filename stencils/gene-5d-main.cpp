@@ -1,4 +1,5 @@
 #include "gene-5d.h"
+#include <iomanip>
 
 // constants for number of times to run functions
 unsigned NUM_WARMUP_ITERS = CU_WARMUP;
@@ -59,17 +60,6 @@ void check_close(complexArray6D a, complexArray6D b, std::string name = "")
   {
     throw *e;
   }
-}
-
-/**
- * @brief print CUDA memory usage to stdout and flush buffer
- */
-void printCudaMemUsage()
-{
-  size_t free, total;
-  cudaMemGetInfo(&free, &total);
-  std::cout << std::scientific;
-  std::cout << (double) (total - free) << " bytes / " << (double) total << " bytes in use." << std::endl;
 }
 
 /**
@@ -197,12 +187,10 @@ void ij_deriv_gtensor(bComplexElem *out_ptr, bComplexElem *in_ptr,
   };
 
   // time the function
-  std::cout << "gtensor: " << gene_cutime_func(compute_ij_deriv) << std::endl;
+  std::cout << "gtensor: " << gene_cutime_func(compute_ij_deriv);
 
   // copy output data back to host
   auto gt_out = gt::empty<gt::complex<bElem> >(shape6D);
-  std::cout << "gtensor peak usage:";
-  printCudaMemUsage();
   gt::copy(gt_out_dev, gt_out);
 
   // copy data from gtensor back to padded array
@@ -328,9 +316,7 @@ void ij_deriv_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr,
   };
 
   // time function
-  std::cout << "bricks: " << gene_cutime_func(compute_ij_deriv) << std::endl;
-  std::cout << "bricks peak usage:";
-  printCudaMemUsage();
+  std::cout << "bricks: " << gene_cutime_func(compute_ij_deriv);
 
   // copy back to host
   cudaCheck(cudaMemcpy(fieldBrickStorage.dat.get(),
@@ -403,18 +389,13 @@ void ij_deriv() {
 
   // run computations
   std::cout << "Starting ij_deriv benchmarks" << std::endl;
-  std::cout << "starting ij_deriv_bricks." << std::endl;
-  printCudaMemUsage();
   ij_deriv_bricks(out_ptr, in_ptr, p1, p2, ikj, i_deriv_coeff);
   check_close(out_arr, out_check_arr, "bricks");
+  std::cout << " PASSED" << std::endl;
 
-  std::cout << "ij_deriv_bricks complete" << std::endl;
-  printCudaMemUsage();
-  std::cout << "starting ij_deriv_gtensor." << std::endl;
   ij_deriv_gtensor(out_ptr, in_ptr, p1, p2, ikj, i_deriv_coeff);
   check_close(out_arr, out_check_arr, "gtensor");
-  std::cout << "ij_deriv_gtensor complete" << std::endl;
-  printCudaMemUsage();
+  std::cout << " PASSED" << std::endl;
 
   std::cout << "done" << std::endl;
 
@@ -512,7 +493,7 @@ void semi_arakawa_gtensor(bComplexElem *out_ptr, bComplexElem *in_ptr, bElem *co
   };
 
   // time the function
-  std::cout << "gtensor: " << gene_cutime_func(compute_semi_arakawa) << std::endl;
+  std::cout << "gtensor: " << gene_cutime_func(compute_semi_arakawa);
 
   // copy output data back to host
   auto gt_out = gt::empty<gt::complex<bElem> >(shape6D);
@@ -602,13 +583,10 @@ void semi_arakawa_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr, bElem *coe
     bElem *coeff_i_ptr = reordered_coeff + i * NUM_PADDED_ELEMENTS / PADDED_EXTENT_j;
     copyToBrick<DIM - 1>(coeffDimList, coeffPadding, coeffGZ, coeff_i_ptr, coeff_grid_ptr, bCoeffs[i]);
   }
-  std::cout << "allocating field brick storage:" << std::endl;
 
   // move storage to device
   BrickStorage fieldBrickStorage_dev = movBrickStorage(fieldBrickStorage, cudaMemcpyHostToDevice);
-  std::cout << "field brick storage allocation complete. Allocating coeff brick storage:" << std::endl;
   BrickStorage coeffBrickStorage_dev = movBrickStorage(coeffBrickStorage, cudaMemcpyHostToDevice);
-  std::cout << "coeff brick storage complete" << std::endl;
 
   // copy coefficient bricks to device
   RealCoeffBrick *bCoeffs_dev = nullptr;
@@ -640,7 +618,7 @@ void semi_arakawa_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr, bElem *coe
   };
 
   // time function
-  std::cout << "bricks: " << gene_cutime_func(compute_semi_arakawa) << std::endl;
+  std::cout << "bricks: " << gene_cutime_func(compute_semi_arakawa);
 
   // copy back to host
   cudaCheck(cudaMemcpy(fieldBrickStorage.dat.get(),
@@ -720,9 +698,11 @@ void semi_arakawa() {
   std::cout << "Starting semi_arakawa benchmarks" << std::endl;
   semi_arakawa_bricks(out_ptr, in_ptr, coeff);
   check_close(out_arr, out_check_arr, "bricks");
+  std::cout << " PASSED" << std::endl;
 
   semi_arakawa_gtensor(out_ptr, in_ptr, coeff);
   check_close(out_arr, out_check_arr, "gtensor");
+  std::cout << " PASSED" << std::endl;
 
   std::cout << "done" << std::endl;
 
@@ -732,24 +712,36 @@ void semi_arakawa() {
   free(in_ptr);
 }
 
-// usage: (Optional) [num iterations] (Optional) [num warmup iterations]
+// usage: (Optional) [num iterations] (Optional) [num warmup iterations] (Optional) [which kernel (ij or arakawa)]
 int main(int argc, char * const argv[]) {
   #ifndef NDEBUG
   std::cout << "NDEBUG is not defined" << std::endl;
   #else
   std::cout << "NDEBUG is defined" << std::endl;
   #endif
-  if(argc > 3) throw std::runtime_error("Expected at most 2 arguments");
+  if(argc > 4) throw std::runtime_error("Expected at most 2 arguments");
   if(argc >= 2) NUM_ITERS = std::stoi(argv[1]);
   if(argc >= 3) NUM_WARMUP_ITERS = std::stoi(argv[2]);
+  bool run_ij = true,
+       run_arakawa = true;
+  if(argc >= 4)
+  {
+    std::string which_kernel(argv[3]);
+    if(which_kernel[0] == 'i') run_arakawa = false;
+    else if(which_kernel[0] == 'a') run_ij = false;
+    else throw std::runtime_error("Expected 'ij' or 'arakawa'");
+  }
 
   std::cout << "WARM UP:" << NUM_WARMUP_ITERS << std::endl;
   std::cout << "ITERATIONS:" << NUM_ITERS << std::endl;
 
-  printCudaMemUsage();
-  ij_deriv();
-  printCudaMemUsage();
-  semi_arakawa();
-  printCudaMemUsage();
+  if(run_ij)
+  {
+    ij_deriv();
+  }
+  if(run_arakawa)
+  {
+    semi_arakawa();
+  }
   return 0;
 }
