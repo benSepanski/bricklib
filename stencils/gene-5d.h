@@ -30,16 +30,16 @@
 // useful constants
 constexpr bElem pi = 3.14159265358979323846;
 
-constexpr unsigned PADDING_i = 4;
+constexpr unsigned PADDING_i = 8;
 constexpr unsigned PADDING_j = 0;
-constexpr unsigned PADDING_k = 4;
+constexpr unsigned PADDING_k = 8;
 constexpr unsigned PADDING_l = 4;
 constexpr unsigned PADDING_m = 0;
 constexpr unsigned PADDING_n = 0;
 #define PADDING PADDING_i,PADDING_j,PADDING_k,PADDING_l,PADDING_m,PADDING_n
-constexpr unsigned GHOST_ZONE_i = 4;
+constexpr unsigned GHOST_ZONE_i = 8;
 constexpr unsigned GHOST_ZONE_j = 0;
-constexpr unsigned GHOST_ZONE_k = 4;
+constexpr unsigned GHOST_ZONE_k = 8;
 constexpr unsigned GHOST_ZONE_l = 4;
 constexpr unsigned GHOST_ZONE_m = 0;
 constexpr unsigned GHOST_ZONE_n = 0;
