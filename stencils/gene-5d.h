@@ -1,6 +1,8 @@
 #ifndef BRICK_GENE_5D_H
 #define BRICK_GENE_5D_H
 
+#define GTENSOR_DEFAULT_DEVICE_ALLOCATOR(T) gt::device_allocator<T>
+
 #include <algorithm>
 #include <cuComplex.h>
 #include <gtensor/gtensor.h>
@@ -47,9 +49,9 @@ constexpr unsigned GHOST_ZONE_n = 0;
 constexpr unsigned DIM = 6;
 constexpr unsigned TILE = 8;
 // set brick sizes
-constexpr unsigned BDIM_i = 4;
+constexpr unsigned BDIM_i = 8;
 constexpr unsigned BDIM_j = 1;
-constexpr unsigned BDIM_k = 4;
+constexpr unsigned BDIM_k = 8;
 constexpr unsigned BDIM_l = 4;
 constexpr unsigned BDIM_m = 1;
 constexpr unsigned BDIM_n = 1;
@@ -107,6 +109,9 @@ typedef Brick<Dim<BDIM_n, BDIM_m, BDIM_l, BDIM_k, BDIM_i>, Dim<2,4,4>> RealCoeff
 // useful constants for stencil computations
 constexpr unsigned ARAKAWA_STENCIL_SIZE = 13;
 
+// used to copy i derivative coefficients into constant memory
+void copy_i_deriv_coeff(const bElem i_deriv_coeff_host[5]);
+
 // declare cuda kernels
 __global__ void
 ij_deriv_brick_kernel(unsigned (*fieldGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l][GZ_BRICK_EXTENT_k][GZ_BRICK_EXTENT_j][GZ_BRICK_EXTENT_i],
@@ -115,8 +120,16 @@ ij_deriv_brick_kernel(unsigned (*fieldGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l
                       FieldBrick bOut,
                       PreCoeffBrick bP1,
                       PreCoeffBrick bP2,
-                      bComplexElem *ikj,
-                      bElem *i_deriv_coeff);
+                      bComplexElem *ikj);
+
+__global__ void
+ij_deriv_brick_kernel_vec(unsigned (*fieldGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l][GZ_BRICK_EXTENT_k][GZ_BRICK_EXTENT_j][GZ_BRICK_EXTENT_i],
+                          unsigned (*coeffGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l][GZ_BRICK_EXTENT_k][GZ_BRICK_EXTENT_i],
+                          FieldBrick bIn,
+                          FieldBrick bOut,
+                          PreCoeffBrick bP1,
+                          PreCoeffBrick bP2,
+                          bComplexElem *ikj) ;
 
 __global__ void
 semi_arakawa_brick_kernel(unsigned (*fieldGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l][GZ_BRICK_EXTENT_k][GZ_BRICK_EXTENT_j][GZ_BRICK_EXTENT_i],

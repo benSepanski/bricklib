@@ -59,6 +59,17 @@ __device__ __forceinline__ void dev_shl(T &res, T l, T r, int kn, int cw, int ci
 #endif
   res = (cid) < kn? l_tmp : r_tmp;
 }
+
+/**
+ * @brief Same as dev_shl but for complex types
+ */
+__device__ __forceinline__
+void dev_shl_cplx(bComplexElem &res, bComplexElem l, bComplexElem r, int kn, int cw, int cid)
+{
+  bElem (*res_as_array)[2] = &reinterpret_cast<bElem(&)[2]>(res);
+  dev_shl((*res_as_array)[0], l.real(), r.real(), kn, cw, cid);
+  dev_shl((*res_as_array)[1], l.imag(), r.imag(), kn, cw, cid);
+}
 #endif
 
 #endif //BRICK_DEV_SHL_H

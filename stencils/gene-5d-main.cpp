@@ -1,4 +1,3 @@
-#define GTENSOR_DEFAULT_DEVICE_ALLOCATOR(T) gt::device_allocator<T>
 #include "gene-5d.h"
 #include <iomanip>
 
@@ -95,12 +94,15 @@ using gtensor6D = gt::gtensor<gt::complex<bElem>, 6, Space>;
  * @param p2[in]
  * @param ikj[in]
  * @param i_deriv_coeff[in]
+ * @param correctnessChecker[in] checks that out_ptr matches the solution
  * 
  * \f$out_ptr := p_1 * \frac{\partial}{\partial x} (in_ptr) + p_2 * 2\pi *i * j *(in_ptr)\f$
  */
 void ij_deriv_gtensor(bComplexElem *out_ptr, bComplexElem *in_ptr,
                       bComplexElem *p1, bComplexElem *p2,
-                      bComplexElem ikj[PADDED_EXTENT_j], bElem i_deriv_coeff[5])
+                      bComplexElem ikj[PADDED_EXTENT_j], bElem i_deriv_coeff[5],
+                      std::function<void(std::string)> correctnessChecker
+                      )
 {
   static_assert(sizeof(bComplexElem) == sizeof(gt::complex<bElem>));
   static_assert(alignof(bComplexElem) == alignof(gt::complex<bElem>));
@@ -208,6 +210,9 @@ void ij_deriv_gtensor(bComplexElem *out_ptr, bComplexElem *in_ptr,
     out_arr[n][m][l][k][j][i]
       = reinterpret_cast<bComplexElem&>(gt_out(i - PADDING_i, j - PADDING_j, k - PADDING_k, l - PADDING_l, m - PADDING_m, n - PADDING_n));
   }
+  // check correctness
+  correctnessChecker("gtensor");
+  std::cout << " PASSED" << std::endl;
 }
 
 /**
@@ -215,7 +220,10 @@ void ij_deriv_gtensor(bComplexElem *out_ptr, bComplexElem *in_ptr,
  */
 void ij_deriv_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr,
                      bComplexElem *p1, bComplexElem *p2,
-                     bComplexElem ikj[PADDED_EXTENT_j], bElem i_deriv_coeff[5])
+                     bComplexElem ikj[PADDED_EXTENT_j],
+                     bElem i_deriv_coeff[5],
+                     std::function<void(std::string)> correctnessChecker
+                     )
 {
   // set up brick info and move to device
   unsigned *field_grid_ptr;
@@ -278,17 +286,50 @@ void ij_deriv_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr,
   BrickStorage coeffBrickStorage_dev = movBrickStorage(coeffBrickStorage, cudaMemcpyHostToDevice);
 
   // set up i-k-j and i-deriv coefficients on the device
+  copy_i_deriv_coeff(i_deriv_coeff);
   bComplexElem *ikj_dev = nullptr;
-  bElem *i_deriv_coeff_dev = nullptr;
   {
     unsigned ikj_size = PADDED_EXTENT_j * sizeof(bComplexElem);
     cudaCheck(cudaMalloc(&ikj_dev, ikj_size));
     cudaCheck(cudaMemcpy(ikj_dev, ikj, ikj_size, cudaMemcpyHostToDevice));
-
-    unsigned i_deriv_coeff_size = 5 * sizeof(bElem);
-    cudaCheck(cudaMalloc(&i_deriv_coeff_dev, i_deriv_coeff_size));
-    cudaCheck(cudaMemcpy(i_deriv_coeff_dev, i_deriv_coeff, i_deriv_coeff_size, cudaMemcpyHostToDevice));
   }
+
+  // build function to actually run computation (vectorized)
+  auto compute_ij_deriv_vec = [&fieldBrickInfo_dev,
+                               &fieldBrickStorage_dev,
+                               &coeffBrickInfo_dev,
+                               &coeffBrickStorage_dev,
+                               &field_grid_ptr_dev,
+                               &coeff_grid_ptr_dev,
+                               &ikj_dev]() -> void {
+    FieldBrick bIn(fieldBrickInfo_dev, fieldBrickStorage_dev, 0);
+    FieldBrick bOut(fieldBrickInfo_dev, fieldBrickStorage_dev, FieldBrick::BRICKSIZE);
+    PreCoeffBrick bP1(coeffBrickInfo_dev, coeffBrickStorage_dev, 0);
+    PreCoeffBrick bP2(coeffBrickInfo_dev, coeffBrickStorage_dev, PreCoeffBrick::BRICKSIZE);
+    dim3 block(BRICK_EXTENT_i, BRICK_EXTENT_j, NUM_BRICKS / BRICK_EXTENT_i / BRICK_EXTENT_j),
+        thread(32);
+    ij_deriv_brick_kernel_vec<< < block, thread >> >(
+                          (unsigned (*)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l][GZ_BRICK_EXTENT_k][GZ_BRICK_EXTENT_j][GZ_BRICK_EXTENT_i]) field_grid_ptr_dev,
+                          (unsigned (*)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l][GZ_BRICK_EXTENT_k][GZ_BRICK_EXTENT_i]) coeff_grid_ptr_dev,
+                          bIn,
+                          bOut,
+                          bP1,
+                          bP2,
+                          ikj_dev);
+  };
+
+  // time function
+  std::cout << "bricks (vec): " << gene_cutime_func(compute_ij_deriv_vec);
+
+  // copy back to host to check correctness
+  cudaCheck(cudaMemcpy(fieldBrickStorage.dat.get(),
+                       fieldBrickStorage_dev.dat.get(),
+                       fieldBrickStorage.chunks * fieldBrickStorage.step * sizeof(bElem),
+                       cudaMemcpyDeviceToHost));
+  cudaDeviceSynchronize();
+  copyFromBrick<DIM>({EXTENT}, {PADDING}, {GHOST_ZONE}, out_ptr, field_grid_ptr, bOut);
+  correctnessChecker("bricks (vec)");
+  std::cout << " PASSED" << std::endl;
 
   // build function to actually run computation
   auto compute_ij_deriv = [&fieldBrickInfo_dev,
@@ -297,8 +338,7 @@ void ij_deriv_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr,
                            &coeffBrickStorage_dev,
                            &field_grid_ptr_dev,
                            &coeff_grid_ptr_dev,
-                           &ikj_dev,
-                           &i_deriv_coeff_dev]() -> void {
+                           &ikj_dev]() -> void {
     FieldBrick bIn(fieldBrickInfo_dev, fieldBrickStorage_dev, 0);
     FieldBrick bOut(fieldBrickInfo_dev, fieldBrickStorage_dev, FieldBrick::BRICKSIZE);
     PreCoeffBrick bP1(coeffBrickInfo_dev, coeffBrickStorage_dev, 0);
@@ -312,23 +352,23 @@ void ij_deriv_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr,
                           bOut,
                           bP1,
                           bP2,
-                          ikj_dev,
-                          i_deriv_coeff_dev);
+                          ikj_dev);
   };
 
   // time function
   std::cout << "bricks: " << gene_cutime_func(compute_ij_deriv);
 
-  // copy back to host
+  // copy back to host to check correctness
   cudaCheck(cudaMemcpy(fieldBrickStorage.dat.get(),
                        fieldBrickStorage_dev.dat.get(),
                        fieldBrickStorage.chunks * fieldBrickStorage.step * sizeof(bElem),
                        cudaMemcpyDeviceToHost));
   cudaDeviceSynchronize();
   copyFromBrick<DIM>({EXTENT}, {PADDING}, {GHOST_ZONE}, out_ptr, field_grid_ptr, bOut);
+  correctnessChecker("bricks");
+  std::cout << " PASSED" << std::endl;
 
   // free allocated memory
-  cudaCheck(cudaFree(i_deriv_coeff_dev));
   cudaCheck(cudaFree(ikj_dev));
   cudaCheck(cudaFree(_coeffBrickInfo_dev.adj));
   cudaCheck(cudaFree(_fieldBrickInfo_dev.adj));
@@ -388,20 +428,21 @@ void ij_deriv(bool run_bricks, bool run_gtensor) {
 
   complexArray6D out_arr = (complexArray6D) out_ptr;
 
+  // define correctness checker
+  auto correctnessChecker = [&out_check_arr, &out_arr](std::string name) -> void {
+    check_close(out_arr, out_check_arr, name);
+  };
+
   // run computations
   std::cout << "Starting ij_deriv benchmarks" << std::endl;
   if(run_bricks)
   {
-    ij_deriv_bricks(out_ptr, in_ptr, p1, p2, ikj, i_deriv_coeff);
-    check_close(out_arr, out_check_arr, "bricks");
-    std::cout << " PASSED" << std::endl;
+    ij_deriv_bricks(out_ptr, in_ptr, p1, p2, ikj, i_deriv_coeff, correctnessChecker);
   }
 
   if(run_gtensor)
   {
-    ij_deriv_gtensor(out_ptr, in_ptr, p1, p2, ikj, i_deriv_coeff);
-    check_close(out_arr, out_check_arr, "gtensor");
-    std::cout << " PASSED" << std::endl;
+    ij_deriv_gtensor(out_ptr, in_ptr, p1, p2, ikj, i_deriv_coeff, correctnessChecker);
   }
 
   std::cout << "done" << std::endl;
