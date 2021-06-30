@@ -1,4 +1,4 @@
-#include "gene-5d.h"
+#include "gene-6d.h"
 #include <iomanip>
 
 // constants for number of times to run functions

@@ -1,4 +1,4 @@
-#include "gene-5d.h"
+#include "gene-6d.h"
 #include "assert.h"
 
 constexpr unsigned GB_i = GHOST_ZONE_i / BDIM_i;
