@@ -30,21 +30,6 @@
 // useful constants
 constexpr bElem pi = 3.14159265358979323846;
 
-constexpr unsigned PADDING_i = 8;
-constexpr unsigned PADDING_j = 0;
-constexpr unsigned PADDING_k = 8;
-constexpr unsigned PADDING_l = 4;
-constexpr unsigned PADDING_m = 0;
-constexpr unsigned PADDING_n = 0;
-#define PADDING PADDING_i,PADDING_j,PADDING_k,PADDING_l,PADDING_m,PADDING_n
-constexpr unsigned GHOST_ZONE_i = 8;
-constexpr unsigned GHOST_ZONE_j = 0;
-constexpr unsigned GHOST_ZONE_k = 8;
-constexpr unsigned GHOST_ZONE_l = 4;
-constexpr unsigned GHOST_ZONE_m = 0;
-constexpr unsigned GHOST_ZONE_n = 0;
-#define GHOST_ZONE GHOST_ZONE_i,GHOST_ZONE_j,GHOST_ZONE_k,GHOST_ZONE_l,GHOST_ZONE_m,GHOST_ZONE_n
-
 // blocking dimensions
 constexpr unsigned DIM = 6;
 constexpr unsigned TILE = 8;
@@ -65,6 +50,23 @@ constexpr unsigned EXTENT_m = 32;
 constexpr unsigned EXTENT_n = 2;
 #define EXTENT EXTENT_i,EXTENT_j,EXTENT_k,EXTENT_l,EXTENT_m,EXTENT_n
 constexpr unsigned NUM_ELEMENTS = EXTENT_i * EXTENT_j * EXTENT_k * EXTENT_l * EXTENT_m * EXTENT_n;
+// padding (for arrays only)
+constexpr unsigned PADDING_i = BDIM_i > 1 ? BDIM_i : 0;
+constexpr unsigned PADDING_j = BDIM_j > 1 ? BDIM_j : 0;
+constexpr unsigned PADDING_k = BDIM_k > 1 ? BDIM_k : 0;
+constexpr unsigned PADDING_l = BDIM_l > 1 ? BDIM_l : 0;
+constexpr unsigned PADDING_m = BDIM_m > 1 ? BDIM_m : 0;
+constexpr unsigned PADDING_n = BDIM_n > 1 ? BDIM_n : 0;
+#define PADDING PADDING_i,PADDING_j,PADDING_k,PADDING_l,PADDING_m,PADDING_n
+// ghost zone (for arrays and bricks)
+constexpr unsigned GHOST_ZONE_i = PADDING_i;
+constexpr unsigned GHOST_ZONE_j = PADDING_j;
+constexpr unsigned GHOST_ZONE_k = PADDING_k;
+constexpr unsigned GHOST_ZONE_l = PADDING_l;
+constexpr unsigned GHOST_ZONE_m = PADDING_m;
+constexpr unsigned GHOST_ZONE_n = PADDING_n;
+#define GHOST_ZONE GHOST_ZONE_i,GHOST_ZONE_j,GHOST_ZONE_k,GHOST_ZONE_l,GHOST_ZONE_m,GHOST_ZONE_n
+
 // num elements in each direction + ghosts
 constexpr unsigned GZ_EXTENT_i = (EXTENT_i + 2 * GHOST_ZONE_i);
 constexpr unsigned GZ_EXTENT_j = (EXTENT_j + 2 * GHOST_ZONE_j);
