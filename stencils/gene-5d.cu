@@ -102,10 +102,10 @@ ij_deriv_brick_kernel(unsigned (*fieldGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l
   // load data together so that memory accesses get coalesced
   bComplexElem in[5];
   in[0] = bIn[bFieldIndex][n][m][l][k][j][i - 2];
-  in[0] = bIn[bFieldIndex][n][m][l][k][j][i - 1];
-  in[0] = bIn[bFieldIndex][n][m][l][k][j][i];
-  in[0] = bIn[bFieldIndex][n][m][l][k][j][i + 1];
-  in[0] = bIn[bFieldIndex][n][m][l][k][j][i + 2];
+  in[1] = bIn[bFieldIndex][n][m][l][k][j][i - 1];
+  in[2] = bIn[bFieldIndex][n][m][l][k][j][i];
+  in[3] = bIn[bFieldIndex][n][m][l][k][j][i + 1];
+  in[4] = bIn[bFieldIndex][n][m][l][k][j][i + 2];
 
   bComplexElem p1 = bP1[bCoeffIndex][n][m][l][k][i],
                p2 = bP2[bCoeffIndex][n][m][l][k][i],
@@ -161,12 +161,12 @@ ij_deriv_brick_kernel_vec(unsigned (*fieldGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTE
 
   // output buffer (corresponds to segments of length BDIM_i
   // at strides of WARP_SIZE elements inside the brick)
-  static_assert(NUM_ELEMENTS_PER_BRICK % (WARP_SIZE * BDIM_i) == 0);
+  static_assert(NUM_ELEMENTS_PER_BRICK % WARP_SIZE == 0);
   bComplexElem outputBuf[NUM_ELEMENTS_PER_BRICK / WARP_SIZE];
   for(unsigned i = 0; i < NUM_ELEMENTS_PER_BRICK / WARP_SIZE; ++i) outputBuf[i] = 0.0;
 
   // perform this operation for each "vector"
-  for(unsigned vec_idx = 0; vec_idx < NUM_ELEMENTS_PER_BRICK / WARP_SIZE; vec_idx += WARP_SIZE)
+  for(unsigned vec_idx = 0; vec_idx < NUM_ELEMENTS_PER_BRICK / WARP_SIZE; vec_idx++)
   {
     // perform shift from left
     unsigned flatBrickIdx = vec_idx * WARP_SIZE + threadIdx.x;
@@ -176,20 +176,20 @@ ij_deriv_brick_kernel_vec(unsigned (*fieldGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTE
     bComplexElem fieldValueInBlock = bIn[bFieldIdx][brickIdx.n][brickIdx.m][brickIdx.l][brickIdx.k][brickIdx.j][brickIdx.i];
     // += coeff[0] * [...][i-2]
     bComplexElem shiftedValue;
-    dev_shl_cplx(shiftedValue, fieldValueInLeftBlock, fieldValueInBlock, 2, WARP_SIZE, threadIdx.x);
+    dev_shl_cplx(shiftedValue, fieldValueInLeftBlock, fieldValueInBlock, 2, BDIM_i, threadIdx.x % BDIM_i);
     outputBuf[vec_idx] += const_i_deriv_coeff_dev[0] * shiftedValue;
     // += coeff[1] * [...][i-1]
-    dev_shl_cplx(shiftedValue, fieldValueInLeftBlock, fieldValueInBlock, 1, WARP_SIZE, threadIdx.x);
+    dev_shl_cplx(shiftedValue, fieldValueInLeftBlock, fieldValueInBlock, 1, BDIM_i, threadIdx.x % BDIM_i);
     outputBuf[vec_idx] += const_i_deriv_coeff_dev[1] * shiftedValue;
     // grab value from right
     bComplexElem fieldValueInRightBlock = bIn[bFieldIdx][brickIdx.n][brickIdx.m][brickIdx.l][brickIdx.k][brickIdx.j][brickIdx.i + BDIM_i];
     // += coeff[2] * [...][i]
     outputBuf[vec_idx] += const_i_deriv_coeff_dev[2] * fieldValueInBlock;
     // += coeff[3] * [...][i+1]
-    dev_shl_cplx(shiftedValue, fieldValueInBlock, fieldValueInRightBlock, 31, WARP_SIZE, threadIdx.x);
+    dev_shl_cplx(shiftedValue, fieldValueInBlock, fieldValueInRightBlock, BDIM_i - 1, BDIM_i, threadIdx.x % BDIM_i);
     outputBuf[vec_idx] += const_i_deriv_coeff_dev[3] * shiftedValue;
     // += coeff[4] * [...][i+2]
-    dev_shl_cplx(shiftedValue, fieldValueInBlock, fieldValueInRightBlock, 30, WARP_SIZE, threadIdx.x);
+    dev_shl_cplx(shiftedValue, fieldValueInBlock, fieldValueInRightBlock, BDIM_i - 2, BDIM_i, threadIdx.x % BDIM_i);
     outputBuf[vec_idx] += const_i_deriv_coeff_dev[4] * shiftedValue;
     // grab p1 and p2
     outputBuf[vec_idx] *= bP1[bCoeffIdx][brickIdx.n][brickIdx.m][brickIdx.l][brickIdx.k][brickIdx.i];
@@ -200,7 +200,7 @@ ij_deriv_brick_kernel_vec(unsigned (*fieldGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTE
   }
 
   // now write out all the results to the actual output
-  for(unsigned vec_idx = 0; vec_idx < NUM_ELEMENTS_PER_BRICK / WARP_SIZE; vec_idx += WARP_SIZE)
+  for(unsigned vec_idx = 0; vec_idx < NUM_ELEMENTS_PER_BRICK / WARP_SIZE; vec_idx++)
   {
     unsigned flatBrickIdx = vec_idx * WARP_SIZE + threadIdx.x;
     index6D brickIdx = getIndexInsideBrick(flatBrickIdx);
@@ -227,12 +227,6 @@ semi_arakawa_brick_kernel(unsigned (*fieldGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTE
   long tk = GB_k + blockIdx.z % BRICK_EXTENT_k;
   long tj = GB_j + blockIdx.y;
   long ti = GB_i + blockIdx.x;
-  long n = threadIdx.z / (BDIM_k * BDIM_l * BDIM_m);
-  long m = threadIdx.z / (BDIM_k * BDIM_l) % BDIM_m;
-  long l = (threadIdx.z / BDIM_k) % BDIM_l;
-  long k = threadIdx.z % BDIM_k;
-  long j = threadIdx.y;
-  long i = threadIdx.x;
 
   // bounds check
   assert(0 <= ti && ti < GZ_BRICK_EXTENT_i);
@@ -241,15 +235,24 @@ semi_arakawa_brick_kernel(unsigned (*fieldGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTE
   assert(0 <= tl && tl < GZ_BRICK_EXTENT_l);
   assert(0 <= tm && tm < GZ_BRICK_EXTENT_m);
   assert(0 <= tn && tn < GZ_BRICK_EXTENT_n);
+
+  unsigned bFieldIndex = fieldGrid[tn][tm][tl][tk][tj][ti];
+  unsigned bCoeffIndex = coeffGrid[tn][tm][tl][tk][ti];
+
+  long n = threadIdx.z / (BDIM_k * BDIM_l * BDIM_m);
+  long m = threadIdx.z / (BDIM_k * BDIM_l) % BDIM_m;
+  long l = (threadIdx.z / BDIM_k) % BDIM_l;
+  long k = threadIdx.z % BDIM_k;
+  long j = threadIdx.y;
+  long i = threadIdx.x;
+
+  // bounds check
   assert(0 <= i && i < BDIM_i);
   assert(0 <= j && j < BDIM_j);
   assert(0 <= k && k < BDIM_k);
   assert(0 <= l && l < BDIM_l);
   assert(0 <= m && m < BDIM_m);
   assert(0 <= n && n < BDIM_n);
-
-  unsigned bFieldIndex = fieldGrid[tn][tm][tl][tk][tj][ti];
-  unsigned bCoeffIndex = coeffGrid[tn][tm][tl][tk][ti];
 
   // load in data
   bComplexElem in[13];
@@ -274,18 +277,17 @@ semi_arakawa_brick_kernel(unsigned (*fieldGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTE
   }
 
   // perform computation
-  bOut[bFieldIndex][n][m][l][k][j][i] =
-      myCoeff[ 0] * in[ 0] +
-      myCoeff[ 1] * in[ 1] +
-      myCoeff[ 2] * in[ 2] +
-      myCoeff[ 3] * in[ 3] +
-      myCoeff[ 4] * in[ 4] +
-      myCoeff[ 5] * in[ 5] +
-      myCoeff[ 6] * in[ 6] +
-      myCoeff[ 7] * in[ 7] +
-      myCoeff[ 8] * in[ 8] +
-      myCoeff[ 9] * in[ 9] +
-      myCoeff[10] * in[10] +
-      myCoeff[11] * in[11] +
-      myCoeff[12] * in[12];
+  bOut[bFieldIndex][n][m][l][k][j][i] = myCoeff[ 0] * in[ 0] +
+                                        myCoeff[ 1] * in[ 1] +
+                                        myCoeff[ 2] * in[ 2] +
+                                        myCoeff[ 3] * in[ 3] +
+                                        myCoeff[ 4] * in[ 4] +
+                                        myCoeff[ 5] * in[ 5] +
+                                        myCoeff[ 6] * in[ 6] +
+                                        myCoeff[ 7] * in[ 7] +
+                                        myCoeff[ 8] * in[ 8] +
+                                        myCoeff[ 9] * in[ 9] +
+                                        myCoeff[10] * in[10] +
+                                        myCoeff[11] * in[11] +
+                                        myCoeff[12] * in[12];
 }

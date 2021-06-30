@@ -30,16 +30,15 @@ typedef bComplexElem (*coeffArray5D)[PADDED_EXTENT_m][PADDED_EXTENT_l][PADDED_EX
  */
 void check_close(complexArray6D a, complexArray6D b, std::string name = "")
 {
-  std::exception *e = nullptr;
+  std::string errorMsg = "";
 
   // iterate over non-ghost zone elements
-  #pragma omp parallel for collapse(5) shared(e)
+  #pragma omp parallel for collapse(5)
   for (long n = PADDING_n + GHOST_ZONE_n; n < PADDING_n + GHOST_ZONE_n + EXTENT_n; n++)
   for (long m = PADDING_m + GHOST_ZONE_m; m < PADDING_m + GHOST_ZONE_m + EXTENT_m; m++)
   for (long l = PADDING_l + GHOST_ZONE_l; l < PADDING_l + GHOST_ZONE_l + EXTENT_l; l++)
   for (long k = PADDING_k + GHOST_ZONE_k; k < PADDING_k + GHOST_ZONE_k + EXTENT_k; k++)
   for (long j = PADDING_j + GHOST_ZONE_j; j < PADDING_j + GHOST_ZONE_j + EXTENT_j; j++)
-  #pragma omp simd
   for (long i = PADDING_i + GHOST_ZONE_i; i < PADDING_i + GHOST_ZONE_i + EXTENT_i; i++)
   {
     std::complex<bElem> z = a[n][m][l][k][j][i],
@@ -52,13 +51,15 @@ void check_close(complexArray6D a, complexArray6D b, std::string name = "")
                     << n << ", " << m << ", " << l << ", " << k << ", " << j << ", " << i << "]: "
                     << z.real() << "+" << z.imag() << "I != "
                     << w.real() << "+" << w.imag() << "I";
-      *e = std::runtime_error(errorMsgStream.str());
+      std::string localErrorMsg = errorMsgStream.str();
+      #pragma omp critical
+      errorMsg = localErrorMsg;
     }
   }
   // throw error if there was one
-  if(e != nullptr)
+  if(errorMsg.length() > 0)
   {
-    throw *e;
+    throw std::runtime_error(errorMsg);
   }
 }
 
@@ -94,14 +95,14 @@ using gtensor6D = gt::gtensor<gt::complex<bElem>, 6, Space>;
  * @param p2[in]
  * @param ikj[in]
  * @param i_deriv_coeff[in]
- * @param correctnessChecker[in] checks that out_ptr matches the solution
+ * @param out_check_arr[in] the solution
  * 
  * \f$out_ptr := p_1 * \frac{\partial}{\partial x} (in_ptr) + p_2 * 2\pi *i * j *(in_ptr)\f$
  */
 void ij_deriv_gtensor(bComplexElem *out_ptr, bComplexElem *in_ptr,
                       bComplexElem *p1, bComplexElem *p2,
                       bComplexElem ikj[PADDED_EXTENT_j], bElem i_deriv_coeff[5],
-                      std::function<void(std::string)> correctnessChecker
+                      complexArray6D out_check_arr
                       )
 {
   static_assert(sizeof(bComplexElem) == sizeof(gt::complex<bElem>));
@@ -211,7 +212,7 @@ void ij_deriv_gtensor(bComplexElem *out_ptr, bComplexElem *in_ptr,
       = reinterpret_cast<bComplexElem&>(gt_out(i - PADDING_i, j - PADDING_j, k - PADDING_k, l - PADDING_l, m - PADDING_m, n - PADDING_n));
   }
   // check correctness
-  correctnessChecker("gtensor");
+  check_close(out_arr, out_check_arr, "gtensor");
   std::cout << " PASSED" << std::endl;
 }
 
@@ -222,7 +223,7 @@ void ij_deriv_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr,
                      bComplexElem *p1, bComplexElem *p2,
                      bComplexElem ikj[PADDED_EXTENT_j],
                      bElem i_deriv_coeff[5],
-                     std::function<void(std::string)> correctnessChecker
+                     complexArray6D out_check_arr
                      )
 {
   // set up brick info and move to device
@@ -328,7 +329,8 @@ void ij_deriv_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr,
                        cudaMemcpyDeviceToHost));
   cudaDeviceSynchronize();
   copyFromBrick<DIM>({EXTENT}, {PADDING}, {GHOST_ZONE}, out_ptr, field_grid_ptr, bOut);
-  correctnessChecker("bricks (vec)");
+  complexArray6D out_arr = (complexArray6D) out_ptr;
+  check_close(out_arr, out_check_arr, "bricks (vec)");
   std::cout << " PASSED" << std::endl;
 
   // build function to actually run computation
@@ -365,7 +367,7 @@ void ij_deriv_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr,
                        cudaMemcpyDeviceToHost));
   cudaDeviceSynchronize();
   copyFromBrick<DIM>({EXTENT}, {PADDING}, {GHOST_ZONE}, out_ptr, field_grid_ptr, bOut);
-  correctnessChecker("bricks");
+  check_close(out_arr, out_check_arr, "bricks");
   std::cout << " PASSED" << std::endl;
 
   // free allocated memory
@@ -426,25 +428,17 @@ void ij_deriv(bool run_bricks, bool run_gtensor) {
     p2_arr[n][m][l][k][i] * ikj[j] * in_arr[n][m][l][k][j][i];
   }
 
-  complexArray6D out_arr = (complexArray6D) out_ptr;
-
-  // define correctness checker
-  auto correctnessChecker = [&out_check_arr, &out_arr](std::string name) -> void {
-    check_close(out_arr, out_check_arr, name);
-  };
-
   // run computations
   std::cout << "Starting ij_deriv benchmarks" << std::endl;
+
   if(run_bricks)
   {
-    ij_deriv_bricks(out_ptr, in_ptr, p1, p2, ikj, i_deriv_coeff, correctnessChecker);
+    ij_deriv_bricks(out_ptr, in_ptr, p1, p2, ikj, i_deriv_coeff, out_check_arr);
   }
-
   if(run_gtensor)
   {
-    ij_deriv_gtensor(out_ptr, in_ptr, p1, p2, ikj, i_deriv_coeff, correctnessChecker);
+    ij_deriv_gtensor(out_ptr, in_ptr, p1, p2, ikj, i_deriv_coeff, out_check_arr);
   }
-
   std::cout << "done" << std::endl;
 
   free(out_check_ptr);
