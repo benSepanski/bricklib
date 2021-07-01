@@ -765,11 +765,7 @@ void semi_arakawa(bool run_bricks, bool run_gtensor) {
 //        (Optional) [which kernel (ij or arakawa)] 
 //        (Optional) [g for just gtensor, b for just bricks]
 int main(int argc, char * const argv[]) {
-  #ifndef NDEBUG
-  std::cout << "NDEBUG is not defined" << std::endl;
-  #else
-  std::cout << "NDEBUG is defined" << std::endl;
-  #endif
+  // read command line args
   if(argc > 5) throw std::runtime_error("Expected at most 2 arguments");
   if(argc >= 2) NUM_ITERS = std::stoi(argv[1]);
   if(argc >= 3) NUM_WARMUP_ITERS = std::stoi(argv[2]);
@@ -792,8 +788,22 @@ int main(int argc, char * const argv[]) {
     else throw std::runtime_error("Expected 'g' or 'b'");
   }
 
-  std::cout << "WARM UP:" << NUM_WARMUP_ITERS << std::endl;
-  std::cout << "ITERATIONS:" << NUM_ITERS << std::endl;
+  // print trial info
+  #ifndef NDEBUG
+  std::cout << "NDEBUG is not defined" << std::endl;
+  #else
+  std::cout << "NDEBUG is defined" << std::endl;
+  // check cuda device
+  unsigned *dummy;
+  _cudaCheck(cudaMalloc(&dummy, sizeof(decltype(dummy))), "cudaMalloc(&dummy, sizeof(unsigned))", __FILE__, __LINE__);
+  _cudaCheck(cudaFree(dummy), "cudaFree(dummy)", __FILE__, __LINE__);
+  #endif
+  std::cout << "GRID      : n x m x l x k x j x i = " << EXTENT_n << " x " << EXTENT_m << " x " << EXTENT_l << " x "
+                                                      << EXTENT_k << " x " << EXTENT_j << " x " << EXTENT_i << " \n"
+            << "BRICK DIMS: n x m x l x k x j x i = " << BDIM_n << " x " << BDIM_m << " x " << BDIM_l << " x "
+                                                      << BDIM_k << " x " << BDIM_j << " x " << BDIM_i << "\n"
+            << "WARM UP:" << NUM_WARMUP_ITERS << "\n"
+            << "ITERATIONS:" << NUM_ITERS << std::endl;
 
   if(run_ij)
   {
