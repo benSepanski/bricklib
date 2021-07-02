@@ -9,6 +9,9 @@ constexpr unsigned GB_m = GHOST_ZONE_m / BDIM_m;
 constexpr unsigned GB_n = GHOST_ZONE_n / BDIM_n;
 
 constexpr unsigned WARP_SIZE = 32;
+constexpr unsigned MAX_BLOCK_SIZE = NUM_ELEMENTS_PER_BRICK;
+constexpr unsigned MAX_WARPS_PER_SM = 64;
+constexpr unsigned MIN_BLOCKS_PER_MULTIPROCESSOR = MAX_WARPS_PER_SM * WARP_SIZE / MAX_BLOCK_SIZE; 
 
 __constant__ bElem const_i_deriv_coeff_dev[5];
 
@@ -55,6 +58,7 @@ void copy_i_deriv_coeff(const bElem i_deriv_coeff_host[5])
 /**
  * @brief Compute on the non-ghost bricks
  */
+__launch_bounds__(MAX_BLOCK_SIZE, MIN_BLOCKS_PER_MULTIPROCESSOR)
 __global__ void
 ij_deriv_brick_kernel(unsigned (*fieldGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l][GZ_BRICK_EXTENT_k][GZ_BRICK_EXTENT_j][GZ_BRICK_EXTENT_i],
                       unsigned (*coeffGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l][GZ_BRICK_EXTENT_k][GZ_BRICK_EXTENT_i],
@@ -125,11 +129,11 @@ ij_deriv_brick_kernel(unsigned (*fieldGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l
 /**
  * @brief hand-vectorized i-j derivative kernel
  * 
- * Assumes block size is 32 and that each block handles
- * one brick.
+ * Assumes block size is IJ_DERIV_BRICK_KERNEL_VEC_BLOCK_SIZE
  * 
  * Should be invoked as a 3-dimensional grid of 1D blocks
  */
+__launch_bounds__(IJ_DERIV_BRICK_KERNEL_VEC_BLOCK_SIZE, MIN_BLOCKS_PER_MULTIPROCESSOR)
 __global__ void
 ij_deriv_brick_kernel_vec(unsigned (*fieldGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l][GZ_BRICK_EXTENT_k][GZ_BRICK_EXTENT_j][GZ_BRICK_EXTENT_i],
                           unsigned (*coeffGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l][GZ_BRICK_EXTENT_k][GZ_BRICK_EXTENT_i],
@@ -139,6 +143,7 @@ ij_deriv_brick_kernel_vec(unsigned (*fieldGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTE
                           PreCoeffBrick bP2,
                           bComplexElem *ikj) 
 {
+  constexpr unsigned BLOCK_SIZE = IJ_DERIV_BRICK_KERNEL_VEC_BLOCK_SIZE;
   // compute brick index
   long tn = GB_n + blockIdx.z / (BRICK_EXTENT_k * BRICK_EXTENT_l * BRICK_EXTENT_m);
   long tm = GB_m + blockIdx.z / (BRICK_EXTENT_k * BRICK_EXTENT_l) % BRICK_EXTENT_m;
@@ -160,51 +165,59 @@ ij_deriv_brick_kernel_vec(unsigned (*fieldGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTE
   unsigned bCoeffIdx = coeffGrid[tn][tm][tl][tk][ti];
 
   // output buffer (corresponds to segments of length BDIM_i
-  // at strides of WARP_SIZE elements inside the brick)
-  static_assert(NUM_ELEMENTS_PER_BRICK % WARP_SIZE == 0);
-  bComplexElem outputBuf[NUM_ELEMENTS_PER_BRICK / WARP_SIZE];
-  for(unsigned i = 0; i < NUM_ELEMENTS_PER_BRICK / WARP_SIZE; ++i) outputBuf[i] = 0.0;
+  // at strides of block size elements inside the brick)
+  assert(BLOCK_SIZE == blockDim.x);
+  static_assert(NUM_ELEMENTS_PER_BRICK % BLOCK_SIZE == 0);
+  bComplexElem outputBuf[NUM_ELEMENTS_PER_BRICK / BLOCK_SIZE];
+
+  unsigned leftNeighbor = bIn.bInfo->adj[bFieldIdx][CENTER_OFFSET_6D - 1];
+  unsigned rightNeighbor = bIn.bInfo->adj[bFieldIdx][CENTER_OFFSET_6D + 1];
 
   // perform this operation for each "vector"
-  for(unsigned vec_idx = 0; vec_idx < NUM_ELEMENTS_PER_BRICK / WARP_SIZE; vec_idx++)
+  for(unsigned vecIdx = 0; vecIdx < NUM_ELEMENTS_PER_BRICK / BLOCK_SIZE; vecIdx++)
   {
-    // perform shift from left
-    unsigned flatBrickIdx = vec_idx * WARP_SIZE + threadIdx.x;
-    index6D brickIdx = getIndexInsideBrick(flatBrickIdx);
+    unsigned flatBrickIdx = vecIdx * BLOCK_SIZE + threadIdx.x;
+    bComplexElem result;
     // get value in block to left and in this block
-    bComplexElem fieldValueInLeftBlock = bIn[bFieldIdx][brickIdx.n][brickIdx.m][brickIdx.l][brickIdx.k][brickIdx.j][brickIdx.i - BDIM_i];
-    bComplexElem fieldValueInBlock = bIn[bFieldIdx][brickIdx.n][brickIdx.m][brickIdx.l][brickIdx.k][brickIdx.j][brickIdx.i];
+    bComplexElem fieldValueInLeftBlock = bIn.dat[leftNeighbor * bIn.step + flatBrickIdx];
+    bComplexElem fieldValueInBlock = bIn.dat[bFieldIdx * bIn.step + flatBrickIdx];
     // += coeff[0] * [...][i-2]
     bComplexElem shiftedValue;
     dev_shl_cplx(shiftedValue, fieldValueInLeftBlock, fieldValueInBlock, 2, BDIM_i, threadIdx.x % BDIM_i);
-    outputBuf[vec_idx] += const_i_deriv_coeff_dev[0] * shiftedValue;
+    result = const_i_deriv_coeff_dev[0] * shiftedValue;
     // += coeff[1] * [...][i-1]
     dev_shl_cplx(shiftedValue, fieldValueInLeftBlock, fieldValueInBlock, 1, BDIM_i, threadIdx.x % BDIM_i);
-    outputBuf[vec_idx] += const_i_deriv_coeff_dev[1] * shiftedValue;
+    result += const_i_deriv_coeff_dev[1] * shiftedValue;
     // grab value from right
-    bComplexElem fieldValueInRightBlock = bIn[bFieldIdx][brickIdx.n][brickIdx.m][brickIdx.l][brickIdx.k][brickIdx.j][brickIdx.i + BDIM_i];
+    bComplexElem fieldValueInRightBlock = bIn.dat[rightNeighbor * bIn.step + flatBrickIdx];
     // += coeff[2] * [...][i]
-    outputBuf[vec_idx] += const_i_deriv_coeff_dev[2] * fieldValueInBlock;
+    result += const_i_deriv_coeff_dev[2] * fieldValueInBlock;
     // += coeff[3] * [...][i+1]
     dev_shl_cplx(shiftedValue, fieldValueInBlock, fieldValueInRightBlock, BDIM_i - 1, BDIM_i, threadIdx.x % BDIM_i);
-    outputBuf[vec_idx] += const_i_deriv_coeff_dev[3] * shiftedValue;
+    result += const_i_deriv_coeff_dev[3] * shiftedValue;
     // += coeff[4] * [...][i+2]
     dev_shl_cplx(shiftedValue, fieldValueInBlock, fieldValueInRightBlock, BDIM_i - 2, BDIM_i, threadIdx.x % BDIM_i);
-    outputBuf[vec_idx] += const_i_deriv_coeff_dev[4] * shiftedValue;
+    result += const_i_deriv_coeff_dev[4] * shiftedValue;
     // grab p1 and p2
-    outputBuf[vec_idx] *= bP1[bCoeffIdx][brickIdx.n][brickIdx.m][brickIdx.l][brickIdx.k][brickIdx.i];
+    unsigned flatBrickIdxNoJ = (flatBrickIdx / (BDIM_i * BDIM_j)) * BDIM_i + flatBrickIdx % BDIM_i;
+    unsigned flatBrickIdxJ = flatBrickIdx / BDIM_i % BDIM_j;
+    bComplexElem p1 = bP1.dat[bCoeffIdx * bIn.step + flatBrickIdxNoJ];
+    result *= p1;
     // add y-deriv term
     bComplexElem yDerivTerm = fieldValueInBlock;
-    yDerivTerm *= ikj[PADDING_j + BDIM_j * tj + brickIdx.j];
-    outputBuf[vec_idx] += yDerivTerm * bP2[bCoeffIdx][brickIdx.n][brickIdx.m][brickIdx.l][brickIdx.k][brickIdx.i];
+    bComplexElem p2 = bP2.dat[bCoeffIdx * bIn.step + flatBrickIdxNoJ];
+    yDerivTerm *= p2;
+    bComplexElem my_ikj = ikj[PADDING_j + BDIM_j * tj + flatBrickIdxJ];
+    result += yDerivTerm * my_ikj;
+    // store to buffer
+    outputBuf[vecIdx] = result;
   }
 
   // now write out all the results to the actual output
-  for(unsigned vec_idx = 0; vec_idx < NUM_ELEMENTS_PER_BRICK / WARP_SIZE; vec_idx++)
+  for(unsigned vecIdx = 0; vecIdx < NUM_ELEMENTS_PER_BRICK / BLOCK_SIZE; vecIdx++)
   {
-    unsigned flatBrickIdx = vec_idx * WARP_SIZE + threadIdx.x;
-    index6D brickIdx = getIndexInsideBrick(flatBrickIdx);
-    bOut[bFieldIdx][brickIdx.n][brickIdx.m][brickIdx.l][brickIdx.k][brickIdx.j][brickIdx.i] = outputBuf[vec_idx];
+    unsigned flatBrickIdx = vecIdx * BLOCK_SIZE + threadIdx.x;
+    bOut.dat[bFieldIdx * bIn.step + flatBrickIdx] = outputBuf[vecIdx];
   }
 }
 
