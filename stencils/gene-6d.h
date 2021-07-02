@@ -115,6 +115,7 @@ typedef Brick<Dim<BDIM_n, BDIM_m, BDIM_l, BDIM_k, BDIM_i>, Dim<VFOLD_l, VFOLD_k,
 // useful constants for stencil computations
 constexpr unsigned ARAKAWA_STENCIL_SIZE = 13;
 constexpr unsigned CENTER_OFFSET_6D = 1 + 3 + 3*3 + 3*3*3 + 3*3*3*3 + 3*3*3*3*3;
+constexpr unsigned WARP_SIZE = 32;
 
 // used to copy i derivative coefficients into constant memory
 void copy_i_deriv_coeff(const bElem i_deriv_coeff_host[5]);
@@ -130,6 +131,8 @@ ij_deriv_brick_kernel(unsigned (*fieldGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l
                       bComplexElem *ikj);
 
 constexpr unsigned IJ_DERIV_BRICK_KERNEL_VEC_BLOCK_SIZE = NUM_ELEMENTS_PER_BRICK;
+static_assert(IJ_DERIV_BRICK_KERNEL_VEC_BLOCK_SIZE % WARP_SIZE == 0);
+static_assert(NUM_ELEMENTS_PER_BRICK % IJ_DERIV_BRICK_KERNEL_VEC_BLOCK_SIZE == 0);
 __global__ void
 ij_deriv_brick_kernel_vec(unsigned (*fieldGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l][GZ_BRICK_EXTENT_k][GZ_BRICK_EXTENT_j][GZ_BRICK_EXTENT_i],
                           unsigned (*coeffGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l][GZ_BRICK_EXTENT_k][GZ_BRICK_EXTENT_i],
