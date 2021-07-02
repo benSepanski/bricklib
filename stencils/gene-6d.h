@@ -34,9 +34,9 @@ constexpr bElem pi = 3.14159265358979323846;
 constexpr unsigned DIM = 6;
 constexpr unsigned TILE = 8;
 // set brick sizes
-constexpr unsigned BDIM_i = 8;
+constexpr unsigned BDIM_i = 4;
 constexpr unsigned BDIM_j = 1;
-constexpr unsigned BDIM_k = 8;
+constexpr unsigned BDIM_k = 4;
 constexpr unsigned BDIM_l = 4;
 constexpr unsigned BDIM_m = 1;
 constexpr unsigned BDIM_n = 1;
@@ -116,6 +116,30 @@ typedef Brick<Dim<BDIM_n, BDIM_m, BDIM_l, BDIM_k, BDIM_i>, Dim<VFOLD_l, VFOLD_k,
 constexpr unsigned ARAKAWA_STENCIL_SIZE = 13;
 constexpr unsigned CENTER_OFFSET_6D = 1 + 3 + 3*3 + 3*3*3 + 3*3*3*3 + 3*3*3*3*3;
 constexpr unsigned WARP_SIZE = 32;
+#if __CUDA_ARCH__<=370 || __CUDA_ARCH__==750 || __CUDA_ARCH__==860
+constexpr unsigned MAX_BLOCKS_PER_SM = 16;
+#else
+constexpr unsigned MAX_BLOCKS_PER_SM = 32;
+#endif
+#if __CUDA_ARCH__<=720 || __CUDA_ARCH__==800
+constexpr unsigned MAX_WARPS_PER_SM = 64;
+#elif __CUDA_ARCH__==750
+constexpr unsigned MAX_WARPS_PER_SM = 32;
+#elif __CUDA__==860
+constexpr unsigned MAX_WARPS_PER_SM = 48;
+#else
+#error Unexpected compute capability #__CUDA_ARCH__
+#endif
+
+constexpr unsigned min_blocks_per_sm(unsigned max_block_size) {
+    unsigned max_num_warps_per_block = max_block_size / WARP_SIZE;
+    unsigned min_blocks_per_sm = MAX_WARPS_PER_SM / max_num_warps_per_block; 
+    if(min_blocks_per_sm > MAX_BLOCKS_PER_SM)
+    {
+        min_blocks_per_sm = MAX_BLOCKS_PER_SM;
+    }
+    return min_blocks_per_sm;
+}
 
 // used to copy i derivative coefficients into constant memory
 void copy_i_deriv_coeff(const bElem i_deriv_coeff_host[5]);
@@ -148,5 +172,15 @@ semi_arakawa_brick_kernel(unsigned (*fieldGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTE
                           FieldBrick bIn,
                           FieldBrick bOut,
                           RealCoeffBrick *coeff);
+
+constexpr unsigned SEMI_ARAKAWA_BRICK_KERNEL_VEC_BLOCK_SIZE = NUM_ELEMENTS_PER_BRICK;
+static_assert(SEMI_ARAKAWA_BRICK_KERNEL_VEC_BLOCK_SIZE % WARP_SIZE == 0);
+static_assert(NUM_ELEMENTS_PER_BRICK % SEMI_ARAKAWA_BRICK_KERNEL_VEC_BLOCK_SIZE == 0);
+__global__ void
+semi_arakawa_brick_kernel_vec(unsigned (*fieldGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l][GZ_BRICK_EXTENT_k][GZ_BRICK_EXTENT_j][GZ_BRICK_EXTENT_i],
+                              unsigned (*coeffGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l][GZ_BRICK_EXTENT_k][GZ_BRICK_EXTENT_i],
+                              FieldBrick bIn,
+                              FieldBrick bOut,
+                              RealCoeffBrick *coeff);
 
 #endif // BRICK_GENE_5D_H

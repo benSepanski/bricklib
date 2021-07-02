@@ -455,7 +455,7 @@ void ij_deriv(bool run_bricks, bool run_gtensor) {
  * @param in_ptr[in]
  * @param coeff[in]
  */
-void semi_arakawa_gtensor(bComplexElem *out_ptr, bComplexElem *in_ptr, bElem *coeff)
+void semi_arakawa_gtensor(bComplexElem *out_ptr, bComplexElem *in_ptr, bElem *coeff, complexArray6D out_check_arr)
 {
   auto shape6D = gt::shape(GZ_EXTENT);
   auto coeffShape = gt::shape(EXTENT_i, ARAKAWA_STENCIL_SIZE, EXTENT_k, EXTENT_l, EXTENT_m, EXTENT_n);
@@ -555,12 +555,16 @@ void semi_arakawa_gtensor(bComplexElem *out_ptr, bComplexElem *in_ptr, bElem *co
     out_arr[n][m][l][k][j][i]
       = reinterpret_cast<bComplexElem&>(gt_out(i - PADDING_i, j - PADDING_j, k - PADDING_k, l - PADDING_l, m - PADDING_m, n - PADDING_n));
   }
+
+  // check for correctness
+  check_close(out_arr, out_check_arr, "gtensor");
+  std::cout << " PASSED" << std::endl;
 }
 
 /**
  * @brief the arakawa deriv kernel using hand-written bricks code
  */
-void semi_arakawa_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr, bElem *coeff)
+void semi_arakawa_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr, bElem *coeff, complexArray6D out_check_arr)
 {
   // copy coeff from STENCIL_SIZE x GRID to GRID x STENCIL_SIZE
   bElem *reordered_coeff = zeroArray({PADDED_EXTENT_i, PADDED_EXTENT_k, PADDED_EXTENT_l, PADDED_EXTENT_m, PADDED_EXTENT_n, ARAKAWA_STENCIL_SIZE});
@@ -639,6 +643,40 @@ void semi_arakawa_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr, bElem *coe
     cudaCheck(cudaMemcpy(bCoeffs_dev + i, &brickToCopy, sizeof(RealCoeffBrick), cudaMemcpyHostToDevice));
   }
 
+  // build function to run vectorized computation
+  auto compute_semi_arakawa_vec = [&fieldBrickInfo_dev,
+                                   &fieldBrickStorage_dev,
+                                   &coeffBrickInfo_dev,
+                                   &coeffBrickStorage_dev,
+                                   &field_grid_ptr_dev,
+                                   &coeff_grid_ptr_dev,
+                                   &bCoeffs_dev]() -> void {
+    FieldBrick bIn(fieldBrickInfo_dev, fieldBrickStorage_dev, 0);
+    FieldBrick bOut(fieldBrickInfo_dev, fieldBrickStorage_dev, FieldBrick::BRICKSIZE);
+    dim3 block(BRICK_EXTENT_i, BRICK_EXTENT_j, NUM_BRICKS / BRICK_EXTENT_i / BRICK_EXTENT_j),
+        thread(BDIM_i, BDIM_j,  NUM_ELEMENTS_PER_BRICK / BDIM_i / BDIM_j);
+    semi_arakawa_brick_kernel_vec<< < block, thread >> >(
+                          (unsigned (*)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l][GZ_BRICK_EXTENT_k][GZ_BRICK_EXTENT_j][GZ_BRICK_EXTENT_i]) field_grid_ptr_dev,
+                          (unsigned (*)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l][GZ_BRICK_EXTENT_k][GZ_BRICK_EXTENT_i]) coeff_grid_ptr_dev,
+                          bIn,
+                          bOut,
+                          bCoeffs_dev);
+  };
+
+  // time function
+  std::cout << "bricks (vec): " << gene_cutime_func(compute_semi_arakawa_vec);
+
+  // copy back to host
+  cudaCheck(cudaMemcpy(fieldBrickStorage.dat.get(),
+                       fieldBrickStorage_dev.dat.get(),
+                       fieldBrickStorage.chunks * fieldBrickStorage.step * sizeof(bElem),
+                       cudaMemcpyDeviceToHost));
+  cudaDeviceSynchronize();
+  copyFromBrick<DIM>({EXTENT}, {PADDING}, {GHOST_ZONE}, out_ptr, field_grid_ptr, bOut);
+  // check for correctness
+  check_close((complexArray6D) out_ptr, out_check_arr, "arakawa bricks");
+  std::cout << " PASSED" << std::endl;
+
   // build function to actually run computation
   auto compute_semi_arakawa = [&fieldBrickInfo_dev,
                                &fieldBrickStorage_dev,
@@ -669,6 +707,9 @@ void semi_arakawa_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr, bElem *coe
                        cudaMemcpyDeviceToHost));
   cudaDeviceSynchronize();
   copyFromBrick<DIM>({EXTENT}, {PADDING}, {GHOST_ZONE}, out_ptr, field_grid_ptr, bOut);
+  // check for correctness
+  check_close((complexArray6D) out_ptr, out_check_arr, "arakawa bricks");
+  std::cout << " PASSED" << std::endl;
 
   // free allocated memory
   cudaCheck(cudaFree(bCoeffs_dev));
@@ -733,22 +774,16 @@ void semi_arakawa(bool run_bricks, bool run_gtensor) {
                                       coeff_arr[n][m][l][k][i][12] * in_arr[n][m][l+2][k+0][j][i];
   }
 
-  complexArray6D out_arr = (complexArray6D) out_ptr;
-
   // run computations
   std::cout << "Starting semi_arakawa benchmarks" << std::endl;
   if(run_bricks)
   {
-    semi_arakawa_bricks(out_ptr, in_ptr, coeff);
-    check_close(out_arr, out_check_arr, "bricks");
-    std::cout << " PASSED" << std::endl;
+    semi_arakawa_bricks(out_ptr, in_ptr, coeff, out_check_arr);
   }
 
   if(run_gtensor)
   {
-    semi_arakawa_gtensor(out_ptr, in_ptr, coeff);
-    check_close(out_arr, out_check_arr, "gtensor");
-    std::cout << " PASSED" << std::endl;
+    semi_arakawa_gtensor(out_ptr, in_ptr, coeff, out_check_arr);
   }
 
   std::cout << "done" << std::endl;

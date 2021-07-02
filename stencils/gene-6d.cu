@@ -8,10 +8,6 @@ constexpr unsigned GB_l = GHOST_ZONE_l / BDIM_l;
 constexpr unsigned GB_m = GHOST_ZONE_m / BDIM_m;
 constexpr unsigned GB_n = GHOST_ZONE_n / BDIM_n;
 
-constexpr unsigned MAX_BLOCK_SIZE = NUM_ELEMENTS_PER_BRICK;
-constexpr unsigned MAX_WARPS_PER_SM = 64;
-constexpr unsigned MIN_BLOCKS_PER_MULTIPROCESSOR = MAX_WARPS_PER_SM * WARP_SIZE / MAX_BLOCK_SIZE; 
-
 __constant__ bElem const_i_deriv_coeff_dev[5];
 
 /**
@@ -57,7 +53,7 @@ void copy_i_deriv_coeff(const bElem i_deriv_coeff_host[5])
 /**
  * @brief Compute on the non-ghost bricks
  */
-__launch_bounds__(MAX_BLOCK_SIZE, MIN_BLOCKS_PER_MULTIPROCESSOR)
+__launch_bounds__(NUM_ELEMENTS_PER_BRICK, min_blocks_per_sm(NUM_ELEMENTS_PER_BRICK))
 __global__ void
 ij_deriv_brick_kernel(unsigned (*fieldGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l][GZ_BRICK_EXTENT_k][GZ_BRICK_EXTENT_j][GZ_BRICK_EXTENT_i],
                       unsigned (*coeffGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l][GZ_BRICK_EXTENT_k][GZ_BRICK_EXTENT_i],
@@ -132,7 +128,7 @@ ij_deriv_brick_kernel(unsigned (*fieldGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l
  * 
  * Should be invoked as a 3-dimensional grid of 1D blocks
  */
-__launch_bounds__(IJ_DERIV_BRICK_KERNEL_VEC_BLOCK_SIZE, MIN_BLOCKS_PER_MULTIPROCESSOR)
+__launch_bounds__(IJ_DERIV_BRICK_KERNEL_VEC_BLOCK_SIZE, min_blocks_per_sm(IJ_DERIV_BRICK_KERNEL_VEC_BLOCK_SIZE))
 __global__ void
 ij_deriv_brick_kernel_vec(unsigned (*fieldGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l][GZ_BRICK_EXTENT_k][GZ_BRICK_EXTENT_j][GZ_BRICK_EXTENT_i],
                           unsigned (*coeffGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l][GZ_BRICK_EXTENT_k][GZ_BRICK_EXTENT_i],
@@ -284,24 +280,74 @@ semi_arakawa_brick_kernel(unsigned (*fieldGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTE
   in[11] = bIn[bFieldIndex][n][m][l+1][k+1][j][i];
   in[12] = bIn[bFieldIndex][n][m][l+2][k+0][j][i];
 
-  bElem myCoeff[13];
+  bComplexElem result = 0.0;
   for(unsigned stencil_index = 0; stencil_index < 13; ++stencil_index) 
   {
-    myCoeff[stencil_index] = coeff[stencil_index][bCoeffIndex][n][m][l][k][i];
+    bElem my_coeff = coeff[stencil_index][bCoeffIndex][n][m][l][k][i];
+    result += my_coeff * in[stencil_index];
   }
+  bOut[bFieldIndex][n][m][l][k][j][i] = result;
+}
 
-  // perform computation
-  bOut[bFieldIndex][n][m][l][k][j][i] = myCoeff[ 0] * in[ 0] +
-                                        myCoeff[ 1] * in[ 1] +
-                                        myCoeff[ 2] * in[ 2] +
-                                        myCoeff[ 3] * in[ 3] +
-                                        myCoeff[ 4] * in[ 4] +
-                                        myCoeff[ 5] * in[ 5] +
-                                        myCoeff[ 6] * in[ 6] +
-                                        myCoeff[ 7] * in[ 7] +
-                                        myCoeff[ 8] * in[ 8] +
-                                        myCoeff[ 9] * in[ 9] +
-                                        myCoeff[10] * in[10] +
-                                        myCoeff[11] * in[11] +
-                                        myCoeff[12] * in[12];
+/**
+ * @brief Compute arakawa on the non-ghost bricks
+ * 
+ * @param coeff an array of ARAKAWA_STENCIL_SIZE RealCoeffBrick s
+ * 
+ * Assumes block size is IJ_DERIV_BRICK_KERNEL_VEC_BLOCK_SIZE
+ * 
+ * Should be invoked as a 3-dimensional grid of 1D blocks
+ */
+__global__ void
+semi_arakawa_brick_kernel_vec(unsigned (*fieldGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l][GZ_BRICK_EXTENT_k][GZ_BRICK_EXTENT_j][GZ_BRICK_EXTENT_i],
+                              unsigned (*coeffGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l][GZ_BRICK_EXTENT_k][GZ_BRICK_EXTENT_i],
+                              FieldBrick bIn,
+                              FieldBrick bOut,
+                              RealCoeffBrick *coeff)
+{
+  // compute indices
+  long tn = GB_n + blockIdx.z / (BRICK_EXTENT_k * BRICK_EXTENT_l * BRICK_EXTENT_m);
+  long tm = GB_m + blockIdx.z / (BRICK_EXTENT_k * BRICK_EXTENT_l) % BRICK_EXTENT_m;
+  long tl = GB_l + (blockIdx.z / BRICK_EXTENT_k) % BRICK_EXTENT_l;
+  long tk = GB_k + blockIdx.z % BRICK_EXTENT_k;
+  long tj = GB_j + blockIdx.y;
+  long ti = GB_i + blockIdx.x;
+
+  // bounds check
+  assert(0 <= ti && ti < GZ_BRICK_EXTENT_i);
+  assert(0 <= tj && tj < GZ_BRICK_EXTENT_j);
+  assert(0 <= tk && tk < GZ_BRICK_EXTENT_k);
+  assert(0 <= tl && tl < GZ_BRICK_EXTENT_l);
+  assert(0 <= tm && tm < GZ_BRICK_EXTENT_m);
+  assert(0 <= tn && tn < GZ_BRICK_EXTENT_n);
+
+  unsigned bFieldIndex = fieldGrid[tn][tm][tl][tk][tj][ti];
+  unsigned bCoeffIndex = coeffGrid[tn][tm][tl][tk][ti];
+
+  long n = threadIdx.z / (BDIM_k * BDIM_l * BDIM_m);
+  long m = threadIdx.z / (BDIM_k * BDIM_l) % BDIM_m;
+  long l = (threadIdx.z / BDIM_k) % BDIM_l;
+  long k = threadIdx.z % BDIM_k;
+  long j = threadIdx.y;
+  long i = threadIdx.x;
+
+  // bounds check
+  assert(0 <= i && i < BDIM_i);
+  assert(0 <= j && j < BDIM_j);
+  assert(0 <= k && k < BDIM_k);
+  assert(0 <= l && l < BDIM_l);
+  assert(0 <= m && m < BDIM_m);
+  assert(0 <= n && n < BDIM_n);
+
+  bComplexElem result = 0.0;
+  int delta_l[13] = {-2, -1, -1, -1, 0, 0, 0, 0, 0, 1, 1, 1, 2};
+  int delta_k[13] = {0, -1, 0, 1, -2, -1, 0, 1, 2, -1, 0, 1, 0};
+  #pragma unroll
+  for(unsigned stencil_index = 0; stencil_index < 13; ++stencil_index) 
+  {
+    bElem my_coeff = coeff[stencil_index][bCoeffIndex][n][m][l][k][i];
+    bComplexElem fieldValue = bIn[bFieldIndex][n][m][l+delta_l[stencil_index]][k+delta_k[stencil_index]][j][i];
+    result += my_coeff * fieldValue;
+  }
+  bOut[bFieldIndex][n][m][l][k][j][i] = result;
 }
