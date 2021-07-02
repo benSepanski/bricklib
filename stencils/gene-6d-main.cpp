@@ -622,7 +622,7 @@ void semi_arakawa_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr, bElem *coe
   const std::vector<long> coeffGZ = {0,0,0,0,0};
   for(unsigned i = 0; i < ARAKAWA_STENCIL_SIZE; ++i)
   {
-    bElem *coeff_i_ptr = reordered_coeff + i * NUM_PADDED_ELEMENTS / PADDED_EXTENT_j;
+    bElem *coeff_i_ptr = (bElem *) reordered_coeff_arr[i];
     copyToBrick<DIM - 1>(coeffDimList, coeffPadding, coeffGZ, coeff_i_ptr, coeff_grid_ptr, bCoeffs[i]);
   }
 
@@ -718,20 +718,19 @@ void semi_arakawa(bool run_bricks, bool run_gtensor) {
   #pragma omp simd
   for(long i = PADDING_i + GHOST_ZONE_i; i < PADDING_i + GHOST_ZONE_i + EXTENT_i; i++)
   {
-    out_check_arr[n][m][l][k][j][i] = 
-        coeff_arr[n][m][k][l][i][ 0] * in_arr[n][m][l-2][k+0][j][i] +
-        coeff_arr[n][m][k][l][i][ 1] * in_arr[n][m][l-1][k-1][j][i] +
-        coeff_arr[n][m][k][l][i][ 2] * in_arr[n][m][l-1][k+0][j][i] +
-        coeff_arr[n][m][k][l][i][ 3] * in_arr[n][m][l-1][k+1][j][i] +
-        coeff_arr[n][m][k][l][i][ 4] * in_arr[n][m][l+0][k-2][j][i] +
-        coeff_arr[n][m][k][l][i][ 5] * in_arr[n][m][l+0][k-1][j][i] +
-        coeff_arr[n][m][k][l][i][ 6] * in_arr[n][m][l+0][k+0][j][i] +
-        coeff_arr[n][m][k][l][i][ 7] * in_arr[n][m][l+0][k+1][j][i] +
-        coeff_arr[n][m][k][l][i][ 8] * in_arr[n][m][l+0][k+2][j][i] +
-        coeff_arr[n][m][k][l][i][ 9] * in_arr[n][m][l+1][k-1][j][i] +
-        coeff_arr[n][m][k][l][i][10] * in_arr[n][m][l+1][k+0][j][i] +
-        coeff_arr[n][m][k][l][i][11] * in_arr[n][m][l+1][k+1][j][i] +
-        coeff_arr[n][m][k][l][i][12] * in_arr[n][m][l+2][k+0][j][i];
+    out_check_arr[n][m][l][k][j][i] = coeff_arr[n][m][l][k][i][ 0] * in_arr[n][m][l-2][k+0][j][i] +
+                                      coeff_arr[n][m][l][k][i][ 1] * in_arr[n][m][l-1][k-1][j][i] +
+                                      coeff_arr[n][m][l][k][i][ 2] * in_arr[n][m][l-1][k+0][j][i] +
+                                      coeff_arr[n][m][l][k][i][ 3] * in_arr[n][m][l-1][k+1][j][i] +
+                                      coeff_arr[n][m][l][k][i][ 4] * in_arr[n][m][l+0][k-2][j][i] +
+                                      coeff_arr[n][m][l][k][i][ 5] * in_arr[n][m][l+0][k-1][j][i] +
+                                      coeff_arr[n][m][l][k][i][ 6] * in_arr[n][m][l+0][k+0][j][i] +
+                                      coeff_arr[n][m][l][k][i][ 7] * in_arr[n][m][l+0][k+1][j][i] +
+                                      coeff_arr[n][m][l][k][i][ 8] * in_arr[n][m][l+0][k+2][j][i] +
+                                      coeff_arr[n][m][l][k][i][ 9] * in_arr[n][m][l+1][k-1][j][i] +
+                                      coeff_arr[n][m][l][k][i][10] * in_arr[n][m][l+1][k+0][j][i] +
+                                      coeff_arr[n][m][l][k][i][11] * in_arr[n][m][l+1][k+1][j][i] +
+                                      coeff_arr[n][m][l][k][i][12] * in_arr[n][m][l+2][k+0][j][i];
   }
 
   complexArray6D out_arr = (complexArray6D) out_ptr;
