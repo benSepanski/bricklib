@@ -644,18 +644,18 @@ void semi_arakawa_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr, bElem *coe
   }
 
   // build function to run vectorized computation
-  auto compute_semi_arakawa_vec = [&fieldBrickInfo_dev,
-                                   &fieldBrickStorage_dev,
-                                   &coeffBrickInfo_dev,
-                                   &coeffBrickStorage_dev,
-                                   &field_grid_ptr_dev,
-                                   &coeff_grid_ptr_dev,
-                                   &bCoeffs_dev]() -> void {
+  auto compute_semi_arakawa_untiled = [&fieldBrickInfo_dev,
+                                       &fieldBrickStorage_dev,
+                                       &coeffBrickInfo_dev,
+                                       &coeffBrickStorage_dev,
+                                       &field_grid_ptr_dev,
+                                       &coeff_grid_ptr_dev,
+                                       &bCoeffs_dev]() -> void {
     FieldBrick bIn(fieldBrickInfo_dev, fieldBrickStorage_dev, 0);
     FieldBrick bOut(fieldBrickInfo_dev, fieldBrickStorage_dev, FieldBrick::BRICKSIZE);
-    dim3 block(BRICK_EXTENT_i, BRICK_EXTENT_j, NUM_BRICKS / BRICK_EXTENT_i / BRICK_EXTENT_j),
+    dim3 block(BRICK_EXTENT_k, BRICK_EXTENT_l, NUM_BRICKS / BRICK_EXTENT_k / BRICK_EXTENT_l),
         thread(BDIM_i, BDIM_j,  NUM_ELEMENTS_PER_BRICK / BDIM_i / BDIM_j);
-    semi_arakawa_brick_kernel_vec<< < block, thread >> >(
+    semi_arakawa_brick_kernel_untiled<< < block, thread >> >(
                           (unsigned (*)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l][GZ_BRICK_EXTENT_k][GZ_BRICK_EXTENT_j][GZ_BRICK_EXTENT_i]) field_grid_ptr_dev,
                           (unsigned (*)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l][GZ_BRICK_EXTENT_k][GZ_BRICK_EXTENT_i]) coeff_grid_ptr_dev,
                           bIn,
@@ -664,7 +664,7 @@ void semi_arakawa_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr, bElem *coe
   };
 
   // time function
-  std::cout << "bricks (vec): " << gene_cutime_func(compute_semi_arakawa_vec);
+  std::cout << "bricks (untiled): " << gene_cutime_func(compute_semi_arakawa_untiled);
 
   // copy back to host
   cudaCheck(cudaMemcpy(fieldBrickStorage.dat.get(),
@@ -674,7 +674,7 @@ void semi_arakawa_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr, bElem *coe
   cudaDeviceSynchronize();
   copyFromBrick<DIM>({EXTENT}, {PADDING}, {GHOST_ZONE}, out_ptr, field_grid_ptr, bOut);
   // check for correctness
-  check_close((complexArray6D) out_ptr, out_check_arr, "arakawa bricks");
+  check_close((complexArray6D) out_ptr, out_check_arr, "arakawa bricks (untiled)");
   std::cout << " PASSED" << std::endl;
 
   // build function to actually run computation
@@ -687,7 +687,7 @@ void semi_arakawa_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr, bElem *coe
                                &bCoeffs_dev]() -> void {
     FieldBrick bIn(fieldBrickInfo_dev, fieldBrickStorage_dev, 0);
     FieldBrick bOut(fieldBrickInfo_dev, fieldBrickStorage_dev, FieldBrick::BRICKSIZE);
-    dim3 block(BRICK_EXTENT_i, BRICK_EXTENT_j, NUM_BRICKS / BRICK_EXTENT_i / BRICK_EXTENT_j),
+    dim3 block(BRICK_EXTENT_k, BRICK_EXTENT_l, NUM_BRICKS / BRICK_EXTENT_k / BRICK_EXTENT_l),
         thread(BDIM_i, BDIM_j,  NUM_ELEMENTS_PER_BRICK / BDIM_i / BDIM_j);
     semi_arakawa_brick_kernel<< < block, thread >> >(
                           (unsigned (*)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l][GZ_BRICK_EXTENT_k][GZ_BRICK_EXTENT_j][GZ_BRICK_EXTENT_i]) field_grid_ptr_dev,
@@ -822,6 +822,16 @@ int main(int argc, char * const argv[]) {
     else throw std::runtime_error("Expected 'g' or 'b'");
   }
 
+  // print some helpful cuda info
+  cudaDeviceProp prop;
+  cudaGetDeviceProperties(&prop, 0);
+  std::cout << std::left;
+  std::cout << std::setw(24) << "Device name" << " : " << prop.name << "\n"
+            << std::setw(24) << "Compute Capability" << " : " << prop.major << "." << prop.minor << "\n"
+            << std::setw(24) << "L2 cache size" << " : " << prop.l2CacheSize << "\n"
+            << std::setw(24) << "Multiprocessor Count" << " : " << prop.multiProcessorCount << "\n"
+            << std::flush;
+
   // print trial info
   #ifndef NDEBUG
   std::cout << "NDEBUG is not defined" << std::endl;
@@ -832,10 +842,20 @@ int main(int argc, char * const argv[]) {
   _cudaCheck(cudaMalloc(&dummy, sizeof(decltype(dummy))), "cudaMalloc(&dummy, sizeof(unsigned))", __FILE__, __LINE__);
   _cudaCheck(cudaFree(dummy), "cudaFree(dummy)", __FILE__, __LINE__);
   #endif
-  std::cout << "GRID      : n x m x l x k x j x i = " << EXTENT_n << " x " << EXTENT_m << " x " << EXTENT_l << " x "
-                                                      << EXTENT_k << " x " << EXTENT_j << " x " << EXTENT_i << " \n"
-            << "BRICK DIMS: n x m x l x k x j x i = " << BDIM_n << " x " << BDIM_m << " x " << BDIM_l << " x "
-                                                      << BDIM_k << " x " << BDIM_j << " x " << BDIM_i << "\n"
+  unsigned width = 2;
+  std::cout << std::right;
+  std::cout << "GRID      : n x m x l x k x j x i = " << std::setw(width) << EXTENT_n << " x " 
+                                                      << std::setw(width) << EXTENT_m << " x " 
+                                                      << std::setw(width) << EXTENT_l << " x "
+                                                      << std::setw(width) << EXTENT_k << " x " 
+                                                      << std::setw(width) << EXTENT_j << " x " 
+                                                      << std::setw(width) << EXTENT_i << " \n"
+            << "BRICK DIMS: n x m x l x k x j x i = " << std::setw(width) << BDIM_n << " x " 
+                                                      << std::setw(width) << BDIM_m << " x " 
+                                                      << std::setw(width) << BDIM_l << " x "
+                                                      << std::setw(width) << BDIM_k << " x " 
+                                                      << std::setw(width) << BDIM_j << " x " 
+                                                      << std::setw(width) << BDIM_i << "\n"
             << "WARM UP:" << NUM_WARMUP_ITERS << "\n"
             << "ITERATIONS:" << NUM_ITERS << std::endl;
 

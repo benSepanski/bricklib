@@ -34,9 +34,9 @@ constexpr bElem pi = 3.14159265358979323846;
 constexpr unsigned DIM = 6;
 constexpr unsigned TILE = 8;
 // set brick sizes
-constexpr unsigned BDIM_i = 4;
+constexpr unsigned BDIM_i = 8;
 constexpr unsigned BDIM_j = 1;
-constexpr unsigned BDIM_k = 4;
+constexpr unsigned BDIM_k = 8;
 constexpr unsigned BDIM_l = 4;
 constexpr unsigned BDIM_m = 1;
 constexpr unsigned BDIM_n = 1;
@@ -177,10 +177,10 @@ constexpr unsigned SEMI_ARAKAWA_BRICK_KERNEL_VEC_BLOCK_SIZE = NUM_ELEMENTS_PER_B
 static_assert(SEMI_ARAKAWA_BRICK_KERNEL_VEC_BLOCK_SIZE % WARP_SIZE == 0);
 static_assert(NUM_ELEMENTS_PER_BRICK % SEMI_ARAKAWA_BRICK_KERNEL_VEC_BLOCK_SIZE == 0);
 __global__ void
-semi_arakawa_brick_kernel_vec(unsigned (*fieldGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l][GZ_BRICK_EXTENT_k][GZ_BRICK_EXTENT_j][GZ_BRICK_EXTENT_i],
-                              unsigned (*coeffGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l][GZ_BRICK_EXTENT_k][GZ_BRICK_EXTENT_i],
-                              FieldBrick bIn,
-                              FieldBrick bOut,
-                              RealCoeffBrick *coeff);
+semi_arakawa_brick_kernel_untiled(unsigned (*fieldGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l][GZ_BRICK_EXTENT_k][GZ_BRICK_EXTENT_j][GZ_BRICK_EXTENT_i],
+                                  unsigned (*coeffGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l][GZ_BRICK_EXTENT_k][GZ_BRICK_EXTENT_i],
+                                  FieldBrick bIn,
+                                  FieldBrick bOut,
+                                  RealCoeffBrick *coeff);
 
 #endif // BRICK_GENE_5D_H
