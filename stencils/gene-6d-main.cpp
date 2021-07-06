@@ -64,6 +64,27 @@ void check_close(complexArray6D a, complexArray6D b, std::string name = "")
 }
 
 /**
+ * @brief reset to zero
+ * 
+ * @param a an array of shape PADDED_EXTENT to reset to 0
+ */
+void set_to_zero(complexArray6D a)
+{
+  std::string errorMsg = "";
+
+  // iterate over non-ghost zone elements
+  #pragma omp parallel for collapse(5)
+  for (long n = PADDING_n + GHOST_ZONE_n; n < PADDING_n + GHOST_ZONE_n + EXTENT_n; n++)
+  for (long m = PADDING_m + GHOST_ZONE_m; m < PADDING_m + GHOST_ZONE_m + EXTENT_m; m++)
+  for (long l = PADDING_l + GHOST_ZONE_l; l < PADDING_l + GHOST_ZONE_l + EXTENT_l; l++)
+  for (long k = PADDING_k + GHOST_ZONE_k; k < PADDING_k + GHOST_ZONE_k + EXTENT_k; k++)
+  for (long j = PADDING_j + GHOST_ZONE_j; j < PADDING_j + GHOST_ZONE_j + EXTENT_j; j++)
+  #pragma omp simd
+  for (long i = PADDING_i + GHOST_ZONE_i; i < PADDING_i + GHOST_ZONE_i + EXTENT_i; i++)
+  a[n][m][l][k][j][i] = 0.0;
+}
+
+/**
  * @brief Return a shifted view of the array
  * copied from 
  * https://github.com/wdmapp/gtensor/blob/41cf4fe26625f8d7ba2d0d3886a54ae6415a2017/benchmarks/bench_hypz.cxx#L14-L24
@@ -214,6 +235,7 @@ void ij_deriv_gtensor(bComplexElem *out_ptr, bComplexElem *in_ptr,
   // check correctness
   check_close(out_arr, out_check_arr, "gtensor");
   std::cout << " PASSED" << std::endl;
+  set_to_zero(out_arr);
 }
 
 /**
@@ -332,6 +354,13 @@ void ij_deriv_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr,
   complexArray6D out_arr = (complexArray6D) out_ptr;
   check_close(out_arr, out_check_arr, "bricks (vec)");
   std::cout << " PASSED" << std::endl;
+  // reset out-array
+  set_to_zero(out_arr);
+  copyToBrick<DIM>({GZ_EXTENT}, {PADDING}, {0,0,0,0,0,0}, out_ptr, field_grid_ptr, bOut);
+  cudaCheck(cudaMemcpy(fieldBrickStorage_dev.dat.get(),
+                       fieldBrickStorage.dat.get(),
+                       fieldBrickStorage.chunks * fieldBrickStorage.step * sizeof(bElem),
+                       cudaMemcpyHostToDevice));
 
   // build function to actually run computation
   auto compute_ij_deriv = [&fieldBrickInfo_dev,
@@ -369,6 +398,7 @@ void ij_deriv_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr,
   copyFromBrick<DIM>({EXTENT}, {PADDING}, {GHOST_ZONE}, out_ptr, field_grid_ptr, bOut);
   check_close(out_arr, out_check_arr, "bricks");
   std::cout << " PASSED" << std::endl;
+  set_to_zero(out_arr);
 
   // free allocated memory
   cudaCheck(cudaFree(ikj_dev));
@@ -559,6 +589,7 @@ void semi_arakawa_gtensor(bComplexElem *out_ptr, bComplexElem *in_ptr, bElem *co
   // check for correctness
   check_close(out_arr, out_check_arr, "gtensor");
   std::cout << " PASSED" << std::endl;
+  set_to_zero(out_arr);
 }
 
 /**
@@ -643,19 +674,20 @@ void semi_arakawa_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr, bElem *coe
     cudaCheck(cudaMemcpy(bCoeffs_dev + i, &brickToCopy, sizeof(RealCoeffBrick), cudaMemcpyHostToDevice));
   }
 
-  // build function to run vectorized computation
-  auto compute_semi_arakawa_untiled = [&fieldBrickInfo_dev,
-                                       &fieldBrickStorage_dev,
-                                       &coeffBrickInfo_dev,
-                                       &coeffBrickStorage_dev,
-                                       &field_grid_ptr_dev,
-                                       &coeff_grid_ptr_dev,
-                                       &bCoeffs_dev]() -> void {
+  // build function to actually run computation
+  auto compute_semi_arakawa_vec = [&fieldBrickInfo_dev,
+                                   &fieldBrickStorage_dev,
+                                   &coeffBrickInfo_dev,
+                                   &coeffBrickStorage_dev,
+                                   &field_grid_ptr_dev,
+                                   &coeff_grid_ptr_dev,
+                                   &bCoeffs_dev]() -> void {
     FieldBrick bIn(fieldBrickInfo_dev, fieldBrickStorage_dev, 0);
     FieldBrick bOut(fieldBrickInfo_dev, fieldBrickStorage_dev, FieldBrick::BRICKSIZE);
-    dim3 block(BRICK_EXTENT_k, BRICK_EXTENT_l, NUM_BRICKS / BRICK_EXTENT_k / BRICK_EXTENT_l),
-        thread(BDIM_i, BDIM_j,  NUM_ELEMENTS_PER_BRICK / BDIM_i / BDIM_j);
-    semi_arakawa_brick_kernel_untiled<< < block, thread >> >(
+    // dim3 block(BRICK_EXTENT_i, BRICK_EXTENT_j, NUM_BRICKS / BRICK_EXTENT_i / BRICK_EXTENT_j),
+    dim3 block(NUM_BRICKS),
+        thread(BDIM_i, BDIM_j, NUM_ELEMENTS_PER_BRICK / BDIM_i / BDIM_j);
+    semi_arakawa_brick_kernel_vec<< < block, thread >> >(
                           (unsigned (*)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l][GZ_BRICK_EXTENT_k][GZ_BRICK_EXTENT_j][GZ_BRICK_EXTENT_i]) field_grid_ptr_dev,
                           (unsigned (*)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l][GZ_BRICK_EXTENT_k][GZ_BRICK_EXTENT_i]) coeff_grid_ptr_dev,
                           bIn,
@@ -664,7 +696,7 @@ void semi_arakawa_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr, bElem *coe
   };
 
   // time function
-  std::cout << "bricks (untiled): " << gene_cutime_func(compute_semi_arakawa_untiled);
+  std::cout << "bricks (vec): " << gene_cutime_func(compute_semi_arakawa_vec);
 
   // copy back to host
   cudaCheck(cudaMemcpy(fieldBrickStorage.dat.get(),
@@ -674,8 +706,15 @@ void semi_arakawa_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr, bElem *coe
   cudaDeviceSynchronize();
   copyFromBrick<DIM>({EXTENT}, {PADDING}, {GHOST_ZONE}, out_ptr, field_grid_ptr, bOut);
   // check for correctness
-  check_close((complexArray6D) out_ptr, out_check_arr, "arakawa bricks (untiled)");
+  check_close((complexArray6D) out_ptr, out_check_arr, "arakawa bricks (vec)");
   std::cout << " PASSED" << std::endl;
+  // reset out-array
+  set_to_zero((complexArray6D) out_ptr);
+  copyToBrick<DIM>({GZ_EXTENT}, {PADDING}, {0,0,0,0,0,0}, out_ptr, field_grid_ptr, bOut);
+  cudaCheck(cudaMemcpy(fieldBrickStorage_dev.dat.get(),
+                       fieldBrickStorage.dat.get(),
+                       fieldBrickStorage.chunks * fieldBrickStorage.step * sizeof(bElem),
+                       cudaMemcpyHostToDevice));
 
   // build function to actually run computation
   auto compute_semi_arakawa = [&fieldBrickInfo_dev,
@@ -687,7 +726,7 @@ void semi_arakawa_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr, bElem *coe
                                &bCoeffs_dev]() -> void {
     FieldBrick bIn(fieldBrickInfo_dev, fieldBrickStorage_dev, 0);
     FieldBrick bOut(fieldBrickInfo_dev, fieldBrickStorage_dev, FieldBrick::BRICKSIZE);
-    dim3 block(BRICK_EXTENT_k, BRICK_EXTENT_l, NUM_BRICKS / BRICK_EXTENT_k / BRICK_EXTENT_l),
+    dim3 block(BRICK_EXTENT_i, BRICK_EXTENT_j, NUM_BRICKS / BRICK_EXTENT_i / BRICK_EXTENT_j),
         thread(BDIM_i, BDIM_j,  NUM_ELEMENTS_PER_BRICK / BDIM_i / BDIM_j);
     semi_arakawa_brick_kernel<< < block, thread >> >(
                           (unsigned (*)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l][GZ_BRICK_EXTENT_k][GZ_BRICK_EXTENT_j][GZ_BRICK_EXTENT_i]) field_grid_ptr_dev,
@@ -710,6 +749,7 @@ void semi_arakawa_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr, bElem *coe
   // check for correctness
   check_close((complexArray6D) out_ptr, out_check_arr, "arakawa bricks");
   std::cout << " PASSED" << std::endl;
+  set_to_zero((complexArray6D) out_ptr);
 
   // free allocated memory
   cudaCheck(cudaFree(bCoeffs_dev));
