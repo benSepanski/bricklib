@@ -34,10 +34,10 @@ constexpr bElem pi = 3.14159265358979323846;
 constexpr unsigned DIM = 6;
 constexpr unsigned TILE = 8;
 // set brick sizes
-constexpr unsigned BDIM_i = 8;
-constexpr unsigned BDIM_j = 1;
-constexpr unsigned BDIM_k = 8;
-constexpr unsigned BDIM_l = 4;
+constexpr unsigned BDIM_i = 2;
+constexpr unsigned BDIM_j = 16;
+constexpr unsigned BDIM_k = 2;
+constexpr unsigned BDIM_l = 2;
 constexpr unsigned BDIM_m = 1;
 constexpr unsigned BDIM_n = 1;
 constexpr unsigned NUM_ELEMENTS_PER_BRICK = BDIM_i * BDIM_j * BDIM_k * BDIM_l * BDIM_m * BDIM_n;
@@ -48,15 +48,15 @@ constexpr unsigned EXTENT_k = 24;
 constexpr unsigned EXTENT_l = 24;
 constexpr unsigned EXTENT_m = 32;
 constexpr unsigned EXTENT_n = 2;
-#define EXTENT EXTENT_i,EXTENT_j,EXTENT_k,EXTENT_l,EXTENT_m,EXTENT_n
 constexpr unsigned NUM_ELEMENTS = EXTENT_i * EXTENT_j * EXTENT_k * EXTENT_l * EXTENT_m * EXTENT_n;
+#define EXTENT EXTENT_i,EXTENT_j,EXTENT_k,EXTENT_l,EXTENT_m,EXTENT_n
 // padding (for arrays only)
 constexpr unsigned PADDING_i = BDIM_i > 1 ? BDIM_i : 0;
-constexpr unsigned PADDING_j = BDIM_j > 1 ? BDIM_j : 0;
+constexpr unsigned PADDING_j = 0;
 constexpr unsigned PADDING_k = BDIM_k > 1 ? BDIM_k : 0;
 constexpr unsigned PADDING_l = BDIM_l > 1 ? BDIM_l : 0;
-constexpr unsigned PADDING_m = BDIM_m > 1 ? BDIM_m : 0;
-constexpr unsigned PADDING_n = BDIM_n > 1 ? BDIM_n : 0;
+constexpr unsigned PADDING_m = 0;
+constexpr unsigned PADDING_n = 0;
 #define PADDING PADDING_i,PADDING_j,PADDING_k,PADDING_l,PADDING_m,PADDING_n
 // ghost zone (for arrays and bricks)
 constexpr unsigned GHOST_ZONE_i = PADDING_i;
@@ -104,17 +104,19 @@ constexpr unsigned NUM_GZ_BRICKS = GZ_BRICK_EXTENT_i * GZ_BRICK_EXTENT_j * GZ_BR
 #define GZ_BRICK_EXTENT GZ_BRICK_EXTENT_i,GZ_BRICK_EXTENT_j,GZ_BRICK_EXTENT_k,GZ_BRICK_EXTENT_l,GZ_BRICK_EXTENT_m,GZ_BRICK_EXTENT_n
 
 // set our brick types
-constexpr unsigned VFOLD_i = BDIM_i;
-constexpr unsigned VFOLD_k = 32 / VFOLD_i > BDIM_k ? BDIM_k : 32 / VFOLD_i;
-constexpr unsigned VFOLD_l = 32 / (VFOLD_i * VFOLD_k);
-// static_assert(VFOLD_i * VFOLD_k * VFOLD_l == 32);
-typedef Brick<Dim<BDIM_n, BDIM_m, BDIM_l, BDIM_k, BDIM_j, BDIM_i>, Dim<VFOLD_l, VFOLD_k, 1, VFOLD_i>, true> FieldBrick ;
-typedef Brick<Dim<BDIM_n, BDIM_m, BDIM_l, BDIM_k, BDIM_i>, Dim<VFOLD_l, VFOLD_k, VFOLD_i>, true> PreCoeffBrick;
-typedef Brick<Dim<BDIM_n, BDIM_m, BDIM_l, BDIM_k, BDIM_i>, Dim<VFOLD_l, VFOLD_k, VFOLD_i>> RealCoeffBrick;
+typedef Brick<Dim<BDIM_n, BDIM_m, BDIM_l, BDIM_k, BDIM_j, BDIM_i>, Dim<1>, true> FieldBrick ;
+typedef Brick<Dim<BDIM_n, BDIM_m, BDIM_l, BDIM_k, BDIM_i>, Dim<1>, true> PreCoeffBrick;
+typedef Brick<Dim<BDIM_n, BDIM_m, BDIM_l, BDIM_k, BDIM_i>, Dim<1>> RealCoeffBrick;
 
 // useful constants for stencil computations
 constexpr unsigned ARAKAWA_STENCIL_SIZE = 13;
-constexpr unsigned CENTER_OFFSET_6D = 1 + 3 + 3*3 + 3*3*3 + 3*3*3*3 + 3*3*3*3*3;
+constexpr unsigned I_NBR_OFFSET = 1;
+constexpr unsigned J_NBR_OFFSET = 3 * I_NBR_OFFSET;
+constexpr unsigned K_NBR_OFFSET = 3 * J_NBR_OFFSET;
+constexpr unsigned L_NBR_OFFSET = 3 * K_NBR_OFFSET;
+constexpr unsigned M_NBR_OFFSET = 3 * L_NBR_OFFSET;
+constexpr unsigned N_NBR_OFFSET = 3 * M_NBR_OFFSET;
+constexpr unsigned CENTER_OFFSET_6D = I_NBR_OFFSET + J_NBR_OFFSET + K_NBR_OFFSET + L_NBR_OFFSET + M_NBR_OFFSET + N_NBR_OFFSET;
 constexpr unsigned WARP_SIZE = 32;
 #if __CUDA_ARCH__<=370 || __CUDA_ARCH__==750 || __CUDA_ARCH__==860
 constexpr unsigned MAX_BLOCKS_PER_SM = 16;
@@ -131,18 +133,21 @@ constexpr unsigned MAX_WARPS_PER_SM = 48;
 #error Unexpected compute capability #__CUDA_ARCH__
 #endif
 
-constexpr unsigned min_blocks_per_sm(unsigned max_block_size) {
+constexpr unsigned max_blocks_per_sm(unsigned max_block_size) {
     unsigned max_num_warps_per_block = max_block_size / WARP_SIZE;
-    unsigned min_blocks_per_sm = MAX_WARPS_PER_SM / max_num_warps_per_block; 
-    if(min_blocks_per_sm > MAX_BLOCKS_PER_SM)
+    unsigned max_blocks_per_sm = MAX_WARPS_PER_SM / max_num_warps_per_block; 
+    if(max_blocks_per_sm > MAX_BLOCKS_PER_SM)
     {
-        min_blocks_per_sm = MAX_BLOCKS_PER_SM;
+        max_blocks_per_sm = MAX_BLOCKS_PER_SM;
     }
-    return min_blocks_per_sm;
+    return max_blocks_per_sm;
 }
 
 // used to copy i derivative coefficients into constant memory
 void copy_i_deriv_coeff(const bElem i_deriv_coeff_host[5]);
+
+// used to copy the iteration order of the grid (for the semi-arkawa kernel (vec))
+void copy_grid_iteration_order(const char * grid_iteration_order_host);
 
 // declare cuda kernels
 __global__ void
@@ -167,18 +172,18 @@ ij_deriv_brick_kernel_vec(unsigned (*fieldGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTE
                           bComplexElem *ikj) ;
 
 __global__ void
-semi_arakawa_brick_kernel(unsigned (*fieldGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l][GZ_BRICK_EXTENT_k][GZ_BRICK_EXTENT_j][GZ_BRICK_EXTENT_i],
-                          unsigned (*coeffGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l][GZ_BRICK_EXTENT_k][GZ_BRICK_EXTENT_i],
+semi_arakawa_brick_kernel(unsigned *fieldGrid,
+                          unsigned *coeffGrid,
                           FieldBrick bIn,
                           FieldBrick bOut,
                           RealCoeffBrick *coeff);
 
-constexpr unsigned SEMI_ARAKAWA_BRICK_KERNEL_VEC_BLOCK_SIZE = NUM_ELEMENTS_PER_BRICK;
+constexpr unsigned SEMI_ARAKAWA_BRICK_KERNEL_VEC_BLOCK_SIZE = std::min(128U, NUM_ELEMENTS_PER_BRICK);
 static_assert(SEMI_ARAKAWA_BRICK_KERNEL_VEC_BLOCK_SIZE % WARP_SIZE == 0);
 static_assert(NUM_ELEMENTS_PER_BRICK % SEMI_ARAKAWA_BRICK_KERNEL_VEC_BLOCK_SIZE == 0);
 __global__ void
-semi_arakawa_brick_kernel_vec(unsigned (*fieldGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l][GZ_BRICK_EXTENT_k][GZ_BRICK_EXTENT_j][GZ_BRICK_EXTENT_i],
-                              unsigned (*coeffGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l][GZ_BRICK_EXTENT_k][GZ_BRICK_EXTENT_i],
+semi_arakawa_brick_kernel_vec(unsigned *fieldGrid,
+                              unsigned *coeffGrid,
                               FieldBrick bIn,
                               FieldBrick bOut,
                               RealCoeffBrick *coeff);

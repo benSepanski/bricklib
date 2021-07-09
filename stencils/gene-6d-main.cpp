@@ -1,4 +1,5 @@
 #include "gene-6d.h"
+#include "nvToolsExt.h"
 #include <iomanip>
 
 // constants for number of times to run functions
@@ -14,7 +15,7 @@ unsigned NUM_ITERS = CU_ITER;
 std::string gene_cutime_func(std::function<void()> f)
 {
   std::ostringstream string_stream;
-  string_stream << NUM_ELEMENTS / cutime_func(f, NUM_WARMUP_ITERS, NUM_ITERS) / 1000000000 << " avg GStencils/s";
+  string_stream << NUM_ELEMENTS / cutime_func(f, NUM_WARMUP_ITERS, NUM_ITERS) / 1000000000;
   return string_stream.str();
 }
 
@@ -253,7 +254,7 @@ void ij_deriv_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr,
   unsigned *coeff_grid_ptr;
 
   auto fieldBrickInfo = init_grid<DIM>(field_grid_ptr, {GZ_BRICK_EXTENT});
-  auto coeffBrickInfo = init_grid<DIM - 1>(coeff_grid_ptr, {GZ_BRICK_EXTENT_i, GZ_BRICK_EXTENT_k, GZ_BRICK_EXTENT_l, GZ_BRICK_EXTENT_m, GZ_BRICK_EXTENT_n});
+  auto coeffBrickInfo = init_grid<DIM-1>(coeff_grid_ptr, {GZ_BRICK_EXTENT_i, GZ_BRICK_EXTENT_k, GZ_BRICK_EXTENT_l, GZ_BRICK_EXTENT_m, GZ_BRICK_EXTENT_n});
   unsigned *field_grid_ptr_dev;
   unsigned *coeff_grid_ptr_dev;
   {
@@ -265,9 +266,9 @@ void ij_deriv_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr,
     cudaCheck(cudaMemcpy(coeff_grid_ptr_dev, coeff_grid_ptr, num_coeff_bricks * sizeof(unsigned), cudaMemcpyHostToDevice));
   }
   BrickInfo<DIM> *fieldBrickInfo_dev;
-  BrickInfo<DIM - 1> *coeffBrickInfo_dev;
+  BrickInfo<DIM-1> *coeffBrickInfo_dev;
   BrickInfo<DIM> _fieldBrickInfo_dev = movBrickInfo(fieldBrickInfo, cudaMemcpyHostToDevice);
-  BrickInfo<DIM - 1> _coeffBrickInfo_dev = movBrickInfo(coeffBrickInfo, cudaMemcpyHostToDevice);
+  BrickInfo<DIM-1> _coeffBrickInfo_dev = movBrickInfo(coeffBrickInfo, cudaMemcpyHostToDevice);
   {
     cudaCheck(cudaMalloc(&fieldBrickInfo_dev, sizeof(decltype(fieldBrickInfo))));
     cudaCheck(cudaMalloc(&coeffBrickInfo_dev, sizeof(decltype(coeffBrickInfo))));
@@ -300,7 +301,7 @@ void ij_deriv_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr,
 
   const std::vector<long> coeffDimList = {GZ_EXTENT_i, GZ_EXTENT_k, GZ_EXTENT_l, GZ_EXTENT_m, GZ_EXTENT_n};
   const std::vector<long> coeffPadding = {PADDING_i, PADDING_k, PADDING_l, PADDING_m, PADDING_n};
-  const std::vector<long> coeffGZ = {0,0,0,0,0,0};
+  const std::vector<long> coeffGZ = {0,0,0,0,0};
   copyToBrick<DIM - 1>(coeffDimList, coeffPadding, coeffGZ, p1, coeff_grid_ptr, bP1);
   copyToBrick<DIM - 1>(coeffDimList, coeffPadding, coeffGZ, p2, coeff_grid_ptr, bP2);
 
@@ -681,39 +682,83 @@ void semi_arakawa_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr, bElem *coe
                                    &coeffBrickStorage_dev,
                                    &field_grid_ptr_dev,
                                    &coeff_grid_ptr_dev,
-                                   &bCoeffs_dev]() -> void {
+                                   &bCoeffs_dev](unsigned blockSize) -> void {
+    // set up bricks and launch kernel
     FieldBrick bIn(fieldBrickInfo_dev, fieldBrickStorage_dev, 0);
     FieldBrick bOut(fieldBrickInfo_dev, fieldBrickStorage_dev, FieldBrick::BRICKSIZE);
-    dim3 block(BRICK_EXTENT_i, BRICK_EXTENT_j, NUM_BRICKS / BRICK_EXTENT_i / BRICK_EXTENT_j),
-        thread(BDIM_i, BDIM_j, NUM_ELEMENTS_PER_BRICK / BDIM_i / BDIM_j);
+    dim3 block(blockSize), thread(SEMI_ARAKAWA_BRICK_KERNEL_VEC_BLOCK_SIZE);
     semi_arakawa_brick_kernel_vec<< < block, thread >> >(
-                          (unsigned (*)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l][GZ_BRICK_EXTENT_k][GZ_BRICK_EXTENT_j][GZ_BRICK_EXTENT_i]) field_grid_ptr_dev,
-                          (unsigned (*)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l][GZ_BRICK_EXTENT_k][GZ_BRICK_EXTENT_i]) coeff_grid_ptr_dev,
+                          field_grid_ptr_dev,
+                          coeff_grid_ptr_dev,
                           bIn,
                           bOut,
                           bCoeffs_dev);
   };
+  // figure out some useful cuda data
+  int dev;
+  cudaGetDevice(&dev);
+  cudaDeviceProp devProp;
+  cudaGetDeviceProperties(&devProp, dev);
+  int multiProcessorCount = devProp.multiProcessorCount;
 
-  // time function
-  std::cout << "bricks (vec): " << gene_cutime_func(compute_semi_arakawa_vec);
+  unsigned colWidth = 18; 
+  std::cout << std::setw(colWidth) << "method"
+            << std::setw(colWidth) << "blocks"
+            << std::setw(colWidth) << "block-size"
+            << std::setw(colWidth) << "BrickGridDimOrder"
+            << std::setw(colWidth) << "GStencils/s"
+            << std::setw(colWidth) << "Check"
+            << std::endl;
+  std::vector<const char*> iteration_orders = {"ijklmn", "ikjlmn", "kijlmn", "kiljmn", "klijmn"};
+  // time function for various levels of parallelism
+  for(const char* iteration_order : iteration_orders)
+  {
+    // copy iteration order to constant memory
+    copy_grid_iteration_order(iteration_order);
+    nvtxRangePushA(iteration_order);
 
-  // copy back to host
-  cudaCheck(cudaMemcpy(fieldBrickStorage.dat.get(),
-                       fieldBrickStorage_dev.dat.get(),
-                       fieldBrickStorage.chunks * fieldBrickStorage.step * sizeof(bElem),
-                       cudaMemcpyDeviceToHost));
-  cudaDeviceSynchronize();
-  copyFromBrick<DIM>({EXTENT}, {PADDING}, {GHOST_ZONE}, out_ptr, field_grid_ptr, bOut);
-  // check for correctness
-  check_close((complexArray6D) out_ptr, out_check_arr, "arakawa bricks (vec)");
-  std::cout << " PASSED" << std::endl;
-  // reset out-array
-  set_to_zero((complexArray6D) out_ptr);
-  copyToBrick<DIM>({GZ_EXTENT}, {PADDING}, {0,0,0,0,0,0}, out_ptr, field_grid_ptr, bOut);
-  cudaCheck(cudaMemcpy(fieldBrickStorage_dev.dat.get(),
-                       fieldBrickStorage.dat.get(),
-                       fieldBrickStorage.chunks * fieldBrickStorage.step * sizeof(bElem),
-                       cudaMemcpyHostToDevice));
+    for(unsigned numBlocks = 2U * multiProcessorCount;
+        numBlocks <= max_blocks_per_sm(SEMI_ARAKAWA_BRICK_KERNEL_VEC_BLOCK_SIZE) * multiProcessorCount;
+        numBlocks += multiProcessorCount / 2)
+    {
+      std::ostringstream rangeNameStream;
+      rangeNameStream << numBlocks << " blocks";
+      nvtxRangePushA(rangeNameStream.str().data());
+
+      auto fntn = [&compute_semi_arakawa_vec, &numBlocks]() -> void {
+        compute_semi_arakawa_vec(numBlocks);
+      };
+      std::cout << std::setw(colWidth) << "bricks(vec)"
+                << std::setw(colWidth) << numBlocks
+                << std::setw(colWidth) << SEMI_ARAKAWA_BRICK_KERNEL_VEC_BLOCK_SIZE
+                << std::setw(colWidth) << iteration_order
+                << std::setw(colWidth) << gene_cutime_func(fntn)
+                << std::flush;
+
+      // copy back to host
+      cudaCheck(cudaMemcpy(fieldBrickStorage.dat.get(),
+                          fieldBrickStorage_dev.dat.get(),
+                          fieldBrickStorage.chunks * fieldBrickStorage.step * sizeof(bElem),
+                          cudaMemcpyDeviceToHost));
+      cudaDeviceSynchronize();
+      copyFromBrick<DIM>({EXTENT}, {PADDING}, {GHOST_ZONE}, out_ptr, field_grid_ptr, bOut);
+      // check for correctness
+      std::ostringstream errStringStream;
+      errStringStream << "arakawa bricks (vec, " << numBlocks << " blocks)";
+      check_close((complexArray6D) out_ptr, out_check_arr, errStringStream.str());
+      std::cout << std::setw(colWidth) << "PASSED" << std::endl;
+      // reset out-array
+      set_to_zero((complexArray6D) out_ptr);
+      copyToBrick<DIM>({GZ_EXTENT}, {PADDING}, {0,0,0,0,0,0}, out_ptr, field_grid_ptr, bOut);
+      cudaCheck(cudaMemcpy(fieldBrickStorage_dev.dat.get(),
+                          fieldBrickStorage.dat.get(),
+                          fieldBrickStorage.chunks * fieldBrickStorage.step * sizeof(bElem),
+                          cudaMemcpyHostToDevice));
+
+      nvtxRangePop();
+    }
+    nvtxRangePop();
+  }
 
   // build function to actually run computation
   auto compute_semi_arakawa = [&fieldBrickInfo_dev,
@@ -722,33 +767,54 @@ void semi_arakawa_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr, bElem *coe
                                &coeffBrickStorage_dev,
                                &field_grid_ptr_dev,
                                &coeff_grid_ptr_dev,
-                               &bCoeffs_dev]() -> void {
+                               &bCoeffs_dev](const char *iteration_order = "ijkmln") -> void {
     FieldBrick bIn(fieldBrickInfo_dev, fieldBrickStorage_dev, 0);
     FieldBrick bOut(fieldBrickInfo_dev, fieldBrickStorage_dev, FieldBrick::BRICKSIZE);
-    dim3 block(BRICK_EXTENT_i, BRICK_EXTENT_j, NUM_BRICKS / BRICK_EXTENT_i / BRICK_EXTENT_j),
+    unsigned brickExtents[] = {BRICK_EXTENT};
+    unsigned gridDim_x = brickExtents[iteration_order[0] - 'i'];
+    unsigned gridDim_y = brickExtents[iteration_order[1] - 'i'];
+    unsigned gridDim_z = NUM_BRICKS / gridDim_x / gridDim_y;
+    dim3 block(gridDim_x, gridDim_y, gridDim_z),
         thread(BDIM_i, BDIM_j,  NUM_ELEMENTS_PER_BRICK / BDIM_i / BDIM_j);
     semi_arakawa_brick_kernel<< < block, thread >> >(
-                          (unsigned (*)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l][GZ_BRICK_EXTENT_k][GZ_BRICK_EXTENT_j][GZ_BRICK_EXTENT_i]) field_grid_ptr_dev,
-                          (unsigned (*)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l][GZ_BRICK_EXTENT_k][GZ_BRICK_EXTENT_i]) coeff_grid_ptr_dev,
+                          field_grid_ptr_dev,
+                          coeff_grid_ptr_dev,
                           bIn,
                           bOut,
                           bCoeffs_dev);
   };
 
   // time function
-  std::cout << "bricks: " << gene_cutime_func(compute_semi_arakawa);
+  for(const char* iteration_order : iteration_orders)
+  {
+    auto fntn = [&iteration_order, &compute_semi_arakawa]() -> void {compute_semi_arakawa(iteration_order);};
 
-  // copy back to host
-  cudaCheck(cudaMemcpy(fieldBrickStorage.dat.get(),
-                       fieldBrickStorage_dev.dat.get(),
-                       fieldBrickStorage.chunks * fieldBrickStorage.step * sizeof(bElem),
-                       cudaMemcpyDeviceToHost));
-  cudaDeviceSynchronize();
-  copyFromBrick<DIM>({EXTENT}, {PADDING}, {GHOST_ZONE}, out_ptr, field_grid_ptr, bOut);
-  // check for correctness
-  check_close((complexArray6D) out_ptr, out_check_arr, "arakawa bricks");
-  std::cout << " PASSED" << std::endl;
-  set_to_zero((complexArray6D) out_ptr);
+    copy_grid_iteration_order(iteration_order);
+    std::cout << std::setw(colWidth) << "bricks"
+              << std::setw(colWidth) << NUM_BRICKS
+              << std::setw(colWidth) << NUM_ELEMENTS_PER_BRICK
+              << std::setw(colWidth) << iteration_order
+              << std::setw(colWidth) << gene_cutime_func(fntn)
+              << std::flush;
+
+    // copy back to host
+    cudaCheck(cudaMemcpy(fieldBrickStorage.dat.get(),
+                        fieldBrickStorage_dev.dat.get(),
+                        fieldBrickStorage.chunks * fieldBrickStorage.step * sizeof(bElem),
+                        cudaMemcpyDeviceToHost));
+    cudaDeviceSynchronize();
+    copyFromBrick<DIM>({EXTENT}, {PADDING}, {GHOST_ZONE}, out_ptr, field_grid_ptr, bOut);
+    // check for correctness
+    check_close((complexArray6D) out_ptr, out_check_arr, "arakawa bricks");
+    std::cout << std::setw(colWidth) << " PASSED" << std::endl;
+    // reset array
+    set_to_zero((complexArray6D) out_ptr);
+    copyToBrick<DIM>({GZ_EXTENT}, {PADDING}, {0,0,0,0,0,0}, out_ptr, field_grid_ptr, bOut);
+    cudaCheck(cudaMemcpy(fieldBrickStorage_dev.dat.get(),
+                        fieldBrickStorage.dat.get(),
+                        fieldBrickStorage.chunks * fieldBrickStorage.step * sizeof(bElem),
+                        cudaMemcpyHostToDevice));
+  }
 
   // free allocated memory
   cudaCheck(cudaFree(bCoeffs_dev));
@@ -863,12 +929,13 @@ int main(int argc, char * const argv[]) {
 
   // print some helpful cuda info
   cudaDeviceProp prop;
-  cudaGetDeviceProperties(&prop, 0);
+  cudaCheck(cudaGetDeviceProperties(&prop, 0));
   std::cout << std::left;
   std::cout << std::setw(24) << "Device name" << " : " << prop.name << "\n"
             << std::setw(24) << "Compute Capability" << " : " << prop.major << "." << prop.minor << "\n"
             << std::setw(24) << "L2 cache size" << " : " << prop.l2CacheSize << "\n"
             << std::setw(24) << "Multiprocessor Count" << " : " << prop.multiProcessorCount << "\n"
+            << std::setw(24) << "Max Warps / SM" << " : " << prop.maxThreadsPerMultiProcessor / prop.warpSize << "\n"
             << std::flush;
 
   // print trial info
