@@ -719,7 +719,7 @@ void semi_arakawa_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr, bElem *coe
     nvtxRangePushA(iteration_order);
 
     for(unsigned numBlocks = 2U * multiProcessorCount;
-        numBlocks <= 0;//max_blocks_per_sm(SEMI_ARAKAWA_BRICK_KERNEL_VEC_BLOCK_SIZE) * multiProcessorCount;
+        numBlocks <= max_blocks_per_sm(SEMI_ARAKAWA_BRICK_KERNEL_VEC_BLOCK_SIZE) * multiProcessorCount;
         numBlocks += multiProcessorCount / 2)
     {
       std::ostringstream rangeNameStream;
