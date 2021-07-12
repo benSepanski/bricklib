@@ -54,6 +54,8 @@ struct alignas(sizeof(bElem[2])) bComplexElem
     FORCUDA
     bComplexElem(const int &real) : value{(bElem) real, 0.0} { }
     FORCUDA
+    bComplexElem(const unsigned int &real) : value{(bElem) real, 0.0} { }
+    FORCUDA
     bComplexElem(const long &real) : value{(bElem) real, 0.0} { }
 
     // conversion from std/cuda
