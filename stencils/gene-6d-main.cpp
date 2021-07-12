@@ -425,14 +425,6 @@ void ij_deriv(bool run_bricks, bool run_gtensor) {
   // build in/out arrays
   bComplexElem *in_ptr = randomComplexArray({PADDED_EXTENT}),
                *out_ptr = zeroComplexArray({PADDED_EXTENT});
-  for(unsigned i = 0; i < NUM_PADDED_ELEMENTS; ++i) { 
-    in_ptr[i] = i %  PADDED_EXTENT_i
-              + i /  PADDED_EXTENT_i % PADDED_EXTENT_j * 10
-              + i / (PADDED_EXTENT_i * PADDED_EXTENT_j) % PADDED_EXTENT_k * 100
-              + i / (PADDED_EXTENT_i * PADDED_EXTENT_j  * PADDED_EXTENT_k) % PADDED_EXTENT_l * 1000
-              + i / (PADDED_EXTENT_i * PADDED_EXTENT_j  * PADDED_EXTENT_k  * PADDED_EXTENT_l) % PADDED_EXTENT_m * 10000
-              + i / (PADDED_EXTENT_i * PADDED_EXTENT_j  * PADDED_EXTENT_k  * PADDED_EXTENT_l  * PADDED_EXTENT_m) % PADDED_EXTENT_n * 100000;
-  }
 
   // build coefficients needed for stencil computation
   bComplexElem *p1 = randomComplexArray({PADDED_EXTENT_i, PADDED_EXTENT_k, PADDED_EXTENT_l, PADDED_EXTENT_m, PADDED_EXTENT_n}),
