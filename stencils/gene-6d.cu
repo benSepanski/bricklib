@@ -76,8 +76,8 @@ __launch_bounds__(NUM_ELEMENTS_PER_BRICK, max_blocks_per_sm(NUM_ELEMENTS_PER_BRI
 __global__ void
 ij_deriv_brick_kernel(unsigned (*fieldGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l][GZ_BRICK_EXTENT_k][GZ_BRICK_EXTENT_j][GZ_BRICK_EXTENT_i],
                       unsigned (*coeffGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l][GZ_BRICK_EXTENT_k][GZ_BRICK_EXTENT_i],
-                      FieldBrick bIn,
-                      FieldBrick bOut,
+                      FieldBrick_i bIn,
+                      FieldBrick_i bOut,
                       PreCoeffBrick bP1,
                       PreCoeffBrick bP2,
                       bComplexElem *ikj) 
@@ -151,8 +151,8 @@ __launch_bounds__(IJ_DERIV_BRICK_KERNEL_VEC_BLOCK_SIZE, max_blocks_per_sm(IJ_DER
 __global__ void
 ij_deriv_brick_kernel_vec(unsigned (*fieldGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l][GZ_BRICK_EXTENT_k][GZ_BRICK_EXTENT_j][GZ_BRICK_EXTENT_i],
                           unsigned (*coeffGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l][GZ_BRICK_EXTENT_k][GZ_BRICK_EXTENT_i],
-                          FieldBrick bIn,
-                          FieldBrick bOut,
+                          FieldBrick_i bIn,
+                          FieldBrick_i bOut,
                           PreCoeffBrick bP1,
                           PreCoeffBrick bP2,
                           bComplexElem *ikj) 
@@ -185,8 +185,8 @@ ij_deriv_brick_kernel_vec(unsigned (*fieldGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTE
   bComplexElem outputBuf[NUM_ELEMENTS_PER_BRICK / BLOCK_SIZE];
   bComplexElem yDerivBuf[NUM_ELEMENTS_PER_BRICK / BLOCK_SIZE];
 
-  unsigned leftNeighbor = bIn.bInfo->adj[bFieldIdx][CENTER_OFFSET_6D - 1];
-  unsigned rightNeighbor = bIn.bInfo->adj[bFieldIdx][CENTER_OFFSET_6D + 1];
+  unsigned leftNeighbor = bIn.bInfo->adj[bFieldIdx][0];
+  unsigned rightNeighbor = bIn.bInfo->adj[bFieldIdx][2];
 
   // perform this operation for each "vector"
   for(unsigned vecIdx = 0; vecIdx < NUM_ELEMENTS_PER_BRICK / BLOCK_SIZE; vecIdx++)
@@ -245,8 +245,8 @@ ij_deriv_brick_kernel_vec(unsigned (*fieldGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTE
 __global__ void
 semi_arakawa_brick_kernel(unsigned *fieldGrid,
                           unsigned *coeffGrid,
-                          FieldBrick bIn,
-                          FieldBrick bOut,
+                          FieldBrick_kl bIn,
+                          FieldBrick_kl bOut,
                           RealCoeffBrick *coeff)
 {
   // // compute indices
@@ -319,8 +319,8 @@ __launch_bounds__(SEMI_ARAKAWA_BRICK_KERNEL_VEC_BLOCK_SIZE)
 __global__ void
 semi_arakawa_brick_kernel_vec(unsigned *fieldGrid,
                               unsigned *coeffGrid,
-                              FieldBrick bIn,
-                              FieldBrick bOut,
+                              FieldBrick_kl bIn,
+                              FieldBrick_kl bOut,
                               RealCoeffBrick *coeff
                               )
 {

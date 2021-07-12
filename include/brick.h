@@ -6,6 +6,7 @@
 #ifndef BRICK_H
 #define BRICK_H
 
+#include <iostream>
 #include <cassert>
 #include <stdlib.h>
 #include <type_traits>
@@ -77,6 +78,36 @@ struct BrickStorage {
   static BrickStorage mmap_alloc(long chunks, long step, void *mmap_fd, size_t offset);
 };
 
+// TODO : docs
+template<bool ... CommInDim>
+struct CommDims
+{
+  public:
+    constexpr static bool communicatesInDim(unsigned dim)
+    {
+      unsigned length = sizeof...(CommInDim);
+      if(dim < length)
+      {
+        constexpr unsigned doesCommunicateInDim[sizeof...(CommInDim)] = { CommInDim... };
+        return doesCommunicateInDim[sizeof...(CommInDim) - 1 - dim];
+      }
+      return true;
+    }
+
+    constexpr static unsigned numCommunicatingDims(unsigned numDims)
+    {
+      unsigned numCommunicatingDims = 0;
+      for(unsigned dim = 0; dim < numDims; ++dim)
+      {
+        numCommunicatingDims += CommDims<CommInDim...>::communicatesInDim(dim);
+      }
+      return numCommunicatingDims;
+    }
+};
+
+template<unsigned dims, typename CommunicatingDims = CommDims<>>
+struct BrickInfo;
+
 /**
  * @brief Metadata related to bricks
  * @tparam dims
@@ -89,10 +120,12 @@ struct BrickStorage {
  * Metadata can be used to allocate storage with minimal effort. It is recommended to build the metadata before creating
  * the storage.
  */
-template<unsigned dims>
-struct BrickInfo {
+template<unsigned dims, bool ... CommInDim>
+struct BrickInfo<dims, CommDims<CommInDim...> > {
+  /// Type describing which dimensions are communicating
+  typedef CommDims<CommInDim...> myCommDims;
   /// Adjacency list type
-  typedef unsigned (*adjlist)[static_power<3, dims>::value];
+  typedef unsigned (*adjlist)[static_power<3, myCommDims::numCommunicatingDims(dims)>::value];
   /// Adjacency list
   adjlist adj;
   /// Number of bricks in this list
@@ -103,7 +136,7 @@ struct BrickInfo {
    * @param nbricks number of bricks
    */
   explicit BrickInfo(unsigned nbricks) : nbricks(nbricks) {
-    adj = (adjlist) malloc(nbricks * static_power<3, dims>::value * sizeof(unsigned));
+    adj = (adjlist) malloc(nbricks * static_power<3, myCommDims::numCommunicatingDims(dims)>::value * sizeof(unsigned));
   }
 
   /// Allocate a new brick storage BrickStorage::allocate()
@@ -217,6 +250,8 @@ template<typename T,
 struct _BrickAccessor<T, Dim<D>, Dim<F>, bool> {
   T *par;         ///< parent Brick data structure reference
   typedef typename T::elemType elemType; ///< type of elements in the brick
+  // True iff there is communication (between bricks) in this dimension
+  static constexpr bool commInDim = T::myCommDims::communicatesInDim(0); 
 
   unsigned b;     ///< Reference (center) brick
   unsigned pos;   ///< Accumulative position within adjacency list
@@ -232,7 +267,8 @@ struct _BrickAccessor<T, Dim<D>, Dim<F>, bool> {
   inline elemType &operator[](unsigned i) {
     // change pos
     unsigned dir = i + D;
-    unsigned d = pos * 3 + dir / D;
+    unsigned d = commInDim ? pos * 3 + dir / D
+                           : pos;
     // new vec position
     unsigned l = dir % D;
     unsigned w = wvec * F + l % F;
@@ -259,6 +295,8 @@ template<typename T,
 struct _BrickAccessor<T, Dim<D, BDims...>, Dim<F, Folds...>, bool> {
   T *par;         ///< parent Brick data structure reference
   typedef typename T::elemType elemType; ///< type of elements in the brick
+  // True iff there is communication (between bricks) in this dimension
+  static constexpr bool commInDim = T::myCommDims::communicatesInDim(sizeof...(BDims)); 
 
   unsigned b;     ///< Reference (center) brick
   unsigned pos;   ///< Accumulative position within adjacency list
@@ -274,7 +312,8 @@ struct _BrickAccessor<T, Dim<D, BDims...>, Dim<F, Folds...>, bool> {
   inline _BrickAccessor<T, Dim<BDims...>, Dim<Folds...>, bool> operator[](unsigned i) {
     // change pos
     unsigned dir = i + D;
-    unsigned d = pos * 3 + dir / D;
+    unsigned d = commInDim ? pos * 3 + dir / D
+                           : pos;
     // new vec position
     unsigned l = dir % D;
     unsigned w = wvec * F + l % F;
@@ -298,6 +337,8 @@ template<typename T,
 struct _BrickAccessor<T, Dim<D, BDims...>, Dim<Folds...>, void> {
   T *par;         ///< parent Brick data structure reference
   typedef typename T::elemType elemType; ///< type of elements in the brick
+  // True iff there is communication (between bricks) in this dimension
+  static constexpr bool commInDim = T::myCommDims::communicatesInDim(sizeof...(BDims)); 
 
   unsigned b;     ///< Reference (center) brick
   unsigned pos;   ///< Accumulative position within adjacency list
@@ -315,7 +356,8 @@ struct _BrickAccessor<T, Dim<D, BDims...>, Dim<Folds...>, void> {
   operator[](unsigned i) {
     // change pos
     unsigned dir = i + D;
-    unsigned d = pos * 3 + dir / D;
+    unsigned d = commInDim ? pos * 3 + dir / D
+                           : pos;
     // new vec position
     unsigned l = dir % D;
     unsigned w = wvec;
@@ -335,7 +377,7 @@ struct _BrickAccessor<T, Dim<D, BDims...>, Dim<Folds...>, void> {
  */
 
 /// Generic base template, see <a href="structBrick_3_01Dim_3_01BDims_8_8_8_01_4_00_01Dim_3_01Folds_8_8_8_01_4_01_4.html">Brick< Dim< BDims... >, Dim< Folds... > ></a>
-template<typename BrickDims, typename VectorFold, bool isComplex = false>
+template<typename BrickDims, typename VectorFold, bool isComplex = false, typename CommunicatingDims = CommDims<>>
 struct Brick;
 
 namespace 
@@ -401,14 +443,16 @@ namespace
 template<
     bool isComplex,
     unsigned ... BDims,
-    unsigned ... Folds>
-struct Brick<Dim<BDims...>, Dim<Folds...>, isComplex> {
+    unsigned ... Folds,
+    bool ... CommInDim>
+struct Brick<Dim<BDims...>, Dim<Folds...>, isComplex, CommDims<CommInDim...> > {
   // make sure vector fold dimensions divide block dimensions
   static_assert(_folds_divide_bdims<Dim<BDims...>, Dim<Folds...>, sizeof...(BDims) == sizeof...(Folds)>::value,
                 "Vector folds do not divide corresponding brick dimensions.");
 
-  typedef Brick<Dim<BDims...>, Dim<Folds...>, isComplex> mytype;    ///< Shorthand for this struct's type
-  typedef BrickInfo<sizeof...(BDims)> myBrickInfo;        ///< Shorthand for type of the metadata
+  typedef Brick<Dim<BDims...>, Dim<Folds...>, isComplex, CommDims<CommInDim...> > mytype;    ///< Shorthand for this struct's type
+  typedef CommDims<CommInDim...> myCommDims;    ///< Shorthand for information about which dimensions communicate
+  typedef BrickInfo<sizeof...(BDims), myCommDims> myBrickInfo;        ///< Shorthand for type of the metadata
   typedef typename std::conditional<isComplex, bComplexElem, bElem>::type elemType; ///< the type of elements in this brick
   typedef typename std::conditional<isComplex, std::complex<bElem>, bElem>::type stdElemType; ///< STL-compatible type of elements
 
@@ -433,7 +477,8 @@ struct Brick<Dim<BDims...>, Dim<Folds...>, isComplex> {
   template<unsigned ... Offsets>
   FORCUDA
   inline elemType *neighbor(unsigned b) {
-    unsigned off = cal_offs<sizeof...(BDims), Offsets...>::value;
+    constexpr unsigned numCommDims = CommDims<CommInDim...>::numCommunicatingDims(sizeof...(BDims));
+    unsigned off = cal_offs<numCommDims, Offsets...>::value;
     return &dat[bInfo->adj[b][off] * step];
   }
 

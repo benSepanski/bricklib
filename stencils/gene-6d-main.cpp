@@ -253,8 +253,8 @@ void ij_deriv_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr,
   unsigned *field_grid_ptr;
   unsigned *coeff_grid_ptr;
 
-  auto fieldBrickInfo = init_grid<DIM>(field_grid_ptr, {GZ_BRICK_EXTENT});
-  auto coeffBrickInfo = init_grid<DIM-1>(coeff_grid_ptr, {GZ_BRICK_EXTENT_i, GZ_BRICK_EXTENT_k, GZ_BRICK_EXTENT_l, GZ_BRICK_EXTENT_m, GZ_BRICK_EXTENT_n});
+  auto fieldBrickInfo = init_grid<DIM, CommIn_i>(field_grid_ptr, {GZ_BRICK_EXTENT});
+  auto coeffBrickInfo = init_grid<DIM-1, NoComm>(coeff_grid_ptr, {GZ_BRICK_EXTENT_i, GZ_BRICK_EXTENT_k, GZ_BRICK_EXTENT_l, GZ_BRICK_EXTENT_m, GZ_BRICK_EXTENT_n});
   unsigned *field_grid_ptr_dev;
   unsigned *coeff_grid_ptr_dev;
   {
@@ -265,10 +265,10 @@ void ij_deriv_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr,
     cudaCheck(cudaMemcpy(field_grid_ptr_dev, field_grid_ptr, num_field_bricks * sizeof(unsigned), cudaMemcpyHostToDevice));
     cudaCheck(cudaMemcpy(coeff_grid_ptr_dev, coeff_grid_ptr, num_coeff_bricks * sizeof(unsigned), cudaMemcpyHostToDevice));
   }
-  BrickInfo<DIM> *fieldBrickInfo_dev;
-  BrickInfo<DIM-1> *coeffBrickInfo_dev;
-  BrickInfo<DIM> _fieldBrickInfo_dev = movBrickInfo(fieldBrickInfo, cudaMemcpyHostToDevice);
-  BrickInfo<DIM-1> _coeffBrickInfo_dev = movBrickInfo(coeffBrickInfo, cudaMemcpyHostToDevice);
+  BrickInfo<DIM, CommIn_i> *fieldBrickInfo_dev;
+  BrickInfo<DIM-1, NoComm> *coeffBrickInfo_dev;
+  BrickInfo<DIM, CommIn_i> _fieldBrickInfo_dev = movBrickInfo(fieldBrickInfo, cudaMemcpyHostToDevice);
+  BrickInfo<DIM-1, NoComm> _coeffBrickInfo_dev = movBrickInfo(coeffBrickInfo, cudaMemcpyHostToDevice);
   {
     cudaCheck(cudaMalloc(&fieldBrickInfo_dev, sizeof(decltype(fieldBrickInfo))));
     cudaCheck(cudaMalloc(&coeffBrickInfo_dev, sizeof(decltype(coeffBrickInfo))));
@@ -277,10 +277,10 @@ void ij_deriv_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr,
   }
 
   // setup brick storage on host
-  auto fieldBrickStorage = BrickStorage::allocate(fieldBrickInfo.nbricks, 2 * FieldBrick::BRICKSIZE);
+  auto fieldBrickStorage = BrickStorage::allocate(fieldBrickInfo.nbricks, 2 * FieldBrick_i::BRICKSIZE);
 
-  FieldBrick bIn(&fieldBrickInfo, fieldBrickStorage, 0);
-  FieldBrick bOut(&fieldBrickInfo, fieldBrickStorage, FieldBrick::BRICKSIZE);
+  FieldBrick_i bIn(&fieldBrickInfo, fieldBrickStorage, 0);
+  FieldBrick_i bOut(&fieldBrickInfo, fieldBrickStorage, FieldBrick_i::BRICKSIZE);
 
   auto coeffBrickStorage = BrickStorage::allocate(coeffBrickInfo.nbricks, 2 * PreCoeffBrick::BRICKSIZE);
   PreCoeffBrick bP1(&coeffBrickInfo, coeffBrickStorage, 0);
@@ -326,8 +326,8 @@ void ij_deriv_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr,
                                &field_grid_ptr_dev,
                                &coeff_grid_ptr_dev,
                                &ikj_dev]() -> void {
-    FieldBrick bIn(fieldBrickInfo_dev, fieldBrickStorage_dev, 0);
-    FieldBrick bOut(fieldBrickInfo_dev, fieldBrickStorage_dev, FieldBrick::BRICKSIZE);
+    FieldBrick_i bIn(fieldBrickInfo_dev, fieldBrickStorage_dev, 0);
+    FieldBrick_i bOut(fieldBrickInfo_dev, fieldBrickStorage_dev, FieldBrick_i::BRICKSIZE);
     PreCoeffBrick bP1(coeffBrickInfo_dev, coeffBrickStorage_dev, 0);
     PreCoeffBrick bP2(coeffBrickInfo_dev, coeffBrickStorage_dev, PreCoeffBrick::BRICKSIZE);
     dim3 block(BRICK_EXTENT_i, BRICK_EXTENT_j, NUM_BRICKS / BRICK_EXTENT_i / BRICK_EXTENT_j),
@@ -371,8 +371,8 @@ void ij_deriv_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr,
                            &field_grid_ptr_dev,
                            &coeff_grid_ptr_dev,
                            &ikj_dev]() -> void {
-    FieldBrick bIn(fieldBrickInfo_dev, fieldBrickStorage_dev, 0);
-    FieldBrick bOut(fieldBrickInfo_dev, fieldBrickStorage_dev, FieldBrick::BRICKSIZE);
+    FieldBrick_i bIn(fieldBrickInfo_dev, fieldBrickStorage_dev, 0);
+    FieldBrick_i bOut(fieldBrickInfo_dev, fieldBrickStorage_dev, FieldBrick_i::BRICKSIZE);
     PreCoeffBrick bP1(coeffBrickInfo_dev, coeffBrickStorage_dev, 0);
     PreCoeffBrick bP2(coeffBrickInfo_dev, coeffBrickStorage_dev, PreCoeffBrick::BRICKSIZE);
     dim3 block(BRICK_EXTENT_i, BRICK_EXTENT_j, NUM_BRICKS / BRICK_EXTENT_i / BRICK_EXTENT_j),
@@ -425,6 +425,15 @@ void ij_deriv(bool run_bricks, bool run_gtensor) {
   // build in/out arrays
   bComplexElem *in_ptr = randomComplexArray({PADDED_EXTENT}),
                *out_ptr = zeroComplexArray({PADDED_EXTENT});
+  for(unsigned i = 0; i < NUM_PADDED_ELEMENTS; ++i) { 
+    in_ptr[i] = i %  PADDED_EXTENT_i
+              + i /  PADDED_EXTENT_i % PADDED_EXTENT_j * 10
+              + i / (PADDED_EXTENT_i * PADDED_EXTENT_j) % PADDED_EXTENT_k * 100
+              + i / (PADDED_EXTENT_i * PADDED_EXTENT_j  * PADDED_EXTENT_k) % PADDED_EXTENT_l * 1000
+              + i / (PADDED_EXTENT_i * PADDED_EXTENT_j  * PADDED_EXTENT_k  * PADDED_EXTENT_l) % PADDED_EXTENT_m * 10000
+              + i / (PADDED_EXTENT_i * PADDED_EXTENT_j  * PADDED_EXTENT_k  * PADDED_EXTENT_l  * PADDED_EXTENT_m) % PADDED_EXTENT_n * 100000;
+  }
+
   // build coefficients needed for stencil computation
   bComplexElem *p1 = randomComplexArray({PADDED_EXTENT_i, PADDED_EXTENT_k, PADDED_EXTENT_l, PADDED_EXTENT_m, PADDED_EXTENT_n}),
                *p2 = randomComplexArray({PADDED_EXTENT_i, PADDED_EXTENT_k, PADDED_EXTENT_l, PADDED_EXTENT_m, PADDED_EXTENT_n});
@@ -615,8 +624,8 @@ void semi_arakawa_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr, bElem *coe
   unsigned *field_grid_ptr = nullptr;
   unsigned *coeff_grid_ptr = nullptr;
 
-  auto fieldBrickInfo = init_grid<DIM>(field_grid_ptr, {GZ_BRICK_EXTENT});
-  auto coeffBrickInfo = init_grid<DIM - 1>(coeff_grid_ptr, {GZ_BRICK_EXTENT_i, GZ_BRICK_EXTENT_k, GZ_BRICK_EXTENT_l, GZ_BRICK_EXTENT_m, GZ_BRICK_EXTENT_n});
+  auto fieldBrickInfo = init_grid<DIM, CommIn_kl>(field_grid_ptr, {GZ_BRICK_EXTENT});
+  auto coeffBrickInfo = init_grid<DIM - 1, NoComm>(coeff_grid_ptr, {GZ_BRICK_EXTENT_i, GZ_BRICK_EXTENT_k, GZ_BRICK_EXTENT_l, GZ_BRICK_EXTENT_m, GZ_BRICK_EXTENT_n});
   unsigned *field_grid_ptr_dev = nullptr;
   unsigned *coeff_grid_ptr_dev = nullptr;
   {
@@ -627,10 +636,10 @@ void semi_arakawa_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr, bElem *coe
     cudaCheck(cudaMemcpy(field_grid_ptr_dev, field_grid_ptr, num_field_bricks * sizeof(unsigned), cudaMemcpyHostToDevice));
     cudaCheck(cudaMemcpy(coeff_grid_ptr_dev, coeff_grid_ptr, num_coeff_bricks * sizeof(unsigned), cudaMemcpyHostToDevice));
   }
-  BrickInfo<DIM> *fieldBrickInfo_dev = nullptr;
-  BrickInfo<DIM - 1> *coeffBrickInfo_dev = nullptr;
-  BrickInfo<DIM> _fieldBrickInfo_dev = movBrickInfo(fieldBrickInfo, cudaMemcpyHostToDevice);
-  BrickInfo<DIM - 1> _coeffBrickInfo_dev = movBrickInfo(coeffBrickInfo, cudaMemcpyHostToDevice);
+  BrickInfo<DIM, CommIn_kl> *fieldBrickInfo_dev = nullptr;
+  BrickInfo<DIM - 1, NoComm> *coeffBrickInfo_dev = nullptr;
+  BrickInfo<DIM, CommIn_kl> _fieldBrickInfo_dev = movBrickInfo(fieldBrickInfo, cudaMemcpyHostToDevice);
+  BrickInfo<DIM - 1, NoComm> _coeffBrickInfo_dev = movBrickInfo(coeffBrickInfo, cudaMemcpyHostToDevice);
   {
     cudaCheck(cudaMalloc(&fieldBrickInfo_dev, sizeof(decltype(fieldBrickInfo))));
     cudaCheck(cudaMalloc(&coeffBrickInfo_dev, sizeof(decltype(coeffBrickInfo))));
@@ -639,10 +648,10 @@ void semi_arakawa_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr, bElem *coe
   }
 
   // setup brick storage on host
-  auto fieldBrickStorage = BrickStorage::allocate(fieldBrickInfo.nbricks, 2 * FieldBrick::BRICKSIZE);
+  auto fieldBrickStorage = BrickStorage::allocate(fieldBrickInfo.nbricks, 2 * FieldBrick_kl::BRICKSIZE);
 
-  FieldBrick bIn(&fieldBrickInfo, fieldBrickStorage, 0);
-  FieldBrick bOut(&fieldBrickInfo, fieldBrickStorage, FieldBrick::BRICKSIZE);
+  FieldBrick_kl bIn(&fieldBrickInfo, fieldBrickStorage, 0);
+  FieldBrick_kl bOut(&fieldBrickInfo, fieldBrickStorage, FieldBrick_kl::BRICKSIZE);
 
   auto coeffBrickStorage = BrickStorage::allocate(coeffBrickInfo.nbricks, ARAKAWA_STENCIL_SIZE * RealCoeffBrick::BRICKSIZE);
   std::vector<RealCoeffBrick> bCoeffs;
@@ -684,8 +693,8 @@ void semi_arakawa_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr, bElem *coe
                                    &coeff_grid_ptr_dev,
                                    &bCoeffs_dev](unsigned blockSize) -> void {
     // set up bricks and launch kernel
-    FieldBrick bIn(fieldBrickInfo_dev, fieldBrickStorage_dev, 0);
-    FieldBrick bOut(fieldBrickInfo_dev, fieldBrickStorage_dev, FieldBrick::BRICKSIZE);
+    FieldBrick_kl bIn(fieldBrickInfo_dev, fieldBrickStorage_dev, 0);
+    FieldBrick_kl bOut(fieldBrickInfo_dev, fieldBrickStorage_dev, FieldBrick_kl::BRICKSIZE);
     dim3 block(blockSize), thread(SEMI_ARAKAWA_BRICK_KERNEL_VEC_BLOCK_SIZE);
     semi_arakawa_brick_kernel_vec<< < block, thread >> >(
                           field_grid_ptr_dev,
@@ -718,7 +727,7 @@ void semi_arakawa_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr, bElem *coe
     nvtxRangePushA(iteration_order);
 
     for(unsigned numBlocks = 2U * multiProcessorCount;
-        numBlocks <= max_blocks_per_sm(SEMI_ARAKAWA_BRICK_KERNEL_VEC_BLOCK_SIZE) * multiProcessorCount;
+        numBlocks <= 0;//max_blocks_per_sm(SEMI_ARAKAWA_BRICK_KERNEL_VEC_BLOCK_SIZE) * multiProcessorCount;
         numBlocks += multiProcessorCount / 2)
     {
       std::ostringstream rangeNameStream;
@@ -768,8 +777,8 @@ void semi_arakawa_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr, bElem *coe
                                &field_grid_ptr_dev,
                                &coeff_grid_ptr_dev,
                                &bCoeffs_dev](const char *iteration_order = "ijkmln") -> void {
-    FieldBrick bIn(fieldBrickInfo_dev, fieldBrickStorage_dev, 0);
-    FieldBrick bOut(fieldBrickInfo_dev, fieldBrickStorage_dev, FieldBrick::BRICKSIZE);
+    FieldBrick_kl bIn(fieldBrickInfo_dev, fieldBrickStorage_dev, 0);
+    FieldBrick_kl bOut(fieldBrickInfo_dev, fieldBrickStorage_dev, FieldBrick_kl::BRICKSIZE);
     unsigned brickExtents[] = {BRICK_EXTENT};
     unsigned gridDim_x = brickExtents[iteration_order[0] - 'i'];
     unsigned gridDim_y = brickExtents[iteration_order[1] - 'i'];

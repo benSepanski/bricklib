@@ -47,9 +47,9 @@ init_fill(const std::vector<long> &stride, unsigned *adjlist, unsigned *grid_ptr
     *adjlist = 0;
 }
 
-template<unsigned dims, unsigned d>
+template<unsigned dims, unsigned d, typename CommunicatingDims>
 inline void
-init_iter(const std::vector<long> &dimlist, const std::vector<long> &stride, BrickInfo<dims> &bInfo, unsigned *grid_ptr,
+init_iter(const std::vector<long> &dimlist, const std::vector<long> &stride, BrickInfo<dims, CommunicatingDims> &bInfo, unsigned *grid_ptr,
           unsigned *low, unsigned *high, RunningTag t) {
   if (dims == d) {
 #pragma omp parallel for
@@ -63,15 +63,28 @@ init_iter(const std::vector<long> &dimlist, const std::vector<long> &stride, Bri
   }
 }
 
-template<unsigned dims, unsigned d>
+template<unsigned dims, unsigned d, typename CommunicatingDims>
 inline void
-init_iter(const std::vector<long> &dimlist, const std::vector<long> &stride, BrickInfo<dims> &bInfo, unsigned *grid_ptr,
+init_iter(const std::vector<long> &dimlist, const std::vector<long> &stride, BrickInfo<dims, CommunicatingDims> &bInfo, unsigned *grid_ptr,
           unsigned *low, unsigned *high, StopTag t) {
-  init_fill<dims, dims>(stride, bInfo.adj[*grid_ptr], grid_ptr, low, high, RunningTag());
+  // get the strides of all dimensions in which communication occurs
+  constexpr unsigned numCommDims = CommunicatingDims::numCommunicatingDims(dims);
+  std::vector<long> commDimsStride;
+  unsigned i = 0;
+  for(long s : stride)
+  {
+    if(CommunicatingDims::communicatesInDim(i))
+    {
+      commDimsStride.push_back(s);
+    }
+    ++i;
+  }
+
+  init_fill<numCommDims, numCommDims>(commDimsStride, bInfo.adj[*grid_ptr], grid_ptr, low, high, TagSelect<numCommDims>::value);
 }
 
-template<unsigned dims>
-BrickInfo<dims> init_grid(unsigned *&grid_ptr, const std::vector<long> &dimlist) {
+template<unsigned dims, typename CommunicatingDims = CommDims<> >
+BrickInfo<dims, CommunicatingDims> init_grid(unsigned *&grid_ptr, const std::vector<long> &dimlist) {
   long size = 1;
   std::vector<long> stride;
   for (const auto a: dimlist) {
@@ -82,7 +95,7 @@ BrickInfo<dims> init_grid(unsigned *&grid_ptr, const std::vector<long> &dimlist)
   for (unsigned pos = 0; pos < size; ++pos)
     grid_ptr[pos] = pos;
 
-  BrickInfo<dims> bInfo(size);
+  BrickInfo<dims, CommunicatingDims> bInfo(size);
 
   init_iter<dims, dims>(dimlist, stride, bInfo, grid_ptr, grid_ptr, grid_ptr + size, RunningTag());
 
@@ -139,14 +152,14 @@ inline void iter(const std::vector<long> &dimlist, const std::vector<long> &tile
  * ghost: the padding for both, skipped
  * f: F (&brick element-type, *brick-element type) -> void
  */
-template<unsigned dims, typename F, typename T, bool isComplex, unsigned ... BDims>
+template<unsigned dims, typename F, typename T, bool isComplex, typename CommunicatingDims, unsigned ... BDims>
 inline void
 iter_grid(const std::vector<long> &dimlist,
           const std::vector<long> &padding,
           const std::vector<long> &ghost,
-          typename Brick<Dim<BDims...>, T, isComplex>::elemType *arr,
+          typename Brick<Dim<BDims...>, T, isComplex, CommunicatingDims>::elemType *arr,
           unsigned *grid_ptr,
-          Brick<Dim<BDims...>, T, isComplex> &brick,
+          Brick<Dim<BDims...>, T, isComplex, CommunicatingDims> &brick,
           F f) {
   std::vector<long> strideA;
   std::vector<long> strideB;

@@ -39,18 +39,19 @@ void _cudaCheck(T e, const char *func, const char *call, const int line) {
  * @param kind Currently must be cudaMemcpyHostToDevice or cudaMemcpyDeviceToHost
  * @return a new BrickInfo struct allocated on the destination
  */
-template<unsigned dims>
-BrickInfo<dims> movBrickInfo(BrickInfo<dims> &bInfo, cudaMemcpyKind kind) {
+template<unsigned dims, typename CommunicatingDims>
+BrickInfo<dims, CommunicatingDims> movBrickInfo(BrickInfo<dims, CommunicatingDims> &bInfo, cudaMemcpyKind kind) {
   assert(kind == cudaMemcpyHostToDevice || kind == cudaMemcpyDeviceToHost);
 
   // Make a copy
-  BrickInfo<dims> ret = bInfo;
-  size_t size = bInfo.nbricks * static_power<3, dims>::value * sizeof(unsigned);
+  BrickInfo<dims, CommunicatingDims> ret = bInfo;
+  constexpr unsigned numCommDims = CommunicatingDims::numCommunicatingDims(dims);
+  size_t size = bInfo.nbricks * static_power<3, numCommDims>::value * sizeof(unsigned);
 
   if (kind == cudaMemcpyHostToDevice) {
     cudaCheck(cudaMalloc(&ret.adj, size));
   } else {
-    ret.adj = (unsigned (*)[static_power<3, dims>::value]) malloc(size);
+    ret.adj = (unsigned (*)[static_power<3, numCommDims>::value]) malloc(size);
   }
   cudaCheck(cudaMemcpy(ret.adj, bInfo.adj, size, kind));
   return ret;

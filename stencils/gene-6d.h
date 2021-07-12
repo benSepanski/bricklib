@@ -32,10 +32,10 @@ constexpr bElem pi = 3.14159265358979323846;
 
 // blocking dimensions
 constexpr unsigned DIM = 6;
-constexpr unsigned TILE = 8;
+constexpr unsigned TILE = 2;
 // set brick sizes
 constexpr unsigned BDIM_i = 2;
-constexpr unsigned BDIM_j = 16;
+constexpr unsigned BDIM_j = 32;
 constexpr unsigned BDIM_k = 2;
 constexpr unsigned BDIM_l = 2;
 constexpr unsigned BDIM_m = 1;
@@ -104,9 +104,13 @@ constexpr unsigned NUM_GZ_BRICKS = GZ_BRICK_EXTENT_i * GZ_BRICK_EXTENT_j * GZ_BR
 #define GZ_BRICK_EXTENT GZ_BRICK_EXTENT_i,GZ_BRICK_EXTENT_j,GZ_BRICK_EXTENT_k,GZ_BRICK_EXTENT_l,GZ_BRICK_EXTENT_m,GZ_BRICK_EXTENT_n
 
 // set our brick types
-typedef Brick<Dim<BDIM_n, BDIM_m, BDIM_l, BDIM_k, BDIM_j, BDIM_i>, Dim<1>, true> FieldBrick ;
-typedef Brick<Dim<BDIM_n, BDIM_m, BDIM_l, BDIM_k, BDIM_i>, Dim<1>, true> PreCoeffBrick;
-typedef Brick<Dim<BDIM_n, BDIM_m, BDIM_l, BDIM_k, BDIM_i>, Dim<1>> RealCoeffBrick;
+typedef CommDims<false, false, false, false, false, true> CommIn_i;
+typedef CommDims<false, false, true, true, false, false> CommIn_kl;
+typedef CommDims<false, false, false, false, false, false> NoComm;
+typedef Brick<Dim<BDIM_n, BDIM_m, BDIM_l, BDIM_k, BDIM_j, BDIM_i>, Dim<1>, true, CommIn_i> FieldBrick_i ;
+typedef Brick<Dim<BDIM_n, BDIM_m, BDIM_l, BDIM_k, BDIM_j, BDIM_i>, Dim<1>, true, CommIn_kl> FieldBrick_kl ;
+typedef Brick<Dim<BDIM_n, BDIM_m, BDIM_l, BDIM_k, BDIM_i>, Dim<1>, true, NoComm> PreCoeffBrick;
+typedef Brick<Dim<BDIM_n, BDIM_m, BDIM_l, BDIM_k, BDIM_i>, Dim<1>, false, NoComm> RealCoeffBrick;
 
 // useful constants for stencil computations
 constexpr unsigned ARAKAWA_STENCIL_SIZE = 13;
@@ -153,8 +157,8 @@ void copy_grid_iteration_order(const char * grid_iteration_order_host);
 __global__ void
 ij_deriv_brick_kernel(unsigned (*fieldGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l][GZ_BRICK_EXTENT_k][GZ_BRICK_EXTENT_j][GZ_BRICK_EXTENT_i],
                       unsigned (*coeffGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l][GZ_BRICK_EXTENT_k][GZ_BRICK_EXTENT_i],
-                      FieldBrick bIn,
-                      FieldBrick bOut,
+                      FieldBrick_i bIn,
+                      FieldBrick_i bOut,
                       PreCoeffBrick bP1,
                       PreCoeffBrick bP2,
                       bComplexElem *ikj);
@@ -165,8 +169,8 @@ static_assert(NUM_ELEMENTS_PER_BRICK % IJ_DERIV_BRICK_KERNEL_VEC_BLOCK_SIZE == 0
 __global__ void
 ij_deriv_brick_kernel_vec(unsigned (*fieldGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l][GZ_BRICK_EXTENT_k][GZ_BRICK_EXTENT_j][GZ_BRICK_EXTENT_i],
                           unsigned (*coeffGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTENT_l][GZ_BRICK_EXTENT_k][GZ_BRICK_EXTENT_i],
-                          FieldBrick bIn,
-                          FieldBrick bOut,
+                          FieldBrick_i bIn,
+                          FieldBrick_i bOut,
                           PreCoeffBrick bP1,
                           PreCoeffBrick bP2,
                           bComplexElem *ikj) ;
@@ -174,8 +178,8 @@ ij_deriv_brick_kernel_vec(unsigned (*fieldGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTE
 __global__ void
 semi_arakawa_brick_kernel(unsigned *fieldGrid,
                           unsigned *coeffGrid,
-                          FieldBrick bIn,
-                          FieldBrick bOut,
+                          FieldBrick_kl bIn,
+                          FieldBrick_kl bOut,
                           RealCoeffBrick *coeff);
 
 constexpr unsigned SEMI_ARAKAWA_BRICK_KERNEL_VEC_BLOCK_SIZE = std::min(128U, NUM_ELEMENTS_PER_BRICK);
@@ -184,8 +188,8 @@ static_assert(NUM_ELEMENTS_PER_BRICK % SEMI_ARAKAWA_BRICK_KERNEL_VEC_BLOCK_SIZE 
 __global__ void
 semi_arakawa_brick_kernel_vec(unsigned *fieldGrid,
                               unsigned *coeffGrid,
-                              FieldBrick bIn,
-                              FieldBrick bOut,
+                              FieldBrick_kl bIn,
+                              FieldBrick_kl bOut,
                               RealCoeffBrick *coeff);
 
 #endif // BRICK_GENE_5D_H
