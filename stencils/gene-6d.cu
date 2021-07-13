@@ -242,6 +242,7 @@ ij_deriv_brick_kernel_vec(unsigned (*fieldGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTE
  * 
  * @param coeff an array of ARAKAWA_STENCIL_SIZE RealCoeffBrick s
  */
+__launch_bounds__(NUM_ELEMENTS_PER_BRICK, 6)
 __global__ void
 semi_arakawa_brick_kernel(unsigned *fieldGrid,
                           unsigned *coeffGrid,
@@ -269,10 +270,10 @@ semi_arakawa_brick_kernel(unsigned *fieldGrid,
     bCoeffIndex = ((unsigned *)coeffGrid)[coeffGridIndex];
   }
 
-  unsigned n = threadIdx.z / (BDIM_k * BDIM_l * BDIM_m);
-  unsigned m = threadIdx.z / (BDIM_k * BDIM_l) % BDIM_m;
-  unsigned l = (threadIdx.z / BDIM_k) % BDIM_l;
-  unsigned k = threadIdx.z % BDIM_k;
+  unsigned n = threadIdx.z / (BDIM_k *  BDIM_l  * BDIM_m);
+  unsigned m = threadIdx.z / (BDIM_k *  BDIM_l) % BDIM_m;
+  unsigned l = threadIdx.z /  BDIM_k % BDIM_l;
+  unsigned k = threadIdx.z %  BDIM_k;
   unsigned j = threadIdx.y;
   unsigned i = threadIdx.x;
 
@@ -301,12 +302,14 @@ semi_arakawa_brick_kernel(unsigned *fieldGrid,
   in[12] = bIn[bFieldIndex][n][m][l+2][k+0][j][i];
 
   bComplexElem result = 0.0;
+  unsigned flatIndex = i + BDIM_i * (j + BDIM_j * (k + BDIM_k * (l + BDIM_l * (m + BDIM_m * n))));
+  unsigned flatIndexNoJ = i + BDIM_i * (k + BDIM_k * (l + BDIM_l * (m + BDIM_m * n)));
   for(unsigned stencil_index = 0; stencil_index < 13; ++stencil_index) 
   {
-    bElem my_coeff = coeff[stencil_index][bCoeffIndex][n][m][l][k][i];
+    bElem my_coeff = coeff[stencil_index].dat[bCoeffIndex * coeff[stencil_index].step + flatIndexNoJ];
     result += my_coeff * in[stencil_index];
   }
-  bOut[bFieldIndex][n][m][l][k][j][i] = result;
+  bOut.dat[bFieldIndex * bOut.step + flatIndex] = result;
 }
 
 /**
