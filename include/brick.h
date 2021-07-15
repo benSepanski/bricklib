@@ -23,6 +23,22 @@
 #define FORCUDA
 #endif
 
+// TODO: DOC
+namespace  // anonymous
+{
+  template<unsigned Start, unsigned End, int Inc, class F>
+  constexpr typename std::enable_if<Start >= End>::type constexpr_for(F &&f) { }
+
+  // copied and modified from
+  // https://artificial-mind.net/blog/2020/10/31/constexpr-for
+  template<unsigned Start, unsigned End, int Inc, class F>
+  constexpr typename std::enable_if<Start < End>::type constexpr_for(F &&f)
+  {
+    f(std::integral_constant<decltype(Start), Start>());
+    constexpr_for<Start+Inc, End, Inc>(f);
+  }
+} // end anonymous namespace
+
 /**
  * @defgroup static_power Statically compute exponentials
  * @{
@@ -31,7 +47,14 @@
 /// Compute \f$base^{exp}\f$ @ref static_power
 template<unsigned base, unsigned exp>
 struct static_power {
-  static constexpr unsigned value = base * static_power<base, exp - 1>::value;
+  static constexpr unsigned value = static_power<base, exp / 2>::value
+                                  * static_power<base, exp - (exp / 2)>::value;
+};
+
+/// Return base @ref static_power
+template<unsigned base>
+struct static_power<base, 1> {
+  static constexpr unsigned value = base;
 };
 
 /// Return 1 @ref static_power
@@ -99,7 +122,7 @@ struct CommDims
       unsigned numCommunicatingDims = 0;
       for(unsigned dim = 0; dim < numDims; ++dim)
       {
-        numCommunicatingDims += CommDims<CommInDim...>::communicatesInDim(dim);
+        numCommunicatingDims += communicatesInDim(dim);
       }
       return numCommunicatingDims;
     }
@@ -158,6 +181,38 @@ struct BrickInfo<dims, CommDims<CommInDim...> > {
 /// Empty template to specify an n-D list
 template<unsigned ... Ds>
 struct Dim {
+  private:
+    static constexpr unsigned dims[sizeof...(Ds)] = { Ds... };
+
+  public:
+  // get *d*th entry (from right), e.g. Dim<1,2,3>::template get<0>() == 3
+  template<unsigned d>
+  static constexpr unsigned get()
+  {
+    static_assert(d < sizeof...(Ds), "d out of range");
+    return dims[sizeof...(Ds) - 1 - d];
+  }
+
+  // get product of first *d* entries (from the right)
+  // e.g. Dim<1,2,3>::product(0) == 1, Dim<1,2,3>::product(1) == 3,
+  //      Dim<1,2,3>::product(2) == 6
+  template<unsigned d>
+  static constexpr 
+  typename std::enable_if<d != 0, unsigned>::type product() ///< don't use this implementation if d == 0
+  {
+    static_assert(d <= sizeof...(Ds), "d out of range");
+    unsigned value = 1;
+    for(unsigned i = 0; i < d; ++i)
+    {
+      value *= dims[sizeof...(Ds) - 1 - i];
+    };
+    return value;
+  }
+
+  // explicit specialization to avoid annoying compiler warning
+  template<unsigned d>
+  static constexpr 
+  typename std::enable_if<d == 0, unsigned>::type product() {return 1;}
 };
 
 /**
@@ -425,6 +480,11 @@ namespace
   };
 }
 
+// TODO:DOCS
+// declaration for indexing
+template<typename ... T>
+struct BrickIndex;
+
 /**
  * @brief Brick data structure
  * @tparam isComplex (default false) true if the elements are complex.
@@ -500,4 +560,121 @@ struct Brick<Dim<BDims...>, Dim<Folds...>, isComplex, CommDims<CommInDim...> > {
 };
 /**@}*/
 
-#endif //BRICK_H
+// TODO: Docs
+template<
+    bool isComplex,
+    unsigned ... BDims,
+    unsigned ... Folds,
+    bool ... CommInDim>
+struct BrickIndex<Brick<Dim<BDims...>, Dim<Folds...>, isComplex, CommDims<CommInDim...> > >
+{
+  // extract usefeul types
+  typedef Brick<Dim<BDims...>, Dim<Folds...>, isComplex, CommDims<CommInDim...> > myBrickType;
+  typedef typename myBrickType::elemType elemType;
+  typedef CommDims<CommInDim...> myCommDims;
+  typedef Dim<BDims...> myBDims;
+  typedef Dim<Folds...> myFolds;
+
+  unsigned indexInNbrList; ///< ternary representation: left=0, middle=1, right=2
+  int indexOfVec; ///< Index of vector in brick (signed for intermediate computations)
+  int indexInVec; ///< Index inside vector (signed for intermediate computations)
+  // saved from brick
+  myBrickType *brick;
+  unsigned *neighbors;
+  size_t step;
+
+  // TODO: doc
+  FORCUDA inline
+  BrickIndex(myBrickType *brick, unsigned brickIndex, const int (&indices)[sizeof...(BDims)])
+  {
+    this->brick = brick;
+    this->neighbors = brick->bInfo->adj[brickIndex];
+    this->step = brick->step;
+    constexpr unsigned NUM_COMM_DIMS = myCommDims::numCommunicatingDims(sizeof...(BDims));
+    // // initialize \sum_{i=0}^{d-1}3**i == (3^d - 1) / 2
+    this->indexInNbrList = (static_power<3, NUM_COMM_DIMS>::value - 1) / 2;
+    this->indexOfVec = 0;
+    this->indexInVec = 0;
+    this->shift(indices);
+  }
+
+  // TODO: doc
+  template<unsigned ... dimsToShift>
+  FORCUDA inline
+  void shiftInDims(const int (&shifts)[sizeof...(dimsToShift)])
+  {
+    static_assert(sizeof...(dimsToShift) <= sizeof...(BDims), "Number of shifting dimensions must be at most the number of dimensions");
+
+    constexpr unsigned dims[] = { dimsToShift... };
+    constexpr_for<0, sizeof...(dimsToShift), 1>([this, &dims, &shifts](auto idx) {
+      constexpr unsigned d = dims[idx()];
+      const int shift = shifts[idx()];
+      this->performShiftInDim<d>(shift);
+    });
+  }
+
+  FORCUDA inline
+  void shift(const int (&shifts)[sizeof...(BDims)])
+  {
+    // shift and return copy
+    constexpr_for<0, sizeof...(BDims), 1>([this, &shifts](auto d) {
+      const int shift = shifts[sizeof...(BDims)-1 - d()];
+      this->performShiftInDim<d()>(shift);
+    });
+  }
+
+  // TODO: Doc
+  FORCUDA inline
+  unsigned getIndex() const
+  {
+    unsigned offset = indexOfVec * myBrickType::VECLEN + indexInVec;
+    return step * neighbors[indexInNbrList] + offset;
+  }
+
+  private:
+    template<unsigned d>
+    FORCUDA inline
+    void performShiftInDim(int shift)
+    {
+      static_assert(d < sizeof...(BDims), "Shifting dimension must be less than the number of dimensions");
+      constexpr int foldIndex = std::min(d, (unsigned) sizeof...(Folds) - 1);
+      constexpr int VECTOR_FOLD = (d == foldIndex) ? myFolds::template get<foldIndex>() : 1;
+      constexpr int STRIDE_IN_VECTOR = myFolds::template product<foldIndex>();
+      constexpr int BRICK_DIM = myBDims::template get<foldIndex>();
+      constexpr int STRIDE_IN_BRICK = myBDims::template product<d>();
+      static_assert(STRIDE_IN_BRICK % STRIDE_IN_VECTOR == 0);
+      constexpr int STRIDE_OVER_VECTORS = STRIDE_IN_BRICK / STRIDE_IN_VECTOR;
+      static_assert(BRICK_DIM % VECTOR_FOLD == 0);
+      constexpr int DIM_OVER_VECTORS = BRICK_DIM / VECTOR_FOLD;
+      // take max to avoid large template instantiation of static_power
+      constexpr unsigned exp = myCommDims::numCommunicatingDims(d+1) > 0 
+                             ? myCommDims::numCommunicatingDims(d+1) - 1
+                             : 0;
+      constexpr int NEIGHBOR_WEIGHT = myCommDims::communicatesInDim(d) ? static_power<3, exp>::value : 0;
+
+      // get *d*th component of index inside/outside vector and shift it
+      int indexInVec_d = (indexInVec / STRIDE_IN_VECTOR) % VECTOR_FOLD;
+      int shiftedIndexInVec_d = indexInVec_d + shift;
+      // handle case where we shifted outside the vector
+      // (ASSUME shifted no more than 3 bricks (L neighbor to R neighbor))
+      int vectorShift = (shiftedIndexInVec_d + 3 * BRICK_DIM) / VECTOR_FOLD - 3 * (BRICK_DIM / VECTOR_FOLD);
+      shiftedIndexInVec_d = (shiftedIndexInVec_d + 3 * BRICK_DIM) % VECTOR_FOLD;
+      // add back into indexInVec
+      indexInVec += (shiftedIndexInVec_d - indexInVec_d) * STRIDE_IN_VECTOR;
+
+      // get *d*th component of index of vector and shift it
+      int indexOfVec_d = (indexOfVec / STRIDE_OVER_VECTORS) % DIM_OVER_VECTORS;
+      int shiftedIndexOfVec_d = indexOfVec_d + vectorShift;
+      // Handle possibility that we shifted into a neighboring brick
+      // (ASSUME shifted no more than 3 bricks (L neighbor to R neighbor))
+      int brickShift = (shiftedIndexOfVec_d + 3 * DIM_OVER_VECTORS) / DIM_OVER_VECTORS - 3;
+      shiftedIndexOfVec_d = (shiftedIndexOfVec_d + 3 * DIM_OVER_VECTORS) % DIM_OVER_VECTORS;
+      // add back into indexOfVec
+      indexOfVec += (shiftedIndexOfVec_d - indexOfVec_d) * STRIDE_OVER_VECTORS;
+
+      // adjust brick (assumes stays within L neighbor, center, R neighbor)
+      indexInNbrList += brickShift * NEIGHBOR_WEIGHT;
+    }
+};
+
+#endif // BRICK_H
