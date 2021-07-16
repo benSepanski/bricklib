@@ -640,7 +640,7 @@ struct BrickIndex<Brick<Dim<BDims...>, Dim<Folds...>, isComplex, CommDims<CommIn
       constexpr int foldIndex = std::min(d, (unsigned) sizeof...(Folds) - 1);
       constexpr int VECTOR_FOLD = (d == foldIndex) ? myFolds::template get<foldIndex>() : 1;
       constexpr int STRIDE_IN_VECTOR = myFolds::template product<foldIndex>();
-      constexpr int BRICK_DIM = myBDims::template get<foldIndex>();
+      constexpr int BRICK_DIM = myBDims::template get<d>();
       constexpr int STRIDE_IN_BRICK = myBDims::template product<d>();
       static_assert(STRIDE_IN_BRICK % STRIDE_IN_VECTOR == 0);
       constexpr int STRIDE_OVER_VECTORS = STRIDE_IN_BRICK / STRIDE_IN_VECTOR;
