@@ -185,6 +185,22 @@ struct Dim {
     return dims[sizeof...(Ds) - 1 - d];
   }
 
+  // get, or return default if out of range. In range case:
+  template<unsigned d>
+  static constexpr typename std::enable_if<d < sizeof...(Ds), unsigned>::type
+  getOrDefault(unsigned default_value)
+  {
+    return get<d>();
+  }
+
+  // get, or return default if out of range. Out of range case:
+  template<unsigned d>
+  static constexpr typename std::enable_if<d >= sizeof...(Ds), unsigned>::type
+  getOrDefault(unsigned default_value)
+  {
+    return default_value;
+  }
+
   // get product of first *d* entries (from the right)
   // e.g. Dim<1,2,3>::product(0) == 1, Dim<1,2,3>::product(1) == 3,
   //      Dim<1,2,3>::product(2) == 6
@@ -668,14 +684,15 @@ struct BrickIndex<Brick<Dim<BDims...>, Dim<Folds...>, isComplex, CommDims<CommIn
       shift_all_dims_recurse(remainingShifts...);
     }
 
-    // todo: doc
+    // todo: doc, FOLD case
     template<unsigned d>
     FORCUDA inline
-    void performShiftInDim(int shift)
+    voidIfMatch<myFolds::template getOrDefault<d>(1) != 1>
+    performShiftInDim(int shift)
     {
       static_assert(d < sizeof...(BDims), "Shifting dimension must be less than the number of dimensions");
-      constexpr int foldIndex = std::min(d, (unsigned) sizeof...(Folds) - 1);
-      constexpr int VECTOR_FOLD = (d == foldIndex) ? myFolds::template get<foldIndex>() : 1;
+      constexpr int VECTOR_FOLD = myFolds::template getOrDefault<d>(1);
+      constexpr int foldIndex = std::min(d, (unsigned) sizeof...(Folds));
       constexpr int STRIDE_IN_VECTOR = myFolds::template product<foldIndex>();
       constexpr int BRICK_DIM = myBDims::template get<d>();
       constexpr int STRIDE_IN_BRICK = myBDims::template product<d>();
@@ -708,6 +725,41 @@ struct BrickIndex<Brick<Dim<BDims...>, Dim<Folds...>, isComplex, CommDims<CommIn
       shiftedIndexOfVec_d = (shiftedIndexOfVec_d + 3 * DIM_OVER_VECTORS) % DIM_OVER_VECTORS;
       // add back into indexOfVec
       indexOfVec += (shiftedIndexOfVec_d - indexOfVec_d) * STRIDE_OVER_VECTORS;
+
+      // adjust brick (assumes stays within L neighbor, center, R neighbor)
+      indexInNbrList += brickShift * NEIGHBOR_WEIGHT;
+    }
+
+    // todo: doc, NO FOLD case
+    template<unsigned d>
+    FORCUDA inline
+    voidIfMatch<myFolds::template getOrDefault<d>(1) == 1>
+    performShiftInDim(int shift)
+    {
+      static_assert(d < sizeof...(BDims), "Shifting dimension must be less than the number of dimensions");
+      // compute stride
+      constexpr int foldIndex = std::min(d, (unsigned) sizeof...(Folds));
+      constexpr int STRIDE_IN_VECTOR = myFolds::template product<foldIndex>();
+      constexpr int STRIDE_IN_BRICK = myBDims::template product<d>();
+      static_assert(STRIDE_IN_BRICK % STRIDE_IN_VECTOR == 0);
+      constexpr int STRIDE = STRIDE_IN_BRICK / STRIDE_IN_VECTOR;
+      // extent in this dimension
+      constexpr int BRICK_DIM = myBDims::template get<d>();
+      // take max to avoid large template instantiation of static_power
+      constexpr unsigned exp = myCommDims::numCommunicatingDims(d+1) > 0 
+                              ? myCommDims::numCommunicatingDims(d+1) - 1
+                              : 0;
+      constexpr int NEIGHBOR_WEIGHT = myCommDims::communicatesInDim(d) ? static_power<3, exp>::value : 0;
+
+      // get *d*th component of index of vector and shift it
+      int indexOfVec_d = (indexOfVec / STRIDE) % BRICK_DIM;
+      int shiftedIndexOfVec_d = indexOfVec_d + shift;
+      // Handle possibility that we shifted into a neighboring brick
+      // (ASSUME shifted no more than 3 bricks (L neighbor to R neighbor))
+      int brickShift = (shiftedIndexOfVec_d + 3 * BRICK_DIM) / BRICK_DIM - 3;
+      shiftedIndexOfVec_d = (shiftedIndexOfVec_d + 3 * BRICK_DIM) % BRICK_DIM;
+      // add back into indexOfVec
+      indexOfVec += (shiftedIndexOfVec_d - indexOfVec_d) * STRIDE;
 
       // adjust brick (assumes stays within L neighbor, center, R neighbor)
       indexInNbrList += brickShift * NEIGHBOR_WEIGHT;
