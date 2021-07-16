@@ -242,7 +242,7 @@ ij_deriv_brick_kernel_vec(unsigned (*fieldGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTE
  * 
  * @param coeff an array of ARAKAWA_STENCIL_SIZE RealCoeffBrick s
  */
-__launch_bounds__(NUM_ELEMENTS_PER_BRICK, 6)
+__launch_bounds__(NUM_ELEMENTS_PER_BRICK, 8)
 __global__ void
 semi_arakawa_brick_kernel(unsigned *fieldGrid,
                           unsigned *coeffGrid,
@@ -277,23 +277,6 @@ semi_arakawa_brick_kernel(unsigned *fieldGrid,
   int j = threadIdx.y;
   int i = threadIdx.x;
 
-  for(int delta_l = -2; delta_l <= 2; ++delta_l)
-  for(int delta_k = -2; delta_k <= 2; ++delta_k)
-  {
-    auto myElement = BrickIndex<FieldBrick_kl>(&bIn, bFieldIndex, {n, m, l, k, j, i});
-    myElement.shiftInDims<3, 2>({delta_l, delta_k});
-    bComplexElem elt = bIn.dat[myElement.getIndex()];
-    bComplexElem true_elt = bIn[bFieldIndex][n][m][l+delta_l][k+delta_k][j][i];
-    if(elt != true_elt) 
-    {
-      printf("neighbor=%d, idxOfVec=%d, idxInVec=%d, n=%d, m=%d, l+dl=%d+%d, k+dk=%d+%d, j=%d, i=%d\n",
-        myElement.indexInNbrList, myElement.indexOfVec, myElement.indexInVec,
-        n, m, l, delta_l, k, delta_k, j, i
-      );
-      return;
-    }
-  }
-
   // bounds check
   assert(i < BDIM_i);
   assert(j < BDIM_j);
@@ -304,45 +287,45 @@ semi_arakawa_brick_kernel(unsigned *fieldGrid,
 
   // load in data
   bComplexElem in[13];
-  auto myIndex = BrickIndex<FieldBrick_kl>(&bIn, bFieldIndex, {n, m, l, k, j, i});
+  auto myIndex = BrickIndex<FieldBrick_kl>(bIn, bFieldIndex, n, m, l, k, j, i);
   // in[ 0] = bIn[bFieldIndex][n][m][l-2][k+0][j][i];
-  myIndex.shiftInDims<3>({-2});
+  myIndex.shiftInDims<3>(-2);
   in[0] = bIn.dat[myIndex.getIndex()];
   // in[ 1] = bIn[bFieldIndex][n][m][l-1][k-1][j][i];
-  myIndex.shiftInDims<3, 2>({+1, -1});
+  myIndex.shiftInDims<3, 2>(+1, -1);
   in[1] = bIn.dat[myIndex.getIndex()];
   // in[ 2] = bIn[bFieldIndex][n][m][l-1][k+0][j][i];
-  myIndex.shiftInDims<2>({+1});
+  myIndex.shiftInDims<2>(+1);
   in[2] = bIn.dat[myIndex.getIndex()];
   // in[ 3] = bIn[bFieldIndex][n][m][l-1][k+1][j][i];
-  myIndex.shiftInDims<2>({+1});
+  myIndex.shiftInDims<2>(+1);
   in[3] = bIn.dat[myIndex.getIndex()];
   // in[ 4] = bIn[bFieldIndex][n][m][l+0][k-2][j][i];
-  myIndex.shiftInDims<3, 2>({+1, -3});
+  myIndex.shiftInDims<3, 2>(+1, -3);
   in[4] = bIn.dat[myIndex.getIndex()];
   // in[ 5] = bIn[bFieldIndex][n][m][l+0][k-1][j][i];
-  myIndex.shiftInDims<2>({+1});
+  myIndex.shiftInDims<2>(+1);
   in[5] = bIn.dat[myIndex.getIndex()];
   // in[ 6] = bIn[bFieldIndex][n][m][l+0][k+0][j][i];
-  myIndex.shiftInDims<2>({+1});
+  myIndex.shiftInDims<2>(+1);
   in[6] = bIn.dat[myIndex.getIndex()];
   // in[ 7] = bIn[bFieldIndex][n][m][l+0][k+1][j][i];
-  myIndex.shiftInDims<2>({+1});
+  myIndex.shiftInDims<2>(+1);
   in[7] = bIn.dat[myIndex.getIndex()];
   // in[ 8] = bIn[bFieldIndex][n][m][l+0][k+2][j][i];
-  myIndex.shiftInDims<2>({+1});
+  myIndex.shiftInDims<2>(+1);
   in[8] = bIn.dat[myIndex.getIndex()];
   // in[ 9] = bIn[bFieldIndex][n][m][l+1][k-1][j][i];
-  myIndex.shiftInDims<3, 2>({+1, -3});
+  myIndex.shiftInDims<3, 2>(+1, -3);
   in[9] = bIn.dat[myIndex.getIndex()];
   // in[10] = bIn[bFieldIndex][n][m][l+1][k+0][j][i];
-  myIndex.shiftInDims<2>({+1});
+  myIndex.shiftInDims<2>(+1);
   in[10] = bIn.dat[myIndex.getIndex()];
   // in[11] = bIn[bFieldIndex][n][m][l+1][k+1][j][i];
-  myIndex.shiftInDims<2>({+1});
+  myIndex.shiftInDims<2>(+1);
   in[11] = bIn.dat[myIndex.getIndex()];
   // in[12] = bIn[bFieldIndex][n][m][l+2][k+0][j][i];
-  myIndex.shiftInDims<3, 2>({+1, -1});
+  myIndex.shiftInDims<3, 2>(+1, -1);
   in[12] = bIn.dat[myIndex.getIndex()];
 
   bComplexElem result = 0.0;

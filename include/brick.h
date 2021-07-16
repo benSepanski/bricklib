@@ -23,22 +23,6 @@
 #define FORCUDA
 #endif
 
-// TODO: DOC
-namespace  // anonymous
-{
-  template<unsigned Start, unsigned End, int Inc, class F>
-  constexpr typename std::enable_if<Start >= End>::type constexpr_for(F &&f) { }
-
-  // copied and modified from
-  // https://artificial-mind.net/blog/2020/10/31/constexpr-for
-  template<unsigned Start, unsigned End, int Inc, class F>
-  constexpr typename std::enable_if<Start < End>::type constexpr_for(F &&f)
-  {
-    f(std::integral_constant<decltype(Start), Start>());
-    constexpr_for<Start+Inc, End, Inc>(f);
-  }
-} // end anonymous namespace
-
 /**
  * @defgroup static_power Statically compute exponentials
  * @{
@@ -103,28 +87,36 @@ struct BrickStorage {
 
 // TODO : docs
 template<bool ... CommInDim>
-struct CommDims
+struct CommDims;
+
+// TODO : docs
+template<>
+struct CommDims<>
 {
+  constexpr static bool communicatesInDim(unsigned dim) {return true;}
+  constexpr static unsigned numCommunicatingDims(unsigned numDims) {return numDims;}
+};
+
+// TODO : docs
+template<bool CommInLastDim, bool ... CommInDim>
+struct CommDims<CommInLastDim, CommInDim...>
+{
+  private:
+    constexpr static unsigned length = sizeof...(CommInDim) + 1;
+
   public:
+    // TODO: DOC
     constexpr static bool communicatesInDim(unsigned dim)
     {
-      unsigned length = sizeof...(CommInDim);
-      if(dim < length)
-      {
-        constexpr unsigned doesCommunicateInDim[sizeof...(CommInDim)] = { CommInDim... };
-        return doesCommunicateInDim[sizeof...(CommInDim) - 1 - dim];
-      }
-      return true;
+      return (dim < length)
+        ? (dim == length - 1 ? CommInLastDim : CommDims<CommInDim...>::communicatesInDim(dim))
+        : true;
     }
 
-    constexpr static unsigned numCommunicatingDims(unsigned numDims)
-    {
-      unsigned numCommunicatingDims = 0;
-      for(unsigned dim = 0; dim < numDims; ++dim)
-      {
-        numCommunicatingDims += communicatesInDim(dim);
-      }
-      return numCommunicatingDims;
+    // TODO: DOC
+    constexpr static unsigned numCommunicatingDims(unsigned numDims) {
+      return (numDims >= length ? communicatesInDim(length - 1) : 0)
+             + CommDims<CommInDim...>::numCommunicatingDims(numDims >= length ? numDims - 1 : numDims);
     }
 };
 
@@ -201,12 +193,7 @@ struct Dim {
   typename std::enable_if<d != 0, unsigned>::type product() ///< don't use this implementation if d == 0
   {
     static_assert(d <= sizeof...(Ds), "d out of range");
-    unsigned value = 1;
-    for(unsigned i = 0; i < d; ++i)
-    {
-      value *= dims[sizeof...(Ds) - 1 - i];
-    };
-    return value;
+    return dims[sizeof...(Ds) - 1 - (d-1)] * product<d-1>();
   }
 
   // explicit specialization to avoid annoying compiler warning
@@ -561,6 +548,30 @@ struct Brick<Dim<BDims...>, Dim<Folds...>, isComplex, CommDims<CommInDim...> > {
 /**@}*/
 
 // TODO: Docs
+// some utility classes for BrickIndex
+namespace  // anonymous namespace
+{
+  // take static conjunciton of bools
+  template<bool ... Bs> struct Conjunction; 
+  template<> struct Conjunction<> { static constexpr bool value = true; };
+  template<bool b, bool ... Bs> struct Conjunction<b, Bs...> { static constexpr bool value = b && Conjunction<Bs...>::value; };
+
+  // Leverage SFINAE. void if all keys are true, substitution failure otherwise.
+  template <bool ... keys>
+  using voidIfMatch = typename std::enable_if<Conjunction<keys...>::value>::type;
+
+  // value is true iff all types in parameter pack match T
+  template<typename Target, typename ... T>
+  struct CanConvertTo 
+  { 
+    static constexpr bool value = std::is_convertible<typename std::common_type<T...>::type, Target>::value;
+  };
+
+  template<typename Target>
+  struct CanConvertTo<Target> { static constexpr bool value = true; };
+} // end anonymous space
+
+// TODO: Docs
 template<
     bool isComplex,
     unsigned ... BDims,
@@ -568,7 +579,7 @@ template<
     bool ... CommInDim>
 struct BrickIndex<Brick<Dim<BDims...>, Dim<Folds...>, isComplex, CommDims<CommInDim...> > >
 {
-  // extract usefeul types
+  // usefeul types
   typedef Brick<Dim<BDims...>, Dim<Folds...>, isComplex, CommDims<CommInDim...> > myBrickType;
   typedef typename myBrickType::elemType elemType;
   typedef CommDims<CommInDim...> myCommDims;
@@ -579,48 +590,43 @@ struct BrickIndex<Brick<Dim<BDims...>, Dim<Folds...>, isComplex, CommDims<CommIn
   int indexOfVec; ///< Index of vector in brick (signed for intermediate computations)
   int indexInVec; ///< Index inside vector (signed for intermediate computations)
   // saved from brick
-  myBrickType *brick;
   unsigned *neighbors;
   size_t step;
 
   // TODO: doc
+  template<typename ... IndexType>
   FORCUDA inline
-  BrickIndex(myBrickType *brick, unsigned brickIndex, const int (&indices)[sizeof...(BDims)])
+  BrickIndex(const myBrickType &brick, unsigned brickIndex, IndexType ... indices)
   {
-    this->brick = brick;
-    this->neighbors = brick->bInfo->adj[brickIndex];
-    this->step = brick->step;
+    static_assert(CanConvertTo<int, IndexType...>::value, "indices must be integer type");
+    static_assert(sizeof...(IndexType) == sizeof...(BDims), "Number of indices must match number of brick dimensions");
+    this->neighbors = brick.bInfo->adj[brickIndex];
+    this->step = brick.step;
     constexpr unsigned NUM_COMM_DIMS = myCommDims::numCommunicatingDims(sizeof...(BDims));
     // // initialize \sum_{i=0}^{d-1}3**i == (3^d - 1) / 2
     this->indexInNbrList = (static_power<3, NUM_COMM_DIMS>::value - 1) / 2;
     this->indexOfVec = 0;
     this->indexInVec = 0;
-    this->shift(indices);
+    this->shift(indices...);
   }
 
   // TODO: doc
-  template<unsigned ... dimsToShift>
+  template<unsigned ... dimsToShift, typename ... IndexType>
   FORCUDA inline
-  void shiftInDims(const int (&shifts)[sizeof...(dimsToShift)])
+  void shiftInDims(IndexType ... shifts)
   {
-    static_assert(sizeof...(dimsToShift) <= sizeof...(BDims), "Number of shifting dimensions must be at most the number of dimensions");
-
-    constexpr unsigned dims[] = { dimsToShift... };
-    constexpr_for<0, sizeof...(dimsToShift), 1>([this, &dims, &shifts](auto idx) {
-      constexpr unsigned d = dims[idx()];
-      const int shift = shifts[idx()];
-      this->performShiftInDim<d>(shift);
-    });
+    static_assert(sizeof...(dimsToShift) <= sizeof...(BDims), "use shift() to shift in all dimensions");
+    static_assert(CanConvertTo<int, IndexType...>::value, "shifts must be of integral type");
+    shift_some_dims_recurse<dimsToShift...>(shifts...);
   }
 
+  // TODO: doc
+  template <typename ... IndexType>
   FORCUDA inline
-  void shift(const int (&shifts)[sizeof...(BDims)])
+  voidIfMatch<sizeof...(IndexType) == sizeof...(BDims), CanConvertTo<int, IndexType...>::value> // void if matches
+  shift(IndexType ... shifts)
   {
-    // shift and return copy
-    constexpr_for<0, sizeof...(BDims), 1>([this, &shifts](auto d) {
-      const int shift = shifts[sizeof...(BDims)-1 - d()];
-      this->performShiftInDim<d()>(shift);
-    });
+    shift_all_dims_recurse(shifts...);
   }
 
   // TODO: Doc
@@ -632,6 +638,37 @@ struct BrickIndex<Brick<Dim<BDims...>, Dim<Folds...>, isComplex, CommDims<CommIn
   }
 
   private:
+    // TODO: Docs
+    template<unsigned ... dimsToShift>
+    FORCUDA inline
+    void shift_some_dims_recurse() {}
+
+    // TODO: Docs
+    template<unsigned nextDim, unsigned ... dimsToShift, typename ... IndexType>
+    FORCUDA inline
+    void shift_some_dims_recurse(int shift, IndexType ... remainingShifts)
+    {
+      static_assert(CanConvertTo<int, IndexType...>::value, "shifts must be of integral type.");
+      static_assert(sizeof...(dimsToShift) == sizeof...(IndexType), "Number of shifts must match number of dims to shift");
+      performShiftInDim<nextDim>(shift);
+      shift_some_dims_recurse<dimsToShift...>(remainingShifts...);
+    }
+
+    // TODO: Docs
+    FORCUDA inline
+    void shift_all_dims_recurse() {}
+
+    // TODO: Docs
+    template<typename ... IndexType>
+    FORCUDA inline
+    voidIfMatch<CanConvertTo<int, IndexType...>::value> // all index types must be implicitly convertible to int
+    shift_all_dims_recurse(int shift, IndexType ... remainingShifts) 
+    {
+      this->performShiftInDim<sizeof...(IndexType)>(shift);
+      shift_all_dims_recurse(remainingShifts...);
+    }
+
+    // todo: doc
     template<unsigned d>
     FORCUDA inline
     void performShiftInDim(int shift)
@@ -648,8 +685,8 @@ struct BrickIndex<Brick<Dim<BDims...>, Dim<Folds...>, isComplex, CommDims<CommIn
       constexpr int DIM_OVER_VECTORS = BRICK_DIM / VECTOR_FOLD;
       // take max to avoid large template instantiation of static_power
       constexpr unsigned exp = myCommDims::numCommunicatingDims(d+1) > 0 
-                             ? myCommDims::numCommunicatingDims(d+1) - 1
-                             : 0;
+                              ? myCommDims::numCommunicatingDims(d+1) - 1
+                              : 0;
       constexpr int NEIGHBOR_WEIGHT = myCommDims::communicatesInDim(d) ? static_power<3, exp>::value : 0;
 
       // get *d*th component of index inside/outside vector and shift it
