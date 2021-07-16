@@ -242,7 +242,7 @@ ij_deriv_brick_kernel_vec(unsigned (*fieldGrid)[GZ_BRICK_EXTENT_m][GZ_BRICK_EXTE
  * 
  * @param coeff an array of ARAKAWA_STENCIL_SIZE RealCoeffBrick s
  */
-__launch_bounds__(NUM_ELEMENTS_PER_BRICK, 8)
+__launch_bounds__(NUM_ELEMENTS_PER_BRICK, max_blocks_per_sm(NUM_ELEMENTS_PER_BRICK))
 __global__ void
 semi_arakawa_brick_kernel(unsigned *fieldGrid,
                           unsigned *coeffGrid,
@@ -250,7 +250,7 @@ semi_arakawa_brick_kernel(unsigned *fieldGrid,
                           FieldBrick_kl bOut,
                           RealCoeffBrick *coeff)
 {
-  // // compute indices
+  // compute indices
   unsigned bFieldIndex, bCoeffIndex;
   {
     unsigned d0 = grid_iteration_order[0] - 'i';
@@ -270,6 +270,18 @@ semi_arakawa_brick_kernel(unsigned *fieldGrid,
     bCoeffIndex = ((unsigned *)coeffGrid)[coeffGridIndex];
   }
 
+  // put neighbors in shared memory
+  // constexpr unsigned NUM_NEIGHBORS = static_power<3, FieldBrick_kl::myCommDims::numCommunicatingDims(DIM)>::value;
+  // static_assert(NUM_NEIGHBORS < NUM_ELEMENTS_PER_BRICK);
+  // __shared__ unsigned neighbors[NUM_NEIGHBORS];
+  // unsigned idx = threadIdx.x + blockDim.x * (threadIdx.y + blockDim.y * threadIdx.z);
+  // if(idx < NUM_NEIGHBORS)
+  // {
+    // neighbors[idx] = bIn.bInfo->adj[bFieldIndex][idx];
+  // }
+  // __syncthreads();
+  unsigned *neighbors = bIn.bInfo->adj[bFieldIndex];
+
   int n = threadIdx.z / (BDIM_k *  BDIM_l  * BDIM_m);
   int m = threadIdx.z / (BDIM_k *  BDIM_l) % BDIM_m;
   int l = threadIdx.z /  BDIM_k % BDIM_l;
@@ -286,56 +298,77 @@ semi_arakawa_brick_kernel(unsigned *fieldGrid,
   assert(n < BDIM_n);
 
   // load in data
-  bComplexElem in[13];
-  auto myIndex = BrickIndex<FieldBrick_kl>(bIn, bFieldIndex, n, m, l, k, j, i);
-  // in[ 0] = bIn[bFieldIndex][n][m][l-2][k+0][j][i];
-  myIndex.shiftInDims<3>(-2);
-  in[0] = bIn.dat[myIndex.getIndex()];
-  // in[ 1] = bIn[bFieldIndex][n][m][l-1][k-1][j][i];
-  myIndex.shiftInDims<3, 2>(+1, -1);
-  in[1] = bIn.dat[myIndex.getIndex()];
-  // in[ 2] = bIn[bFieldIndex][n][m][l-1][k+0][j][i];
-  myIndex.shiftInDims<2>(+1);
-  in[2] = bIn.dat[myIndex.getIndex()];
-  // in[ 3] = bIn[bFieldIndex][n][m][l-1][k+1][j][i];
-  myIndex.shiftInDims<2>(+1);
-  in[3] = bIn.dat[myIndex.getIndex()];
-  // in[ 4] = bIn[bFieldIndex][n][m][l+0][k-2][j][i];
-  myIndex.shiftInDims<3, 2>(+1, -3);
-  in[4] = bIn.dat[myIndex.getIndex()];
-  // in[ 5] = bIn[bFieldIndex][n][m][l+0][k-1][j][i];
-  myIndex.shiftInDims<2>(+1);
-  in[5] = bIn.dat[myIndex.getIndex()];
-  // in[ 6] = bIn[bFieldIndex][n][m][l+0][k+0][j][i];
-  myIndex.shiftInDims<2>(+1);
-  in[6] = bIn.dat[myIndex.getIndex()];
-  // in[ 7] = bIn[bFieldIndex][n][m][l+0][k+1][j][i];
-  myIndex.shiftInDims<2>(+1);
-  in[7] = bIn.dat[myIndex.getIndex()];
-  // in[ 8] = bIn[bFieldIndex][n][m][l+0][k+2][j][i];
-  myIndex.shiftInDims<2>(+1);
-  in[8] = bIn.dat[myIndex.getIndex()];
-  // in[ 9] = bIn[bFieldIndex][n][m][l+1][k-1][j][i];
-  myIndex.shiftInDims<3, 2>(+1, -3);
-  in[9] = bIn.dat[myIndex.getIndex()];
-  // in[10] = bIn[bFieldIndex][n][m][l+1][k+0][j][i];
-  myIndex.shiftInDims<2>(+1);
-  in[10] = bIn.dat[myIndex.getIndex()];
-  // in[11] = bIn[bFieldIndex][n][m][l+1][k+1][j][i];
-  myIndex.shiftInDims<2>(+1);
-  in[11] = bIn.dat[myIndex.getIndex()];
-  // in[12] = bIn[bFieldIndex][n][m][l+2][k+0][j][i];
-  myIndex.shiftInDims<3, 2>(+1, -1);
-  in[12] = bIn.dat[myIndex.getIndex()];
-
-  bComplexElem result = 0.0;
-  unsigned flatIndex = i + BDIM_i * (j + BDIM_j * (k + BDIM_k * (l + BDIM_l * (m + BDIM_m * n))));
+  bComplexElem in[13], result = 0.0;
+  auto myIndex = BrickIndex<FieldBrick_kl>(n, m, l, k, j, i);
   unsigned flatIndexNoJ = i + BDIM_i * (k + BDIM_k * (l + BDIM_l * (m + BDIM_m * n)));
-  for(unsigned stencil_index = 0; stencil_index < 13; ++stencil_index) 
-  {
-    bElem my_coeff = coeff[stencil_index].dat[bCoeffIndex * coeff[stencil_index].step + flatIndexNoJ];
-    result += my_coeff * in[stencil_index];
-  }
+
+  myIndex.shiftInDims<3>(-2);
+  in[0] = bIn.dat[bIn.step * neighbors[myIndex.indexInNbrList] + myIndex.getIndexInBrick()];
+  bElem my_coeff = coeff[0].dat[coeff[0].step * bCoeffIndex + flatIndexNoJ];
+  result += in[0] * my_coeff;
+
+  myIndex.shiftInDims<3, 2>(+1, -1);
+  in[1] = bIn.dat[bIn.step * neighbors[myIndex.indexInNbrList] + myIndex.getIndexInBrick()];
+  my_coeff = coeff[1].dat[coeff[1].step * bCoeffIndex + flatIndexNoJ];
+  result += in[1] * my_coeff;
+
+  myIndex.shiftInDims<2>(+1);
+  in[2] = bIn.dat[bIn.step * neighbors[myIndex.indexInNbrList] + myIndex.getIndexInBrick()];
+  my_coeff = coeff[2].dat[coeff[2].step * bCoeffIndex + flatIndexNoJ];
+  result += in[2] * my_coeff;
+
+  myIndex.shiftInDims<2>(+1);
+  in[3] = bIn.dat[bIn.step * neighbors[myIndex.indexInNbrList] + myIndex.getIndexInBrick()];
+  my_coeff = coeff[3].dat[coeff[3].step * bCoeffIndex + flatIndexNoJ];
+  result += in[3] * my_coeff;
+
+  myIndex.shiftInDims<3, 2>(+1, -3);
+  in[4] = bIn.dat[bIn.step * neighbors[myIndex.indexInNbrList] + myIndex.getIndexInBrick()];
+  my_coeff = coeff[4].dat[coeff[4].step * bCoeffIndex + flatIndexNoJ];
+  result += in[4] * my_coeff;
+
+  myIndex.shiftInDims<2>(+1);
+  in[5] = bIn.dat[bIn.step * neighbors[myIndex.indexInNbrList] + myIndex.getIndexInBrick()];
+  my_coeff = coeff[5].dat[coeff[5].step * bCoeffIndex + flatIndexNoJ];
+  result += in[5] * my_coeff;
+
+  myIndex.shiftInDims<2>(+1);
+  in[6] = bIn.dat[bIn.step * neighbors[myIndex.indexInNbrList] + myIndex.getIndexInBrick()];
+  my_coeff = coeff[6].dat[coeff[6].step * bCoeffIndex + flatIndexNoJ];
+  result += in[6] * my_coeff;
+
+  myIndex.shiftInDims<2>(+1);
+  in[7] = bIn.dat[bIn.step * neighbors[myIndex.indexInNbrList] + myIndex.getIndexInBrick()];
+  my_coeff = coeff[7].dat[coeff[7].step * bCoeffIndex + flatIndexNoJ];
+  result += in[7] * my_coeff;
+
+  myIndex.shiftInDims<2>(+1);
+  in[8] = bIn.dat[bIn.step * neighbors[myIndex.indexInNbrList] + myIndex.getIndexInBrick()];
+  my_coeff = coeff[8].dat[coeff[8].step * bCoeffIndex + flatIndexNoJ];
+  result += in[8] * my_coeff;
+
+  myIndex.shiftInDims<3, 2>(+1, -3);
+  in[9] = bIn.dat[bIn.step * neighbors[myIndex.indexInNbrList] + myIndex.getIndexInBrick()];
+  my_coeff = coeff[9].dat[coeff[9].step * bCoeffIndex + flatIndexNoJ];
+  result += in[9] * my_coeff;
+
+  myIndex.shiftInDims<2>(+1);
+  in[10] = bIn.dat[bIn.step * neighbors[myIndex.indexInNbrList] + myIndex.getIndexInBrick()];
+  my_coeff = coeff[10].dat[coeff[10].step * bCoeffIndex + flatIndexNoJ];
+  result += in[10] * my_coeff;
+
+  myIndex.shiftInDims<2>(+1);
+  in[11] = bIn.dat[bIn.step * neighbors[myIndex.indexInNbrList] + myIndex.getIndexInBrick()];
+  my_coeff = coeff[11].dat[coeff[11].step * bCoeffIndex + flatIndexNoJ];
+  result += in[11] * my_coeff;
+
+  myIndex.shiftInDims<3, 2>(+1, -1);
+  in[12] = bIn.dat[bIn.step * neighbors[myIndex.indexInNbrList] + myIndex.getIndexInBrick()];
+  my_coeff = coeff[12].dat[coeff[12].step * bCoeffIndex + flatIndexNoJ];
+  result += in[12] * my_coeff;
+
+  // store result
+  unsigned flatIndex = threadIdx.x + blockDim.x * (threadIdx.y + blockDim.y * threadIdx.z);
   bOut.dat[bFieldIndex * bOut.step + flatIndex] = result;
 }
 

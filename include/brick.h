@@ -605,19 +605,15 @@ struct BrickIndex<Brick<Dim<BDims...>, Dim<Folds...>, isComplex, CommDims<CommIn
   unsigned indexInNbrList; ///< ternary representation: left=0, middle=1, right=2
   int indexOfVec; ///< Index of vector in brick (signed for intermediate computations)
   int indexInVec; ///< Index inside vector (signed for intermediate computations)
-  // saved from brick
-  unsigned *neighbors;
-  size_t step;
 
   // TODO: doc
   template<typename ... IndexType>
   FORCUDA inline
-  BrickIndex(const myBrickType &brick, unsigned brickIndex, IndexType ... indices)
+  BrickIndex(IndexType ... indices)
   {
     static_assert(CanConvertTo<int, IndexType...>::value, "indices must be integer type");
     static_assert(sizeof...(IndexType) == sizeof...(BDims), "Number of indices must match number of brick dimensions");
-    this->neighbors = brick.bInfo->adj[brickIndex];
-    this->step = brick.step;
+
     constexpr unsigned NUM_COMM_DIMS = myCommDims::numCommunicatingDims(sizeof...(BDims));
     // // initialize \sum_{i=0}^{d-1}3**i == (3^d - 1) / 2
     this->indexInNbrList = (static_power<3, NUM_COMM_DIMS>::value - 1) / 2;
@@ -647,10 +643,9 @@ struct BrickIndex<Brick<Dim<BDims...>, Dim<Folds...>, isComplex, CommDims<CommIn
 
   // TODO: Doc
   FORCUDA inline
-  unsigned getIndex() const
+  unsigned getIndexInBrick() const
   {
-    unsigned offset = indexOfVec * myBrickType::VECLEN + indexInVec;
-    return step * neighbors[indexInNbrList] + offset;
+    return indexOfVec * myBrickType::VECLEN + indexInVec;
   }
 
   private:
