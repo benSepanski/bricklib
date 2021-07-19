@@ -73,3 +73,19 @@ if(BRICKS_BUILD_GTENSOR_BENCHMARKS)
             "${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES}"
             )
 endif ()
+
+if(BRICKS_ENABLE_FFT)
+    add_executable(single-fft fft.cu)
+    if(${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.17")
+        target_link_libraries(single-fft brickhelper CUDA::cufft_static CUDA::culibos)
+    else()
+        target_link_libraries(single-fft brickhelper cufft_static culibos)
+    endif()
+    target_include_directories(single-fft PUBLIC
+            "${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES}"
+            )
+    set_target_properties(single-fft PROPERTIES OUTPUT_NAME fft)
+    # https://developer.nvidia.com/blog/cuda-pro-tip-use-cufft-callbacks-custom-data-processing/
+    # need relocatable device code
+    target_compile_options(single-fft PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--device-c>)
+endif()

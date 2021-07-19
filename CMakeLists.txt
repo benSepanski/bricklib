@@ -9,7 +9,7 @@ set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(IgnoreMe "${CMAKE_C_COMPILER}")
 
-# If using tensor examples, set CXX standard to 14
+# If using gtensor examples, set CXX standard to 14
 set(BRICKS_BUILD_GTENSOR_BENCHMARKS OFF CACHE BOOL "Set to ON to build benchmarks involving gtensor. Requires c++14 compatible compiler.")
 if(BRICKS_BUILD_GTENSOR_BENCHMARKS)
     # set default device
@@ -19,10 +19,17 @@ if(BRICKS_BUILD_GTENSOR_BENCHMARKS)
     message(STATUS "Setting CXX standard to 14 for compatability with gtensor")
     set(CMAKE_CXX_STANDARD 14)
     find_package(gtensor REQUIRED)
-    message(STATUS "gtensor found")
+    message(STATUS "${PROJECT_NAME}: gtensor found")
     set(CMAKE_CUDA_FLAGS_DEBUG "-g -G")
 endif()
 
+# FFTs for cuda
+option(BRICKS_ENABLE_FFT  "Enable fft for bricks" OFF)
+
+# setup FFT for cuda with bricks
+if (BRICKS_ENABLE_FFT)
+  message(STATUS "${PROJECT_NAME}: FFT is ENABLED")
+endif()
 
 include(CheckLanguage)
 include(CheckCXXCompilerFlag)
@@ -32,7 +39,11 @@ if (CMAKE_CUDA_COMPILER)
     enable_language(CUDA)
     set(CMAKE_CUDA_STANDARD ${CMAKE_CXX_STANDARD})
     set(CMAKE_CUDA_SEPARABLE_COMPILATION OFF)
-    #set(CMAKE_CUDA_FLAGS ${CMAKE_CUDA_FLAGS} --expt-relaxed-constexpr )
+    if(BRICKS_ENABLE_FFT)
+        if(${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.17")
+            find_package(CUDAToolkit REQUIRED)
+        endif() 
+    endif ()
 endif ()
 
 find_package(OpenMP REQUIRED)
