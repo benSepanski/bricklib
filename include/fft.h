@@ -207,7 +207,7 @@ namespace // anonymous namespace
   {
     typedef typename UnsignedListRemover<typename Range<Start, End>::type, UnsignedList<intsToRemove...> >::type listType;
     typedef typename StaticArrayBuilder<listType>::type arrayType;
-    static constexpr arrayType value = arrayType::value;
+    static constexpr arrayType value = StaticArrayBuilder<listType>::value;
   };
 
   /**
@@ -290,15 +290,15 @@ class BricksCuFFTPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
   static_assert(FFTRank <= 3, "FFT Dim > 3 not implemented in cuFFT");
   static_assert(Subset<UnsignedList<FFTDims...>, typename Range<0, sizeof...(BDims)>::type>::value,
                 "FFTDims must be in range 0...num dims");
-
+  
   private:
     // typedefs
     typedef Brick<Dim<BDims...>, Dim<Fold...>, isComplex, CommunicatingDims> BrickType;
     typedef typename BrickType::elemType elemType;
     // constexprs
-    static constexpr std::array<int, sizeof...(BDims) - FFTRank> 
+    static constexpr std::array<unsigned int, sizeof...(BDims) - FFTRank> 
       nonFourierDims = RangeSetMinus<Range<0, sizeof...(BDims)>, FFTDims...>::value;
-    static constexpr std::array<int, FFTRank> fourierDims = { FFTDims... };
+    static constexpr std::array<unsigned int, FFTRank> fourierDims = { FFTDims... };
     static constexpr unsigned NON_FOURIER_BRICK_SIZE = reduction(&std::multiplies<unsigned>::operator(), 1, nonFourierDims);
     static constexpr unsigned FOURIER_BRICK_SIZE = reduction(&std::multiplies<unsigned>::operator(), 1, fourierDims);
     // attributes
@@ -370,8 +370,8 @@ class BricksCuFFTPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
       }
       // set up cuda plan
       cufftPlanMany(&this->plan, FFTRank, stride,
-                    nullptr, NULL, distBetweenBatches,
-                    nullptr, NULL, distBetweenBatches,
+                    nullptr, -1, distBetweenBatches,
+                    nullptr, -1, distBetweenBatches,
                     type, numBatches);
     }
 
