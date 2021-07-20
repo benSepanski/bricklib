@@ -272,7 +272,7 @@ enum FourierDataType { ComplexToComplex, RealToComplex, SymmetricComplexToReal }
 template<FourierDataType DataType, unsigned ... dims>
 struct FourierType;
 
-// cuFFT interface
+// cufft interface
 #ifdef __CUDACC__
 
 // https://developer.nvidia.com/blog/cuda-pro-tip-use-cufft-callbacks-custom-data-processing/
@@ -323,18 +323,7 @@ void _cufftCheck(T e, const char *func, const char *call, const int line) {
 }
 
 /**
- * @brief used to select the appropriate cufftExec function
- */
-template<cufftType Type> struct CufftExecSelector;
-template<> struct CufftExecSelector<CUFFT_R2C> { constexpr static auto value = cufftExecR2C; };
-template<> struct CufftExecSelector<CUFFT_C2R> { constexpr static auto value = cufftExecC2R; };
-template<> struct CufftExecSelector<CUFFT_C2C> { constexpr static auto value = cufftExecC2C; };
-template<> struct CufftExecSelector<CUFFT_D2Z> { constexpr static auto value = cufftExecD2Z; };
-template<> struct CufftExecSelector<CUFFT_Z2D> { constexpr static auto value = cufftExecZ2D; };
-template<> struct CufftExecSelector<CUFFT_Z2Z> { constexpr static auto value = cufftExecZ2Z; };
-
-/**
- * @brief Interface from bricks into cuFFT
+ * @brief Interface from bricks into cfftu
  * 
  * Empty template for specialization
  * 
@@ -362,7 +351,7 @@ class BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
     // validate the FFTDims
     static_assert(sizeof...(FFTDims) > 0, "Expected positive FFTRank");
     static_assert(sizeof...(FFTDims) <= sizeof...(BDims), "FFTRank cannot be bigger than number of dimensions");
-    static_assert(sizeof...(FFTDims) <= 3, "FFT Dim > 3 not implemented in cuFFT");
+    static_assert(sizeof...(FFTDims) <= 3, "FFT Dim > 3 not implemented in cufft");
     static_assert(Subset<UnsignedList<FFTDims...>, typename Range<0, sizeof...(BDims)>::type>::value,
                   "FFTDims must be in range 0...num dims");
     //// public typedefs
@@ -415,10 +404,10 @@ class BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
     /**
      * @brief Construct a new Bricks CufftPlan object
      * 
-     * Allocates the cuFFT plan
+     * Allocates the cufft plan
      * 
      * @param grid_size the number of bricks in each dimension
-     * @param type the type of cuFFT transform
+     * @param type the type of cufft transform
      */
     BricksCufftPlan(std::array<size_t, sizeof...(BDims)> grid_size)
     {
@@ -479,18 +468,27 @@ class BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
     }
 
     /**
-     * @brief Destroy the Bricks Cu F F T Plan object
-     * Deallocates the cuFFT plan
+     * @brief Destroy the Bricks Cufft Plan object
+     * Deallocates the cufft plan
      */
     ~BricksCufftPlan()
     {
       cufftDestroy(plan);
     }
 
-    // TODO: doc
+    /**
+     * @brief set up for computation
+     * 
+     * @param inBrick_dev device pointer to input brick
+     * @param in_grid_ptr_dev device pointer to brick-grid for input brick
+     * @param outBrick_dev device pointer for output brick
+     * @param out_grid_ptr_dev device pointer to brick-grid output brick
+     * @param cufftInfo_dev device pointer to memory where BricksCufftInfo will be stored. Can be __constant__ memory.
+     * @see BricksCufftInfo
+     */
     void setup(InBrickType *inBrick_dev, unsigned *in_grid_ptr_dev,
                OutBrickType *outBrick_dev, unsigned *out_grid_ptr_dev,
-               BricksCufftInfo *cuFFTInfo_dev)
+               BricksCufftInfo *cufftInfo_dev)
     {
       // set in host-side myCufftInfo
       myCufftInfo.in_grid_ptr = in_grid_ptr_dev;
@@ -499,7 +497,7 @@ class BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
       myCufftInfo.outBrick = outBrick_dev;
 
       // copy myCufftInfo_dev into device memory
-      cudaCheck(cudaMemcpyToSymbol(cuFFTInfo_dev, &myCufftInfo, sizeof(BricksCufftInfo)));
+      cudaCheck(cudaMemcpyToSymbol(cufftInfo_dev, &myCufftInfo, sizeof(BricksCufftInfo)));
 
       // // setup load and store callback
       myCufftCallbackLoadType loadCallbackPtr;
@@ -517,14 +515,17 @@ class BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
       cufftCheck(cufftXtSetCallback(this->plan,
                              (void **)&loadCallbackPtr,
                              this->myCuFFT_CB_LD,
-                             (void **)&cuFFTInfo_dev));
+                             (void **)&cufftInfo_dev));
       cufftCheck(cufftXtSetCallback(this->plan,
                              (void **)&storeCallbackPtr,
                              this->myCuFFT_CB_ST,
-                             (void **)&cuFFTInfo_dev));
+                             (void **)&cufftInfo_dev));
     }
 
-    // TODO: Docs
+    /**
+     * @brief start the (asynchronous) fast fourier transform
+     * @param inverse true if inverse transform, false otherwise
+     */
     void launch(bool inverse = false)
     {
       // make sure we've setup
@@ -540,6 +541,8 @@ class BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
       {
         throw std::runtime_error("Invalid FourierDataType");
       }
+      // start execution
+      cufftXtExec(plan, nullptr, nullptr, inverse ? CUFFT_INVERSE : CUFFT_FORWARD);
     }
 
   private:
@@ -564,21 +567,25 @@ class BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
                                       typename std::conditional<outIsReal, cufftCallbackStoreD, cufftCallbackStoreZ>::type,
                                       typename std::conditional<outIsReal, cufftCallbackStoreR, cufftCallbackStoreC>::type
                                       >::type myCufftCallbackStoreType;
-    /// my exec function
-    static constexpr auto myCufftExec = CufftExecSelector<myCufftType>::value;
 
     /// cuda plan for FFT execution
     cufftHandle plan;
 
-    // TODO: Docs
+    /**
+     * @brief Base case for accessing brick
+     * @see accessFromFlatIndexes
+     */
     template<unsigned dim, unsigned nonFourierDimIdx, unsigned fourierDimIdx, typename elemType>
-    __device__ static
+    __device__ __forceinline__ static
     typename std::enable_if<dim >= sizeof...(BDims), elemType &>::type
     accessFromFlatIndexes(elemType &brickElt, unsigned flatNonFourierIndex, unsigned flatFourierIndex) { return brickElt;}
 
-    // TODO: Docs
+    /**
+     * @brief case where current dim is a non-fourier dimension
+     * @see accessFromFlatIndexes
+     */
     template<unsigned dim, unsigned nonFourierDimIdx, unsigned fourierDimIdx, typename T>
-    __device__ static
+    __device__ __forceinline__ static
     typename std::enable_if<dim < sizeof...(BDims)
                             && nonFourierDimIdx < sizeof...(BDims) - FFTRank
                             && dim == nonFourierDims[nonFourierDimIdx], typename T::elemType &>::type
@@ -594,9 +601,23 @@ class BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
       return accessFromFlatIndexes<dim+1, nonFourierDimIdx+1, fourierDimIdx>(brickAccessor[indexInDim], newFlatNonFourierIndex, flatFourierIndex);
     }
 
-    // TODO: Docs
+    /**
+     * @brief Access an element from a brick using flattened fourier/non-fourier indices
+     * 
+     * case where current dim is a fourier dimension
+     * 
+     * @tparam dim current dimension
+     * @tparam nonFourierDimIdx current index into non-fourier dimensions
+     * @tparam fourierDimIdx current index into fourier dimensions
+     * @tparam T brick-accessor type
+     * @param brickAccessor current brickaccessor
+     * @param flatNonFourierIndex flattened index into remaining non-fourier dimensions
+     * @param flatFourierIndex flattened index into remaining fourier dimensions
+     * 
+     * @return a reference to the element of the brick
+     */
     template<unsigned dim, unsigned nonFourierDimIdx, unsigned fourierDimIdx, typename T>
-    __device__ static
+    __device__ __forceinline__ static
     typename std::enable_if<dim < sizeof...(BDims)
                             && fourierDimIdx < FFTRank
                             && dim == fourierDims[fourierDimIdx], typename T::elemType &>::type
@@ -608,17 +629,26 @@ class BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
       return accessFromFlatIndexes<dim+1, nonFourierDimIdx, fourierDimIdx+1>(brickAccessor[indexInDim], flatNonFourierIndex, newFlatFourierIndex);
     }
 
-    // TODO: doc
+    /**
+     * @brief Get an element in the brick
+     * 
+     * @tparam BrickType the type of the brick
+     * @param brick the brick object
+     * @param grid_ptr pointer to the grid of bricks
+     * @param offset lofical offset in the batches of FFTs received from a cufft callback
+     * @param cufftInfo info necessary to deduce index into brick from logical offset
+     * @return reference to the element
+     */
     template<typename BrickType>
     static __device__ __forceinline__
-    typename BrickType::elemType &getElement(BrickType *brick, const unsigned *grid_ptr, size_t offset, BricksCufftInfo *cuFFTInfo)
+    typename BrickType::elemType &getElement(BrickType *brick, const unsigned *grid_ptr, size_t offset, BricksCufftInfo *cufftInfo)
     {
       // Figure out flat indices (separated by fourier and non-fourier dimensions)
-      int batchIndex = offset / cuFFTInfo->batchSize;
+      int batchIndex = offset / cufftInfo->batchSize;
       int batchIndexInGrid = batchIndex / NON_FOURIER_BRICK_SIZE;
       int batchIndexInBrick = batchIndex % NON_FOURIER_BRICK_SIZE;
 
-      int fourierIndex = offset % cuFFTInfo->batchSize;
+      int fourierIndex = offset % cufftInfo->batchSize;
       int fourierIndexInGrid = fourierIndex / FOURIER_BRICK_SIZE;
       int fourierIndexInBrick = fourierIndex % FOURIER_BRICK_SIZE;
 
@@ -626,13 +656,13 @@ class BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
       unsigned gridIndex = 0;
       for(unsigned idx = 0; idx < sizeof...(BDims) - FFTRank; ++idx)
       {
-        gridIndex += (batchIndexInGrid % cuFFTInfo->nonFourierGridExtent[idx]) * cuFFTInfo->nonFourierGridStride[idx];
-        batchIndexInGrid /= (cuFFTInfo->nonFourierGridExtent[idx]);
+        gridIndex += (batchIndexInGrid % cufftInfo->nonFourierGridExtent[idx]) * cufftInfo->nonFourierGridStride[idx];
+        batchIndexInGrid /= (cufftInfo->nonFourierGridExtent[idx]);
       }
       for(unsigned idx = 0; idx < FFTRank; ++idx)
       {
-        gridIndex += (fourierIndexInGrid % cuFFTInfo->fourierGridExtent[idx]) * cuFFTInfo->fourierGridStride[idx];
-        fourierIndexInGrid /= (cuFFTInfo->fourierGridExtent[idx]);
+        gridIndex += (fourierIndexInGrid % cufftInfo->fourierGridExtent[idx]) * cufftInfo->fourierGridStride[idx];
+        fourierIndexInGrid /= (cufftInfo->fourierGridExtent[idx]);
       }
 
       // get element 
@@ -650,10 +680,10 @@ class BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
                                     void *sharedPtr)
     {
       // get info
-      BricksCufftInfo *cuFFTInfo = reinterpret_cast<BricksCufftInfo*>(callerInfo);
+      BricksCufftInfo *cufftInfo = reinterpret_cast<BricksCufftInfo*>(callerInfo);
       // return the element
       return reinterpret_cast<inCuElemType&>(
-          getElement(cuFFTInfo->inBrick, cuFFTInfo->in_grid_ptr, offset, cuFFTInfo)
+          getElement(cufftInfo->inBrick, cufftInfo->in_grid_ptr, offset, cufftInfo)
       );
     }
 
@@ -666,9 +696,9 @@ class BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
                              void *sharedPtr)
     {
       // get info
-      BricksCufftInfo *cuFFTInfo = reinterpret_cast<BricksCufftInfo*>(callerInfo);
+      BricksCufftInfo *cufftInfo = reinterpret_cast<BricksCufftInfo*>(callerInfo);
       // set the element
-      getElement(cuFFTInfo->outBrick, cuFFTInfo->out_grid_ptr, offset, cuFFTInfo) = element;
+      getElement(cufftInfo->outBrick, cufftInfo->out_grid_ptr, offset, cufftInfo) = element;
     }
 
 };
