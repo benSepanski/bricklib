@@ -569,7 +569,10 @@ class BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
       cufftXtExec(plan, nullptr, nullptr, inverse == BRICKS_FFT_FORWARD ? CUFFT_FORWARD : CUFFT_INVERSE);
     }
 
-    // https://docs.nvidia.com/cuda/cufft/index.html#callback-routines
+    /**
+     * @brief callback into bricks from cufft for loads
+     * https://docs.nvidia.com/cuda/cufft/index.html#callback-routines
+     */
     static __device__
     inCuElemType bricksLoadCallback(void *dataIn,
                                     size_t offset,
@@ -584,7 +587,10 @@ class BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
       );
     }
 
-    // https://docs.nvidia.com/cuda/cufft/index.html#callback-routines
+    /**
+     * @brief callback into bricks from cufft for stores
+     * https://docs.nvidia.com/cuda/cufft/index.html#callback-routines
+     */
     static __device__
     void bricksStoreCallback(void *dataOut,
                              size_t offset,
