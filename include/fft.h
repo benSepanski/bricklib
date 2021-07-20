@@ -462,10 +462,10 @@ class BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
       std::array<int, FFTRank> embed;
       for(unsigned i = 0; i < FFTRank; ++i)
       {
-        embed[FFTRank - 1 - i] = grid_size[fourierDims[i]];
+        embed[FFTRank - 1 - i] = grid_size[fourierDims[i]] * brickDims[i];
       }
       // figure out size of each batch
-      size_t batchSize = grid_size[fourierDims[FFTRank - 1]];
+      size_t batchSize = 1;
       for(unsigned i = 0; i < FFTRank; ++i) 
       {
         batchSize *= embed[i];
@@ -474,7 +474,7 @@ class BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
       size_t numBatches = 1;
       for(unsigned i = 0; i < sizeof...(BDims) - FFTRank; ++i)
       {
-        numBatches *= nonFourierDims[i];
+        numBatches *= grid_size[nonFourierDims[i]] * brickDims[i];
       }
       // set up cuda plan
       cufftCheck(cufftPlanMany(&this->plan, FFTRank, embed.data(),
@@ -586,7 +586,7 @@ class BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
         throw std::runtime_error("Invalid FourierDataType");
       }
       // start execution
-      cufftXtExec(plan, nullptr, nullptr, inverse == BRICKS_FFT_FORWARD ? CUFFT_FORWARD : CUFFT_INVERSE);
+      cufftCheck(cufftXtExec(plan, nullptr, nullptr, inverse == BRICKS_FFT_FORWARD ? CUFFT_FORWARD : CUFFT_INVERSE));
     }
 
     /**
@@ -601,6 +601,7 @@ class BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
     {
       // get info
       BricksCufftInfo *cufftInfo = reinterpret_cast<BricksCufftInfo*>(callerInfo);
+      printf("Loading\n");
       // return the element
       return reinterpret_cast<inCuElemType&>(
           getElement(cufftInfo->inBrick, cufftInfo->in_grid_ptr, offset, cufftInfo)
@@ -621,6 +622,7 @@ class BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
       // get info
       BricksCufftInfo *cufftInfo = reinterpret_cast<BricksCufftInfo*>(callerInfo);
       // set the element
+      printf("Storing %f+%f*\n", element.x, element.y);
       getElement(cufftInfo->outBrick, cufftInfo->out_grid_ptr, offset, cufftInfo) = element;
     }
 
