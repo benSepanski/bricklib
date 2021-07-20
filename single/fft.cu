@@ -10,7 +10,7 @@ constexpr unsigned BDIM = 2;
 typedef Brick<Dim<BDIM,BDIM,BDIM>, Dim<1>, true> BrickType;
 typedef BricksCufftPlan<BrickType, FourierType<ComplexToComplex, 1, 2> > PlanType;
 
-__constant__ typename PlanType::BricksCufftInfo cuFFTInfo;
+__constant__ typename PlanType::BricksCufftInfo cufftInfo;
 
 int main()
 {
@@ -43,7 +43,7 @@ int main()
 
   // set up FFT for bricks
   PlanType myPlan({EXTENT, EXTENT, EXTENT});
-  myPlan.setup(&inBrick_dev, grid_ptr_dev, &outBrick_dev, grid_ptr_dev, &cuFFTInfo);
+  myPlan.setup(&inBrick_dev, grid_ptr_dev, &outBrick_dev, grid_ptr_dev, &cufftInfo);
   // compute FFT
   myPlan.launch();
   cudaCheck(cudaDeviceSynchronize());

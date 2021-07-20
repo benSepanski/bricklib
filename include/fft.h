@@ -323,6 +323,15 @@ void _cufftCheck(T e, const char *func, const char *call, const int line) {
   }
 }
 
+// Need a __device__ global to read callbacks from symbol memory
+// https://docs.nvidia.com/cuda/cufft/index.html#callback-creation
+template<typename BricksCufftPlanType>
+__device__ typename BricksCufftPlanType::myCufftCallbackLoadType globalBricksCufftLoadCallBack = BricksCufftPlanType::bricksLoadCallback;
+// Need a __device__ global to read callbacks from symbol memory
+// https://docs.nvidia.com/cuda/cufft/index.html#callback-creation
+template<typename BricksCufftPlanType>
+__device__ typename BricksCufftPlanType::myCufftCallbackStoreType globalBricksCufftStoreCallBack = BricksCufftPlanType::bricksStoreCallback;
+
 /**
  * @brief Interface from bricks into cfftu
  * 
@@ -393,6 +402,16 @@ class BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
     /// users can specify forward/inverse in a more readable way
     static constexpr bool BRICKS_FFT_FORWARD = false;
     static constexpr bool BRICKS_FFT_INVERSE = true;
+
+    /// my callback load/store function types
+    typedef typename std::conditional<doublePrecision, 
+                                      typename std::conditional<inIsReal, cufftCallbackLoadD, cufftCallbackLoadZ>::type,
+                                      typename std::conditional<inIsReal, cufftCallbackLoadR, cufftCallbackLoadC>::type
+                                      >::type myCufftCallbackLoadType;
+    typedef typename std::conditional<doublePrecision, 
+                                      typename std::conditional<outIsReal, cufftCallbackStoreD, cufftCallbackStoreZ>::type,
+                                      typename std::conditional<outIsReal, cufftCallbackStoreR, cufftCallbackStoreC>::type
+                                      >::type myCufftCallbackStoreType;
 
     /// pointers passed to callbacks
     struct BricksCufftInfo
@@ -504,7 +523,7 @@ class BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
       myCufftInfo.outBrick = outBrick_dev;
 
       // copy myCufftInfo_dev into device memory
-      cudaCheck(cudaMemcpyToSymbol(cufftInfo_dev, &myCufftInfo, sizeof(BricksCufftInfo)));
+      cudaCheck(cudaMemcpyToSymbol(*cufftInfo_dev, &myCufftInfo, sizeof(BricksCufftInfo)));
 
       // // setup load and store callback
       myCufftCallbackLoadType loadCallbackPtr;
@@ -512,11 +531,11 @@ class BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
       // // get address of function
       cudaCheck(cudaMemcpyFromSymbol(
                               &loadCallbackPtr, 
-                              myType::bricksLoadCallback,
+                              globalBricksCufftLoadCallBack<myType>,
                               sizeof(loadCallbackPtr)));
       cudaCheck(cudaMemcpyFromSymbol(
                               &storeCallbackPtr, 
-                              myType::bricksStoreCallback,
+                              globalBricksCufftStoreCallBack<myType>,
                               sizeof(storeCallbackPtr)));
       // // set the callbacks
       cufftCheck(cufftXtSetCallback(this->plan,
@@ -550,9 +569,36 @@ class BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
       cufftXtExec(plan, nullptr, nullptr, inverse == BRICKS_FFT_FORWARD ? CUFFT_FORWARD : CUFFT_INVERSE);
     }
 
+    // https://docs.nvidia.com/cuda/cufft/index.html#callback-routines
+    static __device__
+    inCuElemType bricksLoadCallback(void *dataIn,
+                                    size_t offset,
+                                    void *callerInfo,
+                                    void *sharedPtr)
+    {
+      // get info
+      BricksCufftInfo *cufftInfo = reinterpret_cast<BricksCufftInfo*>(callerInfo);
+      // return the element
+      return reinterpret_cast<inCuElemType&>(
+          getElement(cufftInfo->inBrick, cufftInfo->in_grid_ptr, offset, cufftInfo)
+      );
+    }
+
+    // https://docs.nvidia.com/cuda/cufft/index.html#callback-routines
+    static __device__
+    void bricksStoreCallback(void *dataOut,
+                             size_t offset,
+                             outCuElemType element,
+                             void *callerInfo,
+                             void *sharedPtr)
+    {
+      // get info
+      BricksCufftInfo *cufftInfo = reinterpret_cast<BricksCufftInfo*>(callerInfo);
+      // set the element
+      getElement(cufftInfo->outBrick, cufftInfo->out_grid_ptr, offset, cufftInfo) = element;
+    }
+
   private:
-    // info needed for callbacks
-    BricksCufftInfo myCufftInfo;
     // table of cufft fft types and callback types
     static constexpr cufftType cufftTypeTable[2][3] = { {CUFFT_R2C, CUFFT_C2R, CUFFT_C2C}, {CUFFT_D2Z, CUFFT_Z2D, CUFFT_Z2Z} };
     static constexpr cufftXtCallbackType cufftXtCallbackTypeTable[8] =
@@ -563,18 +609,11 @@ class BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
     // my callback load/store types
     static constexpr cufftXtCallbackType myCuFFT_CB_LD = cufftXtCallbackTypeTable[(inIsReal) << 1 + inDoublePrecision];
     static constexpr cufftXtCallbackType myCuFFT_CB_ST = cufftXtCallbackTypeTable[((outIsReal) << 1 + outDoublePrecision) + 4];
-    /// my callback load/store function types
-    typedef typename std::conditional<doublePrecision, 
-                                      typename std::conditional<inIsReal, cufftCallbackLoadD, cufftCallbackLoadZ>::type,
-                                      typename std::conditional<inIsReal, cufftCallbackLoadR, cufftCallbackLoadC>::type
-                                      >::type myCufftCallbackLoadType;
-    typedef typename std::conditional<doublePrecision, 
-                                      typename std::conditional<outIsReal, cufftCallbackStoreD, cufftCallbackStoreZ>::type,
-                                      typename std::conditional<outIsReal, cufftCallbackStoreR, cufftCallbackStoreC>::type
-                                      >::type myCufftCallbackStoreType;
 
     /// cuda plan for FFT execution
     cufftHandle plan;
+    // info needed for callbacks
+    BricksCufftInfo myCufftInfo;
 
     /**
      * @brief Base case for accessing brick
@@ -675,37 +714,6 @@ class BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
       auto brickAcc = (*brick)[indexOfBrick];
       return accessFromFlatIndexes<0,0,0>(brickAcc, batchIndexInBrick, fourierIndexInBrick);
     }
-
-
-    // https://docs.nvidia.com/cuda/cufft/index.html#callback-routines
-    static __device__
-    inCuElemType bricksLoadCallback(void *dataIn,
-                                    size_t offset,
-                                    void *callerInfo,
-                                    void *sharedPtr)
-    {
-      // get info
-      BricksCufftInfo *cufftInfo = reinterpret_cast<BricksCufftInfo*>(callerInfo);
-      // return the element
-      return reinterpret_cast<inCuElemType&>(
-          getElement(cufftInfo->inBrick, cufftInfo->in_grid_ptr, offset, cufftInfo)
-      );
-    }
-
-    // https://docs.nvidia.com/cuda/cufft/index.html#callback-routines
-    static __device__
-    void bricksStoreCallback(void *dataOut,
-                             size_t offset,
-                             outCuElemType element,
-                             void *callerInfo,
-                             void *sharedPtr)
-    {
-      // get info
-      BricksCufftInfo *cufftInfo = reinterpret_cast<BricksCufftInfo*>(callerInfo);
-      // set the element
-      getElement(cufftInfo->outBrick, cufftInfo->out_grid_ptr, offset, cufftInfo) = element;
-    }
-
 };
 
 // handle commas like in https://stackoverflow.com/questions/13842468/comma-in-c-c-macro
