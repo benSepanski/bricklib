@@ -258,6 +258,24 @@ namespace // anonymous namespace
   {
     return reduction_impl<0>(f, init, arr);
   } 
+
+  /**
+   * @brief statically check if arr is sorted (with no duplicates)
+   * copied from https://stackoverflow.com/questions/59613339/how-to-can-a-stdarray-class-member-be-statically-asserted-to-be-sorted-in-c1
+   */
+  template <typename T, std::size_t N>
+  constexpr bool is_sorted(std::array<T, N> const& arr, std::size_t from) {
+      return N - from == 0 or (arr[from - 1] < arr[from] and is_sorted(arr, from + 1));
+  }
+
+  /**
+   * @brief statically check if arr is sorted (with no duplicates)
+   * copied from https://stackoverflow.com/questions/59613339/how-to-can-a-stdarray-class-member-be-statically-asserted-to-be-sorted-in-c1
+   */
+  template <typename T, std::size_t N>
+  constexpr bool is_sorted(std::array<T, N> const& arr) {
+      return N == 0 or is_sorted(arr, 1);
+  }
 }  // end anonymous space
 
 /**
@@ -388,12 +406,15 @@ class BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
 
     //// constants
     static constexpr unsigned FFTRank = sizeof...(FFTDims);  ///< rank of the FFT
+
     // dimensions not performing an FFT
     static constexpr nonFourierDimsType nonFourierDims = RangeSetMinus<Range<0, sizeof...(BDims)>, FFTDims...>::value;  
     static constexpr fourierDimsType fourierDims = { FFTDims... }; ///< dimensions in which performing an FFT
+    static_assert(is_sorted(fourierDims), "FFT dims must be specified in sorted order and contain no duplicates");
     static constexpr brickDimsType brickDims = { BDims... };  ///< extent of brick in each dimension
     /// brick extent in each fourier dimension
     static constexpr fourierDimsType fourierBrickDims = { brickDims[FFTDims]... };
+
     //// product of the fourier brick dimensions
     static constexpr unsigned FOURIER_BRICK_SIZE = reduction(std::multiplies<unsigned>(), 1U, fourierBrickDims);
     //// product of the non-fourier brick-dimensions 
@@ -439,10 +460,9 @@ class BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
     {
       // get logical embeding of data
       std::array<int, FFTRank> embed;
-      embed[0] = 1;
-      for(unsigned i = 0; i + 1 < FFTRank; ++i)
+      for(unsigned i = 0; i < FFTRank; ++i)
       {
-        embed[i + 1] = grid_size[fourierDims[i]];
+        embed[FFTRank - 1 - i] = grid_size[fourierDims[i]];
       }
       // figure out size of each batch
       size_t batchSize = grid_size[fourierDims[FFTRank - 1]];
@@ -457,10 +477,10 @@ class BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
         numBatches *= nonFourierDims[i];
       }
       // set up cuda plan
-      cufftPlanMany(&this->plan, FFTRank, embed.data(),
-                    nullptr, -1, batchSize,
-                    nullptr, -1, batchSize,
-                    myCufftType, numBatches);
+      cufftCheck(cufftPlanMany(&this->plan, FFTRank, embed.data(),
+                               nullptr, 1, batchSize,
+                               nullptr, 1, batchSize,
+                               myCufftType, numBatches));
       
       //// build host-side BricksCufftInfo
       myCufftInfo.batchSize = batchSize;
