@@ -179,7 +179,7 @@ struct Dim {
   public:
   // get *d*th entry (from right), e.g. Dim<1,2,3>::template get<0>() == 3
   template<unsigned d>
-  static constexpr unsigned get()
+  static constexpr FORCUDA unsigned get()
   {
     static_assert(d < sizeof...(Ds), "d out of range");
     return dims[sizeof...(Ds) - 1 - d];
@@ -187,7 +187,8 @@ struct Dim {
 
   // get, or return default if out of range. In range case:
   template<unsigned d>
-  static constexpr typename std::enable_if<d < sizeof...(Ds), unsigned>::type
+  static constexpr FORCUDA
+  typename std::enable_if<d < sizeof...(Ds), unsigned>::type
   getOrDefault(unsigned default_value)
   {
     return get<d>();
@@ -195,7 +196,8 @@ struct Dim {
 
   // get, or return default if out of range. Out of range case:
   template<unsigned d>
-  static constexpr typename std::enable_if<d >= sizeof...(Ds), unsigned>::type
+  static constexpr FORCUDA
+  typename std::enable_if<d >= sizeof...(Ds), unsigned>::type
   getOrDefault(unsigned default_value)
   {
     return default_value;
@@ -205,7 +207,7 @@ struct Dim {
   // e.g. Dim<1,2,3>::product(0) == 1, Dim<1,2,3>::product(1) == 3,
   //      Dim<1,2,3>::product(2) == 6
   template<unsigned d>
-  static constexpr 
+  static constexpr FORCUDA
   typename std::enable_if<d != 0, unsigned>::type product() ///< don't use this implementation if d == 0
   {
     static_assert(d <= sizeof...(Ds), "d out of range");
@@ -214,7 +216,7 @@ struct Dim {
 
   // explicit specialization to avoid annoying compiler warning
   template<unsigned d>
-  static constexpr 
+  static constexpr FORCUDA
   typename std::enable_if<d == 0, unsigned>::type product() {return 1;}
 };
 
