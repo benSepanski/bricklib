@@ -15,6 +15,8 @@ __constant__ typename PlanType::BricksCufftInfo cufftInfo;
 int main()
 {
   const std::vector<long> extents(DIM, EXTENT);
+  const std::vector<long> padding(DIM, 0);
+  const std::vector<long> ghost_zone(DIM, 0);
   // set up arrays
   bComplexElem *in_arr = randomComplexArray(extents),
                *out_arr = zeroComplexArray(extents);
@@ -55,7 +57,7 @@ int main()
   cudaCheck(cudaMemcpy(bStorage.dat.get(), bStorage_dev.dat.get(),
                        sizeof(bComplexElem) * static_power<EXTENT, DIM>::value,
                        cudaMemcpyDeviceToHost));
-  copyToBrick<DIM>(extents, out_arr, grid_ptr, outBrick);
+  copyFromBrick<DIM>(extents, padding, ghost_zone, out_arr, grid_ptr, outBrick);
   
   // correctness check
   for(unsigned i = 0; i < static_power<EXTENT, DIM>::value; ++i)
