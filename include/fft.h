@@ -323,6 +323,17 @@ void _cufftCheck(T e, const char *func, const char *call, const int line) {
 }
 
 /**
+ * @brief used to select the appropriate cufftExec function
+ */
+template<cufftType Type> struct CufftExecSelector;
+template<> struct CufftExecSelector<CUFFT_R2C> { constexpr static auto value = cufftExecR2C; };
+template<> struct CufftExecSelector<CUFFT_C2R> { constexpr static auto value = cufftExecC2R; };
+template<> struct CufftExecSelector<CUFFT_C2C> { constexpr static auto value = cufftExecC2C; };
+template<> struct CufftExecSelector<CUFFT_D2Z> { constexpr static auto value = cufftExecD2Z; };
+template<> struct CufftExecSelector<CUFFT_Z2D> { constexpr static auto value = cufftExecZ2D; };
+template<> struct CufftExecSelector<CUFFT_Z2Z> { constexpr static auto value = cufftExecZ2Z; };
+
+/**
  * @brief Interface from bricks into cuFFT
  * 
  * Empty template for specialization
@@ -330,12 +341,12 @@ void _cufftCheck(T e, const char *func, const char *call, const int line) {
  * @tparam BrickType the type of the bricks
  * @tparam FFTDims the collection of dimensions to take a fourier transfor over
  */
-template<typename BrickType, typename FFTDims> class BricksCuFFTPlan;
+template<typename BrickType, typename FFTDims> class BricksCufftPlan;
 
 /**
  * @tparam FFTDims the dimensions to take a fourier transfor over (must be at least 1, at most 3)
  * @tparam isComplex is ignored
- * @see BricksCuFFTPlan
+ * @see BricksCufftPlan
  * @see Brick
  */
 template<bool isComplex,
@@ -345,7 +356,7 @@ template<bool isComplex,
          unsigned ... Fold,
          unsigned ... FFTDims
          >
-class BricksCuFFTPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, CommunicatingDims>, FourierType<DataType, FFTDims...> >
+class BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, CommunicatingDims>, FourierType<DataType, FFTDims...> >
 {
   public:
     // validate the FFTDims
@@ -361,7 +372,7 @@ class BricksCuFFTPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
     typedef typename OutBrickType::elemType outElemType;  ///< type of input brick elements
     using inCuElemType = typename std::conditional<InBrickType::complex, bCuComplexElem, bElem>::type; ///< cuda equivalent type of input brick elements
     using outCuElemType = typename std::conditional<OutBrickType::complex, bCuComplexElem, bElem>::type; ///< cuda equivalent type of output brick elements
-    using myType = BricksCuFFTPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, CommunicatingDims>, FourierType<DataType, FFTDims...> >;
+    using myType = BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, CommunicatingDims>, FourierType<DataType, FFTDims...> >;
 
     // verify in/out types
     static constexpr bool inDoublePrecision = std::is_same<inCuElemType, double>::value || std::is_same<inCuElemType, cuDoubleComplex>::value;
@@ -388,7 +399,7 @@ class BricksCuFFTPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
     static constexpr bool doublePrecision = inDoublePrecision; ///< are data types double precision
 
     /// pointers passed to callbacks
-    struct BricksCuFFTInfo
+    struct BricksCufftInfo
     {
       size_t batchSize; ///< size of each batch
       size_t nonFourierGridExtent[sizeof...(BDims) - FFTRank];
@@ -402,14 +413,14 @@ class BricksCuFFTPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
     };
 
     /**
-     * @brief Construct a new Bricks CuFFTPlan object
+     * @brief Construct a new Bricks CufftPlan object
      * 
      * Allocates the cuFFT plan
      * 
      * @param grid_size the number of bricks in each dimension
      * @param type the type of cuFFT transform
      */
-    BricksCuFFTPlan(std::array<size_t, sizeof...(BDims)> grid_size)
+    BricksCufftPlan(std::array<size_t, sizeof...(BDims)> grid_size)
     {
       // get logical embeding of data
       std::array<int, FFTRank> embed;
@@ -434,22 +445,22 @@ class BricksCuFFTPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
       cufftPlanMany(&this->plan, FFTRank, embed.data(),
                     nullptr, -1, batchSize,
                     nullptr, -1, batchSize,
-                    myCuFFType, numBatches);
+                    myCufftType, numBatches);
       
-      //// build host-side BricksCuFFTInfo
-      myCuFFTInfo.batchSize = batchSize;
-      myCuFFTInfo.in_grid_ptr = nullptr;
-      myCuFFTInfo.out_grid_ptr = nullptr;
-      myCuFFTInfo.inBrick = nullptr;
-      myCuFFTInfo.outBrick = nullptr;
+      //// build host-side BricksCufftInfo
+      myCufftInfo.batchSize = batchSize;
+      myCufftInfo.in_grid_ptr = nullptr;
+      myCufftInfo.out_grid_ptr = nullptr;
+      myCufftInfo.inBrick = nullptr;
+      myCufftInfo.outBrick = nullptr;
       // store grid extents (separated by non-fourier/fourier dims)
       for(unsigned i = 0; i < sizeof...(BDims) - FFTRank; ++i)
       {
-        myCuFFTInfo.nonFourierGridExtent[i] = grid_size[nonFourierDims[i]];
+        myCufftInfo.nonFourierGridExtent[i] = grid_size[nonFourierDims[i]];
       }
       for(unsigned i = 0; i < FFTRank; ++i)
       {
-        myCuFFTInfo.fourierGridExtent[i] = grid_size[fourierDims[i]];
+        myCufftInfo.fourierGridExtent[i] = grid_size[fourierDims[i]];
       }
       // store grid strides (separated by non-fourier/fourier dims)
       size_t stride = 1;
@@ -457,11 +468,11 @@ class BricksCuFFTPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
       {
         if(nonFourierDimIdx < sizeof...(BDims) - FFTRank && nonFourierDims[nonFourierDimIdx] == dim)
         {
-          myCuFFTInfo.nonFourierGridStride[nonFourierDimIdx++] = stride;
+          myCufftInfo.nonFourierGridStride[nonFourierDimIdx++] = stride;
         }
         else
         {
-          myCuFFTInfo.fourierGridStride[fourierDimIdx++] = stride;
+          myCufftInfo.fourierGridStride[fourierDimIdx++] = stride;
         }
         stride *= grid_size[dim];
       }
@@ -471,7 +482,7 @@ class BricksCuFFTPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
      * @brief Destroy the Bricks Cu F F T Plan object
      * Deallocates the cuFFT plan
      */
-    ~BricksCuFFTPlan()
+    ~BricksCufftPlan()
     {
       cufftDestroy(plan);
     }
@@ -479,16 +490,16 @@ class BricksCuFFTPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
     // TODO: doc
     void setup(InBrickType *inBrick_dev, unsigned *in_grid_ptr_dev,
                OutBrickType *outBrick_dev, unsigned *out_grid_ptr_dev,
-               BricksCuFFTInfo *cuFFTInfo_dev)
+               BricksCufftInfo *cuFFTInfo_dev)
     {
-      // set in host-side myCuFFTInfo
-      myCuFFTInfo.in_grid_ptr = in_grid_ptr_dev;
-      myCuFFTInfo.inBrick = inBrick_dev;
-      myCuFFTInfo.out_grid_ptr = out_grid_ptr_dev;
-      myCuFFTInfo.outBrick = outBrick_dev;
+      // set in host-side myCufftInfo
+      myCufftInfo.in_grid_ptr = in_grid_ptr_dev;
+      myCufftInfo.inBrick = inBrick_dev;
+      myCufftInfo.out_grid_ptr = out_grid_ptr_dev;
+      myCufftInfo.outBrick = outBrick_dev;
 
-      // copy myCuFFTInfo_dev into device memory
-      cudaCheck(cudaMemcpyToSymbol(cuFFTInfo_dev, &myCuFFTInfo, sizeof(BricksCuFFTInfo)));
+      // copy myCufftInfo_dev into device memory
+      cudaCheck(cudaMemcpyToSymbol(cuFFTInfo_dev, &myCufftInfo, sizeof(BricksCufftInfo)));
 
       // // setup load and store callback
       myCufftCallbackLoadType loadCallbackPtr;
@@ -513,16 +524,34 @@ class BricksCuFFTPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
                              (void **)&cuFFTInfo_dev));
     }
 
+    // TODO: Docs
+    void launch(bool inverse = false)
+    {
+      // make sure we've setup
+      if(myCufftInfo->inBrick == nullptr
+         || myCufftInfo->in_grid_ptr == nullptr
+         || myCufftInfo->outBrick == nullptr
+         || myCufftInfo->out_grid_ptr == nullptr)
+      {
+        throw std::runtime_error("Must call setup before calling launch()");
+      }
+      // disallow nonsensical inverse
+      if(inverse && DataType == RealToComplex)
+      {
+        throw std::runtime_error("Invalid FourierDataType");
+      }
+    }
+
   private:
     // info needed for callbacks
-    BricksCuFFTInfo myCuFFTInfo;
+    BricksCufftInfo myCufftInfo;
     // table of cufft fft types and callback types
     static constexpr cufftType cufftTypeTable[2][3] = { {CUFFT_R2C, CUFFT_C2R, CUFFT_C2C}, {CUFFT_D2Z, CUFFT_Z2D, CUFFT_Z2Z} };
     static constexpr cufftXtCallbackType cufftXtCallbackTypeTable[8] =
       { CUFFT_CB_LD_COMPLEX, CUFFT_CB_LD_COMPLEX_DOUBLE, CUFFT_CB_LD_REAL, CUFFT_CB_LD_REAL_DOUBLE,
         CUFFT_CB_ST_COMPLEX, CUFFT_CB_ST_COMPLEX_DOUBLE, CUFFT_CB_ST_REAL, CUFFT_CB_ST_REAL_DOUBLE };
     // my fft type
-    static constexpr cufftType myCuFFType = cufftTypeTable[doublePrecision][(!inIsReal && !outIsReal) << 1 + (!inIsReal && outIsReal)];
+    static constexpr cufftType myCufftType = cufftTypeTable[doublePrecision][(!inIsReal && !outIsReal) << 1 + (!inIsReal && outIsReal)];
     // my callback load/store types
     static constexpr cufftXtCallbackType myCuFFT_CB_LD = cufftXtCallbackTypeTable[(inIsReal) << 1 + inDoublePrecision];
     static constexpr cufftXtCallbackType myCuFFT_CB_ST = cufftXtCallbackTypeTable[((outIsReal) << 1 + outDoublePrecision) + 4];
@@ -535,6 +564,8 @@ class BricksCuFFTPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
                                       typename std::conditional<outIsReal, cufftCallbackStoreD, cufftCallbackStoreZ>::type,
                                       typename std::conditional<outIsReal, cufftCallbackStoreR, cufftCallbackStoreC>::type
                                       >::type myCufftCallbackStoreType;
+    /// my exec function
+    static constexpr auto myCufftExec = CufftExecSelector<myCufftType>::value;
 
     /// cuda plan for FFT execution
     cufftHandle plan;
@@ -580,7 +611,7 @@ class BricksCuFFTPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
     // TODO: doc
     template<typename BrickType>
     static __device__ __forceinline__
-    typename BrickType::elemType &getElement(BrickType *brick, const unsigned *grid_ptr, size_t offset, BricksCuFFTInfo *cuFFTInfo)
+    typename BrickType::elemType &getElement(BrickType *brick, const unsigned *grid_ptr, size_t offset, BricksCufftInfo *cuFFTInfo)
     {
       // Figure out flat indices (separated by fourier and non-fourier dimensions)
       int batchIndex = offset / cuFFTInfo->batchSize;
@@ -619,7 +650,7 @@ class BricksCuFFTPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
                                     void *sharedPtr)
     {
       // get info
-      BricksCuFFTInfo *cuFFTInfo = reinterpret_cast<BricksCuFFTInfo*>(callerInfo);
+      BricksCufftInfo *cuFFTInfo = reinterpret_cast<BricksCufftInfo*>(callerInfo);
       // return the element
       return reinterpret_cast<inCuElemType&>(
           getElement(cuFFTInfo->inBrick, cuFFTInfo->in_grid_ptr, offset, cuFFTInfo)
@@ -635,7 +666,7 @@ class BricksCuFFTPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
                              void *sharedPtr)
     {
       // get info
-      BricksCuFFTInfo *cuFFTInfo = reinterpret_cast<BricksCuFFTInfo*>(callerInfo);
+      BricksCufftInfo *cuFFTInfo = reinterpret_cast<BricksCufftInfo*>(callerInfo);
       // set the element
       getElement(cuFFTInfo->outBrick, cuFFTInfo->out_grid_ptr, offset, cuFFTInfo) = element;
     }

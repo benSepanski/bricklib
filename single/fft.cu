@@ -8,9 +8,9 @@ constexpr unsigned DIM = 3;
 constexpr unsigned EXTENT = 4;
 constexpr unsigned BDIM = 2;
 typedef Brick<Dim<BDIM,BDIM,BDIM>, Dim<1>, true> BrickType;
-typedef BricksCuFFTPlan<BrickType, FourierType<ComplexToComplex, 1, 2> > PlanType;
+typedef BricksCufftPlan<BrickType, FourierType<ComplexToComplex, 1, 2> > PlanType;
 
-__constant__ typename PlanType::BricksCuFFTInfo cuFFTInfo;
+__constant__ typename PlanType::BricksCufftInfo cuFFTInfo;
 
 int main()
 {
