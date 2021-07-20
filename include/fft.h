@@ -492,25 +492,25 @@ class BricksCuFFTPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
 
       // // setup load and store callback
       myCufftCallbackLoadType loadCallbackPtr;
-      // myCufftCallbackStoreType storeCallbackPtr;
+      myCufftCallbackStoreType storeCallbackPtr;
       // // get address of function
       cudaCheck(cudaMemcpyFromSymbol(
                               &loadCallbackPtr, 
                               myType::bricksLoadCallback,
                               sizeof(loadCallbackPtr)));
-      // cudaCheck(cudaMemcpyFromSymbol(
-      //                         &storeCallbackPtr, 
-      //                         &decltype(*this)::bricksStoreCallback,
-      //                         sizeof(storeCallbackPtr)));
+      cudaCheck(cudaMemcpyFromSymbol(
+                              &storeCallbackPtr, 
+                              myType::bricksStoreCallback,
+                              sizeof(storeCallbackPtr)));
       // // set the callbacks
-      // cufftCheck(cufftXtSetCallback(this->plan,
-      //                        (void **)&loadCallbackPtr,
-      //                        this->myCuFFT_CB_LD,
-      //                        (void **)&cuFFTInfo_dev));
-      // cufftCheck(cufftXtSetCallback(this->plan,
-      //                        (void **)&storeCallbackPtr,
-      //                        this->myCuFFT_CB_ST,
-      //                        (void **)&cuFFTInfo_dev));
+      cufftCheck(cufftXtSetCallback(this->plan,
+                             (void **)&loadCallbackPtr,
+                             this->myCuFFT_CB_LD,
+                             (void **)&cuFFTInfo_dev));
+      cufftCheck(cufftXtSetCallback(this->plan,
+                             (void **)&storeCallbackPtr,
+                             this->myCuFFT_CB_ST,
+                             (void **)&cuFFTInfo_dev));
     }
 
   private:
