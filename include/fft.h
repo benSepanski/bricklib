@@ -6,6 +6,7 @@
 #ifndef BRICK_FFT_H
 #define BRICK_FFT_H
 
+#include <array>
 #include <functional>
 #include "brick.h"
 #ifdef __CUDACC__
@@ -299,22 +300,22 @@ void _cufftCheck(T e, const char *func, const char *call, const int line) {
     const char *errorMsg;
     switch (e)  // https://docs.nvidia.com/cuda/cufft/index.html#cufftresult 
     {
-      CUFFT_INVALID_PLAN: errorMsg = "CUFFT_INVALID_PLAN"; break;
-      CUFFT_ALLOC_FAILED: errorMsg = "CUFFT_ALLOC_FAILED"; break;
-      CUFFT_INVALID_TYPE: errorMsg = "CUFFT_INVALID_TYPE"; break;
-      CUFFT_INVALID_VALUE: errorMsg = "CUFFT_INVALID_VALUE"; break;
-      CUFFT_INTERNAL_ERROR: errorMsg = "CUFFT_INTERNAL_ERROR"; break;
-      CUFFT_EXEC_FAILED: errorMsg = "CUFFT_EXEC_FAILED"; break;
-      CUFFT_SETUP_FAILED: errorMsg = "CUFFT_SETUP_FAILED"; break;
-      CUFFT_INVALID_SIZE: errorMsg = "CUFFT_INVALID_SIZE"; break;
-      CUFFT_UNALIGNED_DATA: errorMsg = "CUFFT_UNALIGNED_DATA"; break;
-      CUFFT_INCOMPLETE_PARAMETER_LIST: errorMsg = "CUFFT_INCOMPLETE_PARAMETER_LIST"; break;
-      CUFFT_INVALID_DEVICE: errorMsg = "CUFFT_INVALID_DEVICE"; break;
-      CUFFT_PARSE_ERROR: errorMsg = "CUFFT_PARSE_ERROR"; break;
-      CUFFT_NO_WORKSPACE: errorMsg = "CUFFT_NO_WORKSPACE"; break;
-      CUFFT_NOT_IMPLEMENTED: errorMsg = "CUFFT_NOT_IMPLEMENTED"; break;
-      CUFFT_LICENSE_ERROR: errorMsg = "CUFFT_LICENSE_ERROR"; break;
-      CUFFT_NOT_SUPPORTED: errorMsg = "CUFFT_NOT_SUPPORTED"; break;
+      case CUFFT_INVALID_PLAN: errorMsg = "CUFFT_INVALID_PLAN"; break;
+      case CUFFT_ALLOC_FAILED: errorMsg = "CUFFT_ALLOC_FAILED"; break;
+      case CUFFT_INVALID_TYPE: errorMsg = "CUFFT_INVALID_TYPE"; break;
+      case CUFFT_INVALID_VALUE: errorMsg = "CUFFT_INVALID_VALUE"; break;
+      case CUFFT_INTERNAL_ERROR: errorMsg = "CUFFT_INTERNAL_ERROR"; break;
+      case CUFFT_EXEC_FAILED: errorMsg = "CUFFT_EXEC_FAILED"; break;
+      case CUFFT_SETUP_FAILED: errorMsg = "CUFFT_SETUP_FAILED"; break;
+      case CUFFT_INVALID_SIZE: errorMsg = "CUFFT_INVALID_SIZE"; break;
+      case CUFFT_UNALIGNED_DATA: errorMsg = "CUFFT_UNALIGNED_DATA"; break;
+      case CUFFT_INCOMPLETE_PARAMETER_LIST: errorMsg = "CUFFT_INCOMPLETE_PARAMETER_LIST"; break;
+      case CUFFT_INVALID_DEVICE: errorMsg = "CUFFT_INVALID_DEVICE"; break;
+      case CUFFT_PARSE_ERROR: errorMsg = "CUFFT_PARSE_ERROR"; break;
+      case CUFFT_NO_WORKSPACE: errorMsg = "CUFFT_NO_WORKSPACE"; break;
+      case CUFFT_NOT_IMPLEMENTED: errorMsg = "CUFFT_NOT_IMPLEMENTED"; break;
+      case CUFFT_LICENSE_ERROR: errorMsg = "CUFFT_LICENSE_ERROR"; break;
+      case CUFFT_NOT_SUPPORTED: errorMsg = "CUFFT_NOT_SUPPORTED"; break;
       default: errorMsg = "UNRECOGNIZED CUFFT ERROR CODE";
     }
     printf("\"%s\" at %d in %s\n\treturned %d\n-> %s\n", func, line, call, (int) e, errorMsg);
@@ -371,21 +372,27 @@ class BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
     static constexpr bool outIsReal = std::is_same<outCuElemType, double>::value || std::is_same<outCuElemType, float>::value;
     static_assert(!(inIsReal && outIsReal), "input and output data types must not both be real");
 
+    /// need to define these for linking definitions
+    using nonFourierDimsType = std::array<unsigned, sizeof...(BDims) - sizeof...(FFTDims)>;
+    using fourierDimsType = std::array<unsigned, sizeof...(FFTDims)>;
+    using brickDimsType = std::array<unsigned, sizeof...(BDims)>;
+
     //// constants
     static constexpr unsigned FFTRank = sizeof...(FFTDims);  ///< rank of the FFT
-    static constexpr std::array<unsigned int, sizeof...(BDims) - FFTRank> 
-      nonFourierDims = RangeSetMinus<Range<0, sizeof...(BDims)>, FFTDims...>::value;  ///< dimensions not performing an FFT
-    static constexpr std::array<unsigned int, FFTRank> fourierDims = { FFTDims... }; ///< dimensions in which performing an FFT
-    static constexpr std::array<unsigned, sizeof...(BDims)> brickDims = { BDims... };  ///< extent of brick in each dimension
+    // dimensions not performing an FFT
+    static constexpr nonFourierDimsType nonFourierDims = RangeSetMinus<Range<0, sizeof...(BDims)>, FFTDims...>::value;  
+    static constexpr fourierDimsType fourierDims = { FFTDims... }; ///< dimensions in which performing an FFT
+    static constexpr brickDimsType brickDims = { BDims... };  ///< extent of brick in each dimension
     /// brick extent in each fourier dimension
-    static constexpr std::array<unsigned, FFTRank> fourierBrickDims = { brickDims[FFTDims]... };
+    static constexpr fourierDimsType fourierBrickDims = { brickDims[FFTDims]... };
     //// product of the fourier brick dimensions
     static constexpr unsigned FOURIER_BRICK_SIZE = reduction(std::multiplies<unsigned>(), 1U, fourierBrickDims);
     //// product of the non-fourier brick-dimensions 
     static constexpr unsigned NON_FOURIER_BRICK_SIZE = reduction(std::multiplies<unsigned>(), 1U, brickDims) / FOURIER_BRICK_SIZE;
-    // static_assert(FOURIER_BRICK_SIZE == 4);
-    // static_assert(NON_FOURIER_BRICK_SIZE == 2);
     static constexpr bool doublePrecision = inDoublePrecision; ///< are data types double precision
+    /// users can specify forward/inverse in a more readable way
+    static constexpr bool BRICKS_FFT_FORWARD = false;
+    static constexpr bool BRICKS_FFT_INVERSE = true;
 
     /// pointers passed to callbacks
     struct BricksCufftInfo
@@ -524,15 +531,13 @@ class BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
 
     /**
      * @brief start the (asynchronous) fast fourier transform
-     * @param inverse true if inverse transform, false otherwise
+     * @param inverse BRICKS_FFT_FORWARD (false) if forward transform, BRICKS_FFT_INVERSE (true) otherwise
      */
-    void launch(bool inverse = false)
+    void launch(bool inverse = BRICKS_FFT_FORWARD)
     {
       // make sure we've setup
-      if(myCufftInfo->inBrick == nullptr
-         || myCufftInfo->in_grid_ptr == nullptr
-         || myCufftInfo->outBrick == nullptr
-         || myCufftInfo->out_grid_ptr == nullptr)
+      if(myCufftInfo.inBrick == nullptr || myCufftInfo.in_grid_ptr == nullptr
+         || myCufftInfo.outBrick == nullptr || myCufftInfo.out_grid_ptr == nullptr)
       {
         throw std::runtime_error("Must call setup before calling launch()");
       }
@@ -542,7 +547,7 @@ class BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
         throw std::runtime_error("Invalid FourierDataType");
       }
       // start execution
-      cufftXtExec(plan, nullptr, nullptr, inverse ? CUFFT_INVERSE : CUFFT_FORWARD);
+      cufftXtExec(plan, nullptr, nullptr, inverse == BRICKS_FFT_FORWARD ? CUFFT_FORWARD : CUFFT_INVERSE);
     }
 
   private:
@@ -702,6 +707,53 @@ class BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
     }
 
 };
+
+// handle commas like in https://stackoverflow.com/questions/13842468/comma-in-c-c-macro
+namespace 
+{
+  template<typename T> struct argument_type;
+  template<typename T, typename U> struct argument_type<T(U)> { typedef U type; };
+}
+// define static members here to avoid linker errors for odr-used static constexprs
+#define BricksCufftPlan_STATIC_CONSTEXPR_DEF(t, name) \
+template<bool isComplex, \
+         typename CommunicatingDims, \
+         FourierDataType DataType, \
+         unsigned ... BDims, \
+         unsigned ... Fold, \
+         unsigned ... FFTDims \
+         > \
+constexpr typename argument_type<void(t)>::type \
+BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, CommunicatingDims>, FourierType<DataType, FFTDims...> >::name;
+BricksCufftPlan_STATIC_CONSTEXPR_DEF(bool, inDoublePrecision)
+BricksCufftPlan_STATIC_CONSTEXPR_DEF(bool, outDoublePrecision)
+BricksCufftPlan_STATIC_CONSTEXPR_DEF(bool, inIsReal)
+BricksCufftPlan_STATIC_CONSTEXPR_DEF(bool, outIsReal)
+BricksCufftPlan_STATIC_CONSTEXPR_DEF(unsigned, FFTRank)
+BricksCufftPlan_STATIC_CONSTEXPR_DEF(unsigned, FOURIER_BRICK_SIZE)
+BricksCufftPlan_STATIC_CONSTEXPR_DEF(unsigned, NON_FOURIER_BRICK_SIZE)
+BricksCufftPlan_STATIC_CONSTEXPR_DEF(bool, doublePrecision)
+BricksCufftPlan_STATIC_CONSTEXPR_DEF(bool, BRICKS_FFT_FORWARD)
+BricksCufftPlan_STATIC_CONSTEXPR_DEF(bool, BRICKS_FFT_INVERSE)
+
+// define static members here to avoid linker errors for odr-used static constexprs
+// (here we use types that are defined inside the scope of BricksCufftPlan, since
+// otherwise the declarations don't match the defintions)
+#define BricksCufftPlan_STATIC_CONSTEXPR_DEF_SCOPED_TYPE(t, name) \
+template<bool isComplex, \
+         typename CommunicatingDims, \
+         FourierDataType DataType, \
+         unsigned ... BDims, \
+         unsigned ... Fold, \
+         unsigned ... FFTDims \
+         > \
+constexpr typename \
+BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, CommunicatingDims>, FourierType<DataType, FFTDims...> >::t \
+BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, CommunicatingDims>, FourierType<DataType, FFTDims...> >::name;
+BricksCufftPlan_STATIC_CONSTEXPR_DEF_SCOPED_TYPE(nonFourierDimsType, nonFourierDims)
+BricksCufftPlan_STATIC_CONSTEXPR_DEF_SCOPED_TYPE(fourierDimsType, fourierDims)
+BricksCufftPlan_STATIC_CONSTEXPR_DEF_SCOPED_TYPE(brickDimsType, brickDims)
+BricksCufftPlan_STATIC_CONSTEXPR_DEF_SCOPED_TYPE(fourierDimsType, fourierBrickDims)
 
 #endif // defined(__CUDACC__)
 
