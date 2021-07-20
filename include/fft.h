@@ -633,10 +633,10 @@ class BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
       { CUFFT_CB_LD_COMPLEX, CUFFT_CB_LD_COMPLEX_DOUBLE, CUFFT_CB_LD_REAL, CUFFT_CB_LD_REAL_DOUBLE,
         CUFFT_CB_ST_COMPLEX, CUFFT_CB_ST_COMPLEX_DOUBLE, CUFFT_CB_ST_REAL, CUFFT_CB_ST_REAL_DOUBLE };
     // my fft type
-    static constexpr cufftType myCufftType = cufftTypeTable[doublePrecision][(!inIsReal && !outIsReal) << 1 + (!inIsReal && outIsReal)];
+    static constexpr cufftType myCufftType = cufftTypeTable[doublePrecision][(!inIsReal && !outIsReal) * 2 + (!inIsReal && outIsReal)];
     // my callback load/store types
-    static constexpr cufftXtCallbackType myCuFFT_CB_LD = cufftXtCallbackTypeTable[(inIsReal) << 1 + inDoublePrecision];
-    static constexpr cufftXtCallbackType myCuFFT_CB_ST = cufftXtCallbackTypeTable[((outIsReal) << 1 + outDoublePrecision) + 4];
+    static constexpr cufftXtCallbackType myCuFFT_CB_LD = cufftXtCallbackTypeTable[(inIsReal) * 2 + inDoublePrecision];
+    static constexpr cufftXtCallbackType myCuFFT_CB_ST = cufftXtCallbackTypeTable[((outIsReal) * 2 + outDoublePrecision) + 4];
 
     /// cuda plan for FFT execution
     cufftHandle plan;
