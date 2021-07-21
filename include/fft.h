@@ -586,7 +586,8 @@ class BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
         throw std::runtime_error("Invalid FourierDataType");
       }
       // start execution
-      cufftCheck(cufftXtExec(plan, nullptr, nullptr, inverse == BRICKS_FFT_FORWARD ? CUFFT_FORWARD : CUFFT_INVERSE));
+      cufftCheck(cufftXtExec(plan, myCufftInfo.inBrick->dat, myCufftInfo.outBrick->dat,
+                             inverse == BRICKS_FFT_FORWARD ? CUFFT_FORWARD : CUFFT_INVERSE));
     }
 
     /**
