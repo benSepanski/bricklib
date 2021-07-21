@@ -44,7 +44,7 @@ int main()
   cudaCheck(cudaMemcpy(grid_ptr_dev, grid_ptr, size, cudaMemcpyHostToDevice));
 
   // set up FFT for bricks
-  PlanType myPlan({EXTENT, EXTENT, EXTENT});
+  PlanType myPlan({EXTENT/BDIM, EXTENT/BDIM, EXTENT/BDIM});
   myPlan.setup(&inBrick_dev, grid_ptr_dev, &outBrick_dev, grid_ptr_dev, &cufftInfo);
   // compute FFT
   myPlan.launch();
