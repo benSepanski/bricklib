@@ -88,6 +88,9 @@ int main()
   cudaCheck(cudaDeviceSynchronize());
   // Now compare array FFT with bricks fft
   std::cout << "Comparing bricksFFT result with array FFT result" << std::endl;
+  // make sure out_arr != out_check_arr before memcpy
+  for(unsigned i = 0; i < static_power<EXTENT, DIM>::value; ++i) out_arr[i] = 1.0;
+  for(unsigned i = 0; i < static_power<EXTENT, DIM>::value; ++i) out_check_arr[i] = 0.0;
   cudaCheck(cudaMemcpy(
     bStorage.dat.get(),
     bStorage_dev.dat.get(),
