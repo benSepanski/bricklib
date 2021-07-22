@@ -676,7 +676,6 @@ class BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
                             && dim-1 == nonFourierDims[nonFourierDimIdx-1], unsigned>::type
     zipFlatIndices(unsigned flatNonFourierIndex, unsigned flatFourierIndex)
     {
-      constexpr unsigned BRICK_DIM = Dim<BDims...>::template get<dim-1>();
       constexpr unsigned BRICK_STRIDE = Dim<BDims...>::template product<dim-1>();
       constexpr unsigned VFOLD = Dim<Fold...>::template getOrDefault<dim-1>(1);
       constexpr unsigned VFOLD_STRIDE = Dim<Fold...>::template product<dim-1 < sizeof...(Fold)-1 ? dim-1 : sizeof...(Fold)-1>();
@@ -710,7 +709,6 @@ class BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
                             && dim-1 == fourierDims[fourierDimIdx-1], unsigned>::type
     zipFlatIndices(unsigned flatNonFourierIndex, unsigned flatFourierIndex)
     {
-      constexpr unsigned BRICK_DIM = Dim<BDims...>::template get<dim-1>();
       constexpr unsigned BRICK_STRIDE = Dim<BDims...>::template product<dim-1>();
       constexpr unsigned VFOLD = Dim<Fold...>::template getOrDefault<dim-1>(1);
       constexpr unsigned VFOLD_STRIDE = Dim<Fold...>::template product<dim-1 < sizeof...(Fold)-1 ? dim-1 : sizeof...(Fold)-1>();
