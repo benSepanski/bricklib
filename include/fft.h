@@ -466,8 +466,8 @@ class BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
       }
       // set up cuda plan
       cufftCheck(cufftPlanMany(&this->plan, FFTRank, embed.data(),
-                               nullptr, 1, batchSize,
-                               nullptr, 1, batchSize,
+                               embed.data(), 1, batchSize,
+                               embed.data(), 1, batchSize,
                                myCufftType, numBatches));
       
       //// build host-side BricksCufftInfo
