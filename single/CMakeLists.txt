@@ -75,6 +75,7 @@ if(BRICKS_BUILD_GTENSOR_BENCHMARKS)
 endif ()
 
 if(BRICKS_ENABLE_FFT)
+    # sample FFT
     add_executable(single-fft fft.cu)
     if(${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.17")
         target_link_libraries(single-fft brickhelper CUDA::cufft_static CUDA::culibos)
@@ -88,4 +89,21 @@ if(BRICKS_ENABLE_FFT)
     # https://developer.nvidia.com/blog/cuda-pro-tip-use-cufft-callbacks-custom-data-processing/
     # need relocatable device code
     target_compile_options(single-fft PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--device-c>)
+
+    # gene-style FFT
+    if(BRICKS_BUILD_GTENSOR_BENCHMARKS)
+        add_executable(single-fft-gene-6d fft-gene-6d.cu)
+        if(${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.17")
+            target_link_libraries(single-fft-gene-6d brickhelper CUDA::cufft_static CUDA::culibos gtensor::gtensor)
+        else()
+            target_link_libraries(single-fft-gene-6d brickhelper cufft_static culibos gtensor::gtensor)
+        endif()
+        target_include_directories(single-fft-gene-6d PUBLIC
+                "${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES}"
+                )
+        set_target_properties(single-fft-gene-6d PROPERTIES OUTPUT_NAME fft-gene-6d)
+        # https://developer.nvidia.com/blog/cuda-pro-tip-use-cufft-callbacks-custom-data-processing/
+        # need relocatable device code
+        target_compile_options(single-fft-gene-6d PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--device-c>)
+    endif()
 endif()

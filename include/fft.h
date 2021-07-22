@@ -121,6 +121,30 @@ namespace // anonymous namespace
   };
 
   /**
+   * @brief used to reverse an unsigned list
+   * @tparam list the list to reverse
+   * @see UnsignedList
+   */
+  template<typename list>
+  struct UnsignedListReverser;
+  /**
+   * @brief inductive case
+   * @tparam head first entry of un-reversed list
+   * @tparam tail remainder of un-reversed list
+   * @see UnsignedListReverser
+   */
+  template<unsigned head, unsigned ... tail> struct UnsignedListReverser<UnsignedList<head, tail...> >
+  {
+    typedef typename UnsignedListReverser<UnsignedList<tail...> >::type reversedTailType;
+    typedef typename UnsignedListMerger<reversedTailType, UnsignedList<head> >::type type;
+  };
+  /**
+   * @brief base case
+   * @see UnsignedListReverser
+   */
+  template<> struct UnsignedListReverser<UnsignedList<> > {typedef UnsignedList<> type;};
+
+  /**
    * @brief Generates a list of unsigneds from start to end
    * 
    * @tparam Start the first element (inclusive)
@@ -411,8 +435,9 @@ class BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
     static constexpr nonFourierDimsType nonFourierDims = RangeSetMinus<Range<0, sizeof...(BDims)>, FFTDims...>::value;  
     static constexpr fourierDimsType fourierDims = { FFTDims... }; ///< dimensions in which performing an FFT
     static_assert(is_sorted(fourierDims), "FFT dims must be specified in sorted order and contain no duplicates");
-    static constexpr brickDimsType brickDims = { BDims... };  ///< extent of brick in each dimension
-    /// brick extent in each fourier dimension
+    /// brick dimensions (reversed so that in order of most contiguous, ..., least contiguous)
+    static constexpr brickDimsType brickDims = StaticArrayBuilder<typename UnsignedListReverser<UnsignedList<BDims...> >::type>::value;
+    /// brick extent in each fourier dimension (in order most contiguous, ...., least contiguous)
     static constexpr fourierDimsType fourierBrickDims = { brickDims[FFTDims]... };
 
     //// product of the fourier brick dimensions
@@ -439,7 +464,7 @@ class BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
      * 
      * Allocates the cufft plan
      * 
-     * @param grid_size the number of bricks in each dimension
+     * @param grid_size the number of bricks in each dimension ({most contiguous,...,least contiguous})
      * @param type the type of cufft transform
      */
     BricksCufftPlan(std::array<size_t, sizeof...(BDims)> grid_size)
