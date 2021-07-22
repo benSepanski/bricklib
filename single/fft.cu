@@ -48,16 +48,27 @@ int main()
   PlanType myPlan({EXTENT/BDIM, EXTENT/BDIM, EXTENT/BDIM});
   myPlan.setup(inBrick_dev, grid_ptr_dev, outBrick_dev, grid_ptr_dev);
   // compute FFT
+  std::cout << "Starting FFT" << std::endl;
   myPlan.launch();
   cudaCheck(cudaDeviceSynchronize());
   // compute inverse
+  std::cout << "Starting FFT^{-1}" << std::endl;
+  myPlan.setup(outBrick_dev, grid_ptr_dev, inBrick_dev, grid_ptr_dev);
   myPlan.launch(PlanType::BRICKS_FFT_INVERSE);
   cudaCheck(cudaDeviceSynchronize());
+  std::cout << "FFTs complete" << std::endl;
 
+  // zero out data before copy-back just to be careful
+  for(unsigned i = 0; i < bInfo.nbricks * bStorage.step; ++i) bStorage.dat.get()[i] = 0.0;
   // copy output back from device
   std::cout << "Starting memcpy to host" << std::endl;
-  bStorage = movBrickStorage(bStorage_dev, cudaMemcpyDeviceToHost);
-  copyFromBrick<DIM>(extents, padding, ghost_zone, out_arr, grid_ptr, outBrick);
+  cudaCheck(cudaMemcpy(
+    bStorage.dat.get(),
+    bStorage_dev.dat.get(),
+    bInfo.nbricks * bStorage.step * sizeof(bElem),
+    cudaMemcpyDeviceToHost
+  ));
+  copyFromBrick<DIM>(extents, padding, ghost_zone, out_arr, grid_ptr, inBrick);
   
   // correctness check
   for(unsigned i = 0; i < static_power<EXTENT, DIM>::value; ++i)
@@ -66,15 +77,17 @@ int main()
     if(std::abs(diff) > 1e-8)
     {
       std::ostringstream errorMsgStream;
-      errorMsgStream << "in:" << in_arr[i] << " != out:" << out_arr[i] << "\n";
+      errorMsgStream << "in[" << i << "]:" << in_arr[i] << " != out[" << i << "]:" << out_arr[i] << "\n";
       throw std::runtime_error(errorMsgStream.str());
     }
   }
 
   // free memory
+  cudaCheck(cudaFree(grid_ptr_dev));
   cudaCheck(cudaFree(_bInfo_dev.adj));
   cudaCheck(cudaFree(bInfo_dev));
   cudaCheck(cudaFree(grid_ptr_dev));
+  free(grid_ptr);
   free(out_arr);
   free(in_arr);
 }

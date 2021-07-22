@@ -44,6 +44,8 @@ if (CMAKE_CUDA_COMPILER)
             find_package(CUDAToolkit REQUIRED)
         endif() 
     endif ()
+    # allow compile-time evaluation of host constexpr functions in device functions
+    set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} --expt-relaxed-constexpr") 
 endif ()
 
 find_package(OpenMP REQUIRED)
