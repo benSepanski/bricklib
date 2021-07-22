@@ -125,6 +125,10 @@ struct alignas(sizeof(bElem[2])) bComplexElem
     FORCUDA inline
     friend bComplexElem operator*(const bComplexElem &, const bElem &);
     FORCUDA inline
+    friend bComplexElem operator/(const bComplexElem &, const bComplexElem &);
+    FORCUDA inline
+    friend bComplexElem operator/(const bComplexElem &, const bElem &);
+    FORCUDA inline
     friend bComplexElem operator*(const bComplexElem &, const bComplexElem &);
     FORCUDA inline
     friend bComplexElem operator+(const bComplexElem &);
@@ -174,6 +178,20 @@ struct alignas(sizeof(bElem[2])) bComplexElem
         return *this;
     }
 
+    FORCUDA inline
+    bComplexElem &operator/=(const bComplexElem &that)
+    {
+        *this = *this / that;
+        return *this;
+    }
+
+    FORCUDA inline
+    bComplexElem &operator/=(const bElem &that)
+    {
+        *this = *this / that;
+        return *this;
+    }
+
     // comparison
     FORCUDA inline
     bool operator==(const bComplexElem &that)
@@ -189,61 +207,74 @@ struct alignas(sizeof(bElem[2])) bComplexElem
 };
 
 // complex addition (and specializations for real values)
-FORCUDA
 bComplexElem operator+(const bComplexElem &z, const bComplexElem &w)
 {
     return bComplexElem(z.real() + w.real(), z.imag() + w.imag());
 }
 
-FORCUDA
 bComplexElem operator+(const bElem &r, const bComplexElem &w)
 {
     return bComplexElem(r + w.real(), w.imag());
 }
 
-FORCUDA
 bComplexElem operator+(const bComplexElem &z, const bElem &r)
 {
     return r + z;
 }
 
 // complex subtraction (and specializations for real values)
-FORCUDA
 bComplexElem operator-(const bComplexElem &z, const bComplexElem &w)
 {
     return bComplexElem(z.real() - w.real(), z.imag() - w.imag());
 }
 
-FORCUDA
 bComplexElem operator-(const bElem &r, const bComplexElem &w)
 {
     return bComplexElem(r - w.real(), - w.imag());
 }
 
-FORCUDA
 bComplexElem operator-(const bComplexElem &z, const bElem &r)
 {
     return bComplexElem(z.real() - r, z.imag());
 }
 
 // complex multiplication (and specializations for real values)
-FORCUDA
 bComplexElem operator*(const bComplexElem &z, const bComplexElem &w)
 {
     return bComplexElem(z.real() * w.real() - z.imag() * w.imag(),
                         z.imag() * w.real() + z.real() * w.imag());
 }
 
-FORCUDA
 bComplexElem operator*(const bElem &r, const bComplexElem &w)
 {
     return bComplexElem(r * w.real(), r * w.imag());
 }
 
-FORCUDA
 bComplexElem operator*(const bComplexElem &z, const bElem &r)
 {
     return r * z;
+}
+
+// copied and modified from http://pixel.ecn.purdue.edu:8080/purpl/WSJ/projects/DirectionalStippling/include/cuComplex.h
+bComplexElem operator/(const bComplexElem &z, const bComplexElem &w)
+{
+    bElem s = ((bElem)abs((double) w.real())) + 
+              ((bElem)abs((double) w.imag()));
+    bElem oos = 1.0f / s;
+    bElem ars = z.real() * oos;
+    bElem ais = z.imag() * oos;
+    bElem brs = w.real() * oos;
+    bElem bis = w.imag() * oos;
+    s = (brs * brs) + (bis * bis);
+    oos = 1.0f / s;
+    bComplexElem quot(((ars * brs) + (ais * bis)) * oos,
+                      ((ais * brs) - (ars * bis)) * oos);
+    return quot;
+}
+
+bComplexElem operator/(const bComplexElem &z, const bElem &r)
+{
+    return bComplexElem(z.real() / r, z.imag() / r);
 }
 
 // complex arithmetic unary operators
