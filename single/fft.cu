@@ -10,8 +10,6 @@ constexpr unsigned BDIM = 2;
 typedef Brick<Dim<BDIM,BDIM,BDIM>, Dim<1>, true> BrickType;
 typedef BricksCufftPlan<BrickType, FourierType<ComplexToComplex, 1, 2> > PlanType;
 
-__constant__ typename PlanType::BricksCufftInfo cufftInfo;
-
 int main()
 {
   const std::vector<long> extents(DIM, EXTENT);
@@ -30,14 +28,17 @@ int main()
            outBrick(&bInfo, bStorage, BrickType::BRICKSIZE);
   copyToBrick<DIM>(extents, in_arr, grid_ptr, inBrick);
 
-  // set up brick storage in cuda
-  BrickInfo<DIM> _bInfo_dev = movBrickInfo<DIM>(bInfo, cudaMemcpyHostToDevice);
+  // set up brick info in cuda
   BrickInfo<DIM> *bInfo_dev;
+  BrickInfo<DIM> _bInfo_dev = movBrickInfo(bInfo, cudaMemcpyHostToDevice);
   cudaCheck(cudaMalloc(&bInfo_dev, sizeof(BrickInfo<DIM>)));
   cudaCheck(cudaMemcpy(bInfo_dev, &_bInfo_dev, sizeof(BrickInfo<DIM>), cudaMemcpyHostToDevice));
+  // mov brick storage to cuda
   BrickStorage bStorage_dev = movBrickStorage(bStorage, cudaMemcpyHostToDevice);
-  BrickType inBrick_dev(bInfo_dev, bStorage_dev, 0),
-            outBrick_dev(bInfo_dev, bStorage_dev, BrickType::BRICKSIZE);
+  // set up brick in cuda
+  BrickType inBrick_dev(bInfo_dev, bStorage_dev, 0);
+  BrickType outBrick_dev(bInfo_dev, bStorage_dev, BrickType::BRICKSIZE);
+  // copy grids to device
   unsigned *grid_ptr_dev;
   size_t size = sizeof(unsigned) * static_power<EXTENT / BDIM, DIM>::value;
   cudaCheck(cudaMalloc(&grid_ptr_dev, size));
@@ -45,7 +46,7 @@ int main()
 
   // set up FFT for bricks
   PlanType myPlan({EXTENT/BDIM, EXTENT/BDIM, EXTENT/BDIM});
-  myPlan.setup(&inBrick_dev, grid_ptr_dev, &outBrick_dev, grid_ptr_dev, &cufftInfo);
+  myPlan.setup(inBrick_dev, grid_ptr_dev, outBrick_dev, grid_ptr_dev);
   // compute FFT
   myPlan.launch();
   cudaCheck(cudaDeviceSynchronize());
@@ -54,9 +55,8 @@ int main()
   cudaCheck(cudaDeviceSynchronize());
 
   // copy output back from device
-  cudaCheck(cudaMemcpy(bStorage.dat.get(), bStorage_dev.dat.get(),
-                       sizeof(bComplexElem) * static_power<EXTENT, DIM>::value,
-                       cudaMemcpyDeviceToHost));
+  std::cout << "Starting memcpy to host" << std::endl;
+  bStorage = movBrickStorage(bStorage_dev, cudaMemcpyDeviceToHost);
   copyFromBrick<DIM>(extents, padding, ghost_zone, out_arr, grid_ptr, outBrick);
   
   // correctness check

@@ -7,6 +7,7 @@
 #define BRICK_BRICK_CUDA_H
 
 #include <cassert>
+#include <cstdio>
 #include <brick.h>
 #include <cuda_runtime.h>
 
@@ -16,9 +17,6 @@
 #ifdef NDEBUG
 #define cudaCheck(x) x
 #else
-
-#include <cstdio>
-
 #define cudaCheck(x) _cudaCheck(x, #x ,__FILE__, __LINE__)
 #endif
 
@@ -29,6 +27,44 @@ void _cudaCheck(T e, const char *func, const char *call, const int line) {
   if (e != cudaSuccess) {
     printf("\"%s\" at %d in %s\n\treturned %d\n-> %s\n", func, line, call, (int) e, cudaGetErrorString(e));
     exit(EXIT_FAILURE);
+  }
+}
+
+#define validateIsDevicePointer(x) _validateIsDevicePointer(x, #x, __FILE__, __LINE__)
+#ifdef NDEBUG
+#define validateIsDevicePointer_if_dbg(x)
+#else
+#define validateIsDevicePointer_if_dbg(x) _validateIsDevicePointer(x, #x, __FILE__, __LINE__)
+#endif
+/**
+ * @brief throw std::runtime_error if ptr is not a device pointer.
+ * Exits if cudaPointerGetAttributes does not terminate successfully.
+ * @param ptr the pointer to check
+ */
+inline void _validateIsDevicePointer(const void *ptr, const char *errorMsg, const char *file, const int line)
+{
+  cudaPointerAttributes attributes;
+  cudaError_t e = cudaPointerGetAttributes(&attributes, ptr);
+  if(e != cudaSuccess)
+  {
+    printf("\"%s\" called from %s at line %d in %s\n\treturned %d\n-> %s\n",
+           "cudaPointerGetAttributes(&attributes, ptr)", errorMsg, line, file, (int) e, cudaGetErrorString(e));
+    exit(EXIT_FAILURE);
+  }
+  if(attributes.type != cudaMemoryTypeDevice)
+  {
+    std::ostringstream errorMsgStream;
+    errorMsgStream << "ERROR at" << *errorMsg << " (" << *file << ":" << line << ")";
+    errorMsgStream << " ptr points to ";
+    switch(attributes.type)
+    {
+      case cudaMemoryTypeUnregistered: errorMsgStream << "unregistered"; break;
+      case cudaMemoryTypeHost: errorMsgStream << "host"; break;
+      case cudaMemoryTypeManaged: errorMsgStream << "managed"; break;
+      default: errorMsgStream << "unrecognized";
+    }
+    errorMsgStream << " memory space, not device.";
+    throw std::runtime_error(errorMsgStream.str());
   }
 }
 
