@@ -599,6 +599,7 @@ class BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
       unsigned index = getIndex(in_grid_ptr, in_brick_step, offset, cufftInfo);
       const inElemType *in_dat = cufftInfo->in_dat;
       inElemType element = in_dat[index];
+      printf("offset %d loads from index%d\n", (unsigned) offset, index);
       return (inCuElemType) element;
     }
 
@@ -662,64 +663,58 @@ class BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
      */
     template<unsigned dim, unsigned nonFourierDimIdx, unsigned fourierDimIdx>
     __device__ static
-    typename std::enable_if<dim == 0, unsigned>::type
-    zipFlatIndices(unsigned flatNonFourierIndex, unsigned flatFourierIndex) { return 0;}
+    typename std::enable_if<dim == 0>::type
+    zipFlatIndices(unsigned flatNonFourierIndex, unsigned flatFourierIndex, unsigned &indexOfVec, unsigned &indexInVec) {}
 
     /**
-     * @brief return the flat index into the brick
+     * @brief compute index of vector and index in vector inside the brick
      * @see zipFlatIndices
      */
     template<unsigned dim, unsigned nonFourierDimIdx, unsigned fourierDimIdx>
     __device__ static
     typename std::enable_if<0 < dim
                             && nonFourierDimIdx-1 < sizeof...(BDims) - FFTRank
-                            && dim-1 == nonFourierDims[nonFourierDimIdx-1], unsigned>::type
-    zipFlatIndices(unsigned flatNonFourierIndex, unsigned flatFourierIndex)
+                            && dim-1 == nonFourierDims[nonFourierDimIdx-1]>::type
+    zipFlatIndices(unsigned flatNonFourierIndex, unsigned flatFourierIndex, unsigned &indexOfVec, unsigned &indexInVec)
     {
-      constexpr unsigned BRICK_STRIDE = Dim<BDims...>::template product<dim-1>();
+      constexpr unsigned BRICK_DIM = Dim<BDims...>::template get<dim-1>();
       constexpr unsigned VFOLD = Dim<Fold...>::template getOrDefault<dim-1>(1);
-      constexpr unsigned VFOLD_STRIDE = Dim<Fold...>::template product<dim-1 < sizeof...(Fold)-1 ? dim-1 : sizeof...(Fold)-1>();
-      // get index (ignoring vector folds)
-      unsigned indexInDim = flatNonFourierIndex / BRICK_STRIDE;
-      unsigned newFlatNonFourierIndex = flatNonFourierIndex % BRICK_STRIDE;
-      assert(indexInDim < Dim<BDims...>::template get<dim-1>());
-      // handle folds
-      return (indexInDim / VFOLD) * (BRICK_STRIDE / VFOLD_STRIDE)
-             + (indexInDim % VFOLD) * VFOLD_STRIDE
-             + zipFlatIndices<dim-1, nonFourierDimIdx-1, fourierDimIdx>(newFlatNonFourierIndex, flatFourierIndex);
+      // recurse to get indexOfVec and indexInVec
+      zipFlatIndices<dim-1, nonFourierDimIdx-1, fourierDimIdx>(flatNonFourierIndex / BRICK_DIM, flatFourierIndex, indexOfVec, indexInVec);
+      // get index in dim and figure out vector folds
+      unsigned indexInDim = flatNonFourierIndex % BRICK_DIM;
+      indexInVec = indexInVec * VFOLD + (indexInDim % VFOLD);
+      indexOfVec = indexOfVec * (BRICK_DIM / VFOLD) + (indexInDim / VFOLD);
     }
 
     /**
-     * @brief return the flat index into the brick
+     * @brief zip the flat indexes (represented as index of vec and index in vec)
      * 
      * case where current dim is a fourier dimension
      * 
      * @tparam dim current dimension
      * @tparam nonFourierDimIdx current index into non-fourier dimensions
      * @tparam fourierDimIdx current index into fourier dimensions
-     * @param flatNonFourierIndex flattened index into remaining non-fourier dimensions
-     * @param flatFourierIndex flattened index into remaining fourier dimensions
-     * 
-     * @return flat index into the brick
+     * @param[in] flatNonFourierIndex flattened index into remaining non-fourier dimensions
+     * @param[in] flatFourierIndex flattened index into remaining fourier dimensions
+     * @param[out] indexOfVec index of vec (should start at 0)
+     * @param[out] indexInVec index in vec (should start at 0)
      */
     template<unsigned dim, unsigned nonFourierDimIdx, unsigned fourierDimIdx>
     __device__ static
     typename std::enable_if<0 < dim
                             && fourierDimIdx-1 < FFTRank
-                            && dim-1 == fourierDims[fourierDimIdx-1], unsigned>::type
-    zipFlatIndices(unsigned flatNonFourierIndex, unsigned flatFourierIndex)
+                            && dim-1 == fourierDims[fourierDimIdx-1]>::type
+    zipFlatIndices(unsigned flatNonFourierIndex, unsigned flatFourierIndex, unsigned indexOfVec, unsigned indexInVec)
     {
-      constexpr unsigned BRICK_STRIDE = Dim<BDims...>::template product<dim-1>();
+      constexpr unsigned BRICK_DIM = Dim<BDims...>::template get<dim-1>();
       constexpr unsigned VFOLD = Dim<Fold...>::template getOrDefault<dim-1>(1);
-      constexpr unsigned VFOLD_STRIDE = Dim<Fold...>::template product<dim-1 < sizeof...(Fold)-1 ? dim-1 : sizeof...(Fold)-1>();
-      // get index (ignoring vector folds)
-      unsigned indexInDim = flatFourierIndex / BRICK_STRIDE;
-      unsigned newFlatFourierIndex = flatFourierIndex % BRICK_STRIDE;
-      assert(indexInDim < Dim<BDims...>::template get<dim-1>());
-      // handle folds
-      return (indexInDim / VFOLD) * (BRICK_STRIDE / VFOLD_STRIDE)
-             + (indexInDim % VFOLD) * VFOLD_STRIDE
-             + zipFlatIndices<dim-1, nonFourierDimIdx, fourierDimIdx-1>(flatNonFourierIndex, newFlatFourierIndex);
+      // recurse to get indexOfVec and indexInVec
+      zipFlatIndices<dim-1, nonFourierDimIdx, fourierDimIdx-1>(flatNonFourierIndex, flatFourierIndex / BRICK_DIM, indexOfVec, indexInVec);
+      // get index in dim and figure out vector folds
+      unsigned indexInDim = flatFourierIndex % BRICK_DIM;
+      indexInVec = indexInVec * VFOLD + (indexInDim % VFOLD);
+      indexOfVec = indexOfVec * (BRICK_DIM / VFOLD) + (indexInDim / VFOLD);
     }
 
     /**
@@ -760,8 +755,10 @@ class BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
       // return full index
       unsigned indexOfBrick = grid_ptr[gridIndex];
       constexpr unsigned DIM = sizeof...(BDims);
-      unsigned indexInBrick = zipFlatIndices<DIM,DIM-FFTRank,FFTRank>(batchIndexInBrick, fourierIndexInBrick);
-      return indexOfBrick * step + indexInBrick;;
+      unsigned indexOfVec = 0, indexInVec = 0;
+      zipFlatIndices<DIM,DIM-FFTRank,FFTRank>(batchIndexInBrick, fourierIndexInBrick, indexOfVec, indexInVec);
+      unsigned indexInBrick = indexOfVec * Dim<Fold...>::template product<sizeof...(Fold)>() + indexInVec;
+      return indexOfBrick * step + indexInBrick;
     }
 };
 
