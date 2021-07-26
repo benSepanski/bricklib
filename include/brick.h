@@ -147,6 +147,19 @@ struct BrickInfo<dims, CommDims<CommInDim...> > {
   unsigned nbricks;
 
   /**
+   * @brief does the adjacency list include entries in dimension dim
+   * 
+   * @param dim  the dimension (0, 1, 2, ..., numDims-1)
+   * @return true iff the adjacency list includes neighbors in dimension dim
+   */
+  static constexpr bool adjListIncludesDim(unsigned dim)
+  {
+    return CommDims<CommInDim...>::communicatesInDim(dim);
+  }
+  /// number of dimension whose neighbors are recorded in the adjacency list
+  static constexpr unsigned numDimsWithRecordedNeighbors = CommDims<CommInDim...>::numCommunicatingDims(dims);
+
+  /**
    * @brief Creating an empty metadata consisting of the specified number of bricks
    * @param nbricks number of bricks
    */
