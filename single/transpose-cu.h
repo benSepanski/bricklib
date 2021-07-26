@@ -29,7 +29,7 @@ size_t flatten_index(size_t k, size_t j, size_t i, size_t J, size_t I)
 /**
  * @brief transpose the i-j dimensions of in_mat and store in out_mat
  * 
- * Each thread-block process one tile of size [TileJDim][TileIDim]
+ * Each thread-block process blockDim.z tiles of size [TileJDim][TileIDim]
  * 
  * @tparam elemType the type of elements in the matrix
  * @tparam TileJDim the j-extent of the shared-memory tiles used 
@@ -42,10 +42,10 @@ size_t flatten_index(size_t k, size_t j, size_t i, size_t J, size_t I)
 // Based on https://developer.nvidia.com/blog/efficient-matrix-transpose-cuda-cc/
 template<unsigned TileJDim, unsigned TileIDim, typename elemType>
 __global__
-void transpose_ij(elemType * __restrict__ in_mat, elemType * __restrict__ out_mat, const size_t J, const size_t I)
+void transpose_ij(const elemType * __restrict__ in_mat, elemType * __restrict__ out_mat, const size_t J, const size_t I)
 {
   assert(TileJDim * gridDim.y >= J);
-  assert(TileIDim * gridDim.x >= J);
+  assert(TileIDim * gridDim.x >= I);
 
   // avoid bank conflicts
   static constexpr unsigned WARP_SIZE = 32;
@@ -53,8 +53,8 @@ void transpose_ij(elemType * __restrict__ in_mat, elemType * __restrict__ out_ma
   __shared__ elemType tile[TileJDim][TileIDim + BANK_SHIFT];
   // find tile
   size_t k = blockDim.z * blockIdx.z + threadIdx.z;
-  const size_t tile_j_start_idx = min((size_t) TileJDim * blockIdx.y, J);
-  const size_t tile_i_start_idx = min((size_t) TileIDim * blockIdx.x, I);
+  const size_t tile_j_start_idx = min(((size_t) TileJDim) * blockIdx.y, J);
+  const size_t tile_i_start_idx = min(((size_t) TileIDim) * blockIdx.x, I);
 
   // get upper bounds on tile
   const size_t upper_bound_j = min((size_t) TileJDim, J - tile_j_start_idx),
@@ -65,8 +65,9 @@ void transpose_ij(elemType * __restrict__ in_mat, elemType * __restrict__ out_ma
   {
     for(size_t i = threadIdx.x; i < upper_bound_i; i += blockDim.x)
     {
-      tile[j][i] = in_mat[flatten_index(k, tile_j_start_idx + j, tile_i_start_idx + i, J, I)];
-      printf("tile[%lu][%lu] = %d\n", j, i, tile[j][i]);
+      size_t index = flatten_index(k, tile_j_start_idx + j, tile_i_start_idx + i, J, I);
+      assert(index < gridDim.z * blockDim.z * J * I);
+      tile[j][i] = in_mat[index];
     }
   }
   __syncthreads();
@@ -75,7 +76,9 @@ void transpose_ij(elemType * __restrict__ in_mat, elemType * __restrict__ out_ma
   {
     for(size_t j = threadIdx.x; j < upper_bound_j; j += blockDim.x)
     {
-      out_mat[flatten_index(k, tile_i_start_idx + i, tile_j_start_idx + j, I, J)] = tile[j][i];
+      size_t index = flatten_index(k, tile_i_start_idx + i, tile_j_start_idx + j, I, J);
+      assert(index < gridDim.z * blockDim.z * J * I);
+      out_mat[index] = tile[j][i];
     }
   }
 }

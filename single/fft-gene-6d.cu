@@ -1,6 +1,7 @@
 #include <cmath>
 #include <iostream>
 #include <iomanip>
+#include "transpose-cu.h"
 #include "fft.h"
 #include "stencils/gene-6d.h"
 
@@ -118,6 +119,104 @@ double complex_to_complex_1d_j_fft_array(bComplexElem *in_arr, bComplexElem *out
 
   // free memory
   cudaCheck(cudaFree(out_arr_dev));
+  cudaCheck(cudaFree(in_arr_dev));
+
+  // return timing
+  return num_seconds;
+}
+
+/**
+ * @brief time computation of 1D FFT in j-dimension of in_arr into out_arr
+ * 
+ * Uses a transpose, then a FFT in the contiguous dimension, then a transpose
+ * 
+ * @param in_arr[in] host-side input array, of rank DIM with extents EXTENT_n,...,EXTENT_i
+ * @param out_arr[out] host-side output array of same shape as in_arr
+ * @param direction[in] either CUFFT_FORWARD or CUFFT_INVERSE
+ * @param warmup the number of warmups
+ * @param iter the number of iters
+ * @return the average number of seconds to compute the FFT
+ */
+double complex_to_complex_1d_j_fft_array_transpose(bComplexElem *in_arr, bComplexElem *out_arr, int warmup, int iter, int direction = CUFFT_FORWARD)
+{
+  if(direction != CUFFT_FORWARD && direction != CUFFT_INVERSE) throw std::runtime_error("Unrecognized direction");
+  // build cufft plan
+  cufftHandle plan;
+  int fft_rank = 1;
+  int array_rank[1] = {EXTENT_j};
+  int embed[1] = {EXTENT_j};
+  int stride = 1;
+  int distBetweenBatches = EXTENT_j;
+  int numBatches = NUM_ELEMENTS / distBetweenBatches;
+  static_assert(std::is_same<bElem, float>::value || std::is_same<bElem, double>::value);
+  cufftType type = std::is_same<bElem, float>::value ? CUFFT_C2C : CUFFT_Z2Z;
+  cufftCheck(cufftPlanMany(&plan, fft_rank, array_rank,
+                           embed, stride, distBetweenBatches,
+                           embed, stride, distBetweenBatches,
+                           type, numBatches));
+
+  for(size_t i = 0; i < NUM_ELEMENTS; ++i) in_arr[i] = bComplexElem((double) i);
+  // copy data to device
+  bCuComplexElem *in_arr_dev, *out_arr_dev, *intermed_arr_dev;
+  constexpr size_t ARR_SIZE = sizeof(bComplexElem) * NUM_ELEMENTS;
+  cudaCheck(cudaMalloc(&in_arr_dev, ARR_SIZE));
+  cudaCheck(cudaMalloc(&out_arr_dev, ARR_SIZE));
+  cudaCheck(cudaMalloc(&intermed_arr_dev, ARR_SIZE));
+  cudaCheck(cudaMemcpy(in_arr_dev, in_arr, ARR_SIZE, cudaMemcpyHostToDevice));
+
+  // lambda function for timing
+  auto compute_fft = [&plan](const bCuComplexElem *in_arr, bCuComplexElem *intermed_arr, bCuComplexElem *out_arr, int direction) -> void 
+  {
+    constexpr int blockSize = 256;
+    constexpr unsigned TileJ = 32;
+    constexpr unsigned TileI = blockSize / TileJ;
+    dim3 dimBlock(TileI, TileJ),
+         dimGrid(EXTENT_i / dimBlock.x,
+                 EXTENT_j / dimBlock.y,
+                 NUM_ELEMENTS / EXTENT_i / EXTENT_j / dimBlock.z);
+    static_assert(EXTENT_i % TileI == 0);
+    static_assert(EXTENT_j % TileJ == 0);
+    // transpose in -> out 
+    transpose_ij<TileJ, TileI><< <dimGrid, dimBlock>> >(in_arr, out_arr, EXTENT_j, EXTENT_i);
+    cudaDeviceSynchronize();
+    // // fft out -> intermed
+    cufftCheck(cufftXtExec(plan, out_arr, intermed_arr, direction));
+    // transpose intermed -> out
+    dim3 dimBlockT(dimBlock.y, dimBlock.x, dimBlock.z),
+         dimGridT(dimGrid.y, dimGrid.x, dimGrid.z);
+    transpose_ij<TileI, TileJ><< <dimGridT, dimBlockT>> >(intermed_arr, out_arr, EXTENT_i, EXTENT_j);
+    cudaDeviceSynchronize();
+  };
+  // time function (and compute fft in process)
+  double num_seconds = cutime_func([&compute_fft, &in_arr_dev, &intermed_arr_dev, &out_arr_dev, &direction]() -> void {
+    compute_fft(in_arr_dev, intermed_arr_dev, out_arr_dev, direction);
+  }, warmup, iter);
+
+  // copy data back from device
+  cudaCheck(cudaMemcpy(out_arr, out_arr_dev, ARR_SIZE, cudaMemcpyDeviceToHost));
+
+  // sanity check: inverse should match in_arr (up to scaling)
+  {
+    // malloc space for the inverse computation
+    bComplexElem *out_check_arr = zeroComplexArray({EXTENT});
+    bCuComplexElem *out_check_arr_dev;
+    size_t size = NUM_ELEMENTS * sizeof(bComplexElem);
+    cudaCheck(cudaMalloc(&out_check_arr_dev, size));
+    // perform the inverse computation
+    int inverse_direction = (direction == CUFFT_FORWARD) ? CUFFT_INVERSE : CUFFT_FORWARD;
+    compute_fft(out_arr_dev, intermed_arr_dev, out_check_arr_dev, inverse_direction);
+    cudaCheck(cudaDeviceSynchronize());
+    // copy check back to host and make sure it is correct
+    cudaCheck(cudaMemcpy(out_check_arr, out_check_arr_dev, size, cudaMemcpyDeviceToHost));
+    check_close(in_arr, out_check_arr, NUM_ELEMENTS, "cufft 1d j array transpose inverse check failed", 1.0 / EXTENT_j);
+    // free memory
+    cudaCheck(cudaFree(out_check_arr_dev));
+    free(out_check_arr);
+  }
+
+  // free memory
+  cudaCheck(cudaFree(out_arr_dev));
+  cudaCheck(cudaFree(intermed_arr_dev));
   cudaCheck(cudaFree(in_arr_dev));
 
   // return timing
@@ -265,6 +364,10 @@ int main(int argc, char **argv)
   // time cufft for arrays
   if(run_1d_j_array)
   {
+    double cufft_1d_j_array_transpose_num_seconds = complex_to_complex_1d_j_fft_array_transpose(in_arr, out_check_arr, warmup, iter);
+    std::cout << std::setw(colWidth) << "cufft_1d_j_array_transpose "
+              << std::setw(colWidth) << cufft_1d_j_array_transpose_num_seconds
+              << std::endl;
     double cufft_1d_j_array_num_seconds = complex_to_complex_1d_j_fft_array(in_arr, out_check_arr, warmup, iter);
     std::cout << std::setw(colWidth) << "cufft_1d_j_array "
               << std::setw(colWidth) << cufft_1d_j_array_num_seconds
