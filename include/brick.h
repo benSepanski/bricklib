@@ -530,6 +530,12 @@ struct Brick<Dim<BDims...>, Dim<Folds...>, isComplex, CommDims<CommInDim...> > {
   elemType *dat;                ///< Offsetted memory (BrickStorage)
   BrickStorage bStorage;
 
+  /**
+   * @brief Get the *dim*th (starting at 0) brick-dim
+   */
+  template<unsigned dim>
+  static constexpr void getBrickDim() {return Dim<BDims...>::template get<dim>();}
+
   /// Indexing operator returns: @ref _BrickAccessor
   FORCUDA
   inline _BrickAccessor<mytype, Dim<BDims...>, Dim<Folds...>,

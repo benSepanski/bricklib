@@ -9,6 +9,8 @@
  */
 #include <cassert>
 #include <cuda_runtime.h>
+#include <numeric>
+#include <vector>
 
 /**
  * @brief flatten index [k][j][i]
@@ -85,4 +87,76 @@ void transpose_ij(const elemType * __restrict__ in_mat, elemType * __restrict__ 
       out_mat[index] = tile[j][i];
     }
   }
+}
+
+namespace // anonymous namespace
+{
+  /**
+   * @brief gcd from https://www.geeksforgeeks.org/euclidean-algorithms-basic-and-extended/
+   * std::gcd not included until C++17
+   */
+  int gcd(int a, int b)
+  {
+      if (a == 0)
+          return b;
+      return gcd(b % a, a);
+  }
+
+  /**
+   * @brief transpose in-brick into out-brick
+   * 
+   * @tparam BrickType 
+   * @param[in] in_brick the brick
+   * @param[out] out_brick the brick to transpose into
+   */
+  template<typename BrickType>
+  __global__
+  void transpose_brick_ij(const BrickType &in_brick, BrickType *out_brick)
+  {
+    constexpr unsigned BDIM_j = BrickType::template getBrickDim<1>(),
+                       BDIM_i = BrickType::template getBrickDim<0>();
+    
+    for(unsigned flat_idx = threadIdx.x; flat_idx < BDIM_j * BDIM_i; flat_idx += blockDim.x)
+    {
+      unsigned i = flat_idx % BDIM_i;
+      unsigned j = (i / BDIM_i) % BDIM_j;
+      unsigned index = blockDim.x * out_brick->step + BDIM_i * j + i;
+      unsigned index_tr = index + (BDIM_j - 1) * i
+                                + (1 - BDIM_i) * j;
+      unsigned val = out_brick->dat[index];
+      out_brick->dat[index_tr] = val;
+    }
+  }
+} // end anonymous namespace
+
+/**
+ * @brief transpose i-j dimenions of grid and brick
+ * 
+ * Transpose i-j dimensions of a grid and associated brick on
+ * a CUDA device
+ * 
+ * @tparam TileJDim the j-dimension of the tiles to use when transposing the grid
+ * @tparam TileIDim the i-dimension of the tiles to use when transposing the grid
+ * @tparam BrickType type of the brick
+ * @param[in] in_grid_ptr pointer to in-grid
+ * @param[in] in_brick input brick
+ * @param[out] out_grid_ptr pointer to output grid
+ * @param[out] out_brick pointer to output brick
+ * @param[in] grid_size extent of grid in each dimension
+ */
+template<unsigned TileJDim, unsigned TileIDim, typename BrickType>
+void transpose_brick_ij_on_dev(const unsigned *in_grid_ptr, const BrickType &in_brick,
+                               unsigned *out_grid_ptr, BrickType *out_brick,
+                               const std::vector<size_t> grid_size)
+{
+  // launch transpose of grid
+  constexpr size_t BLOCK_SIZE = 256;
+  const size_t grid_x = (grid_size[0] + TileIDim - 1) / TileIDim;
+  const size_t grid_y = (grid_size[1] + TileJDim - 1) / TileJDim;
+  const size_t collapsed_dims = std::accumulate(grid_size.begin() + 2, grid_size.end(), 1);
+  size_t tilesPerBlock = gcd(BLOCK_SIZE / TileIDim / TileJDim, collapsed_dims);
+  const dim3 grid(grid_x, grid_y, collapsed_dims / tilesPerBlock),
+            block(TileIDim, TileJDim, tilesPerBlock);
+  transpose_ij<TileJDim, TileIDim><< <grid, block>> >(in_grid_ptr, out_grid_ptr, grid_size[1], grid_size[0]);
+  transpose_brick_ij<< <in_brick.bInfo->nbricks, 64>> >(in_brick, out_brick);
 }
