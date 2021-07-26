@@ -48,9 +48,13 @@ void transpose_ij(const elemType * __restrict__ in_mat, elemType * __restrict__ 
   assert(TileIDim * gridDim.x >= I);
 
   // avoid bank conflicts
-  static constexpr unsigned WARP_SIZE = 32;
-  static constexpr unsigned BANK_SHIFT = (1 - (TileJDim % WARP_SIZE) + WARP_SIZE) % WARP_SIZE;
-  __shared__ elemType tile[TileJDim][TileIDim + BANK_SHIFT];
+  static constexpr unsigned BANK_SIZE = 32;
+  static constexpr unsigned BANK_WIDTH_IN_BYTES = 32 / 4;
+  /// which bank is (tile + TileJDim)?
+  static constexpr unsigned BANK_OF_TileJDim = (TileJDim * sizeof(elemType) / BANK_WIDTH_IN_BYTES) % BANK_SIZE;
+  // shift so that bank-shift of one row is one elemnt 
+  static constexpr unsigned BANK_SHIFT = (sizeof(elemType) / BANK_WIDTH_IN_BYTES - BANK_OF_TileJDim + BANK_SIZE) % BANK_SIZE; 
+  __shared__ elemType tile[TileJDim][TileIDim + BANK_SHIFT * BANK_WIDTH_IN_BYTES / sizeof(elemType)];
   // find tile
   size_t k = blockDim.z * blockIdx.z + threadIdx.z;
   const size_t tile_j_start_idx = min(((size_t) TileJDim) * blockIdx.y, J);

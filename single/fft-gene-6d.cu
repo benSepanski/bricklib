@@ -1,6 +1,7 @@
 #include <cmath>
 #include <iostream>
 #include <iomanip>
+#include "nvToolsExt.h"
 #include "transpose-cu.h"
 #include "fft.h"
 #include "stencils/gene-6d.h"
@@ -99,6 +100,7 @@ double complex_to_complex_1d_j_fft_array(bComplexElem *in_arr, bComplexElem *out
   cudaCheck(cudaMemcpy(out_arr, out_arr_dev, ARR_SIZE, cudaMemcpyDeviceToHost));
 
   // sanity check: inverse should match in_arr (up to scaling)
+  nvtxRangePushA("inverse_fft_check");
   {
     // malloc space for the inverse computation
     bComplexElem *out_check_arr = zeroComplexArray({EXTENT});
@@ -116,6 +118,7 @@ double complex_to_complex_1d_j_fft_array(bComplexElem *in_arr, bComplexElem *out
     cudaCheck(cudaFree(out_check_arr_dev));
     free(out_check_arr);
   }
+  nvtxRangePop();
 
   // free memory
   cudaCheck(cudaFree(out_arr_dev));
@@ -196,6 +199,7 @@ double complex_to_complex_1d_j_fft_array_transpose(bComplexElem *in_arr, bComple
   cudaCheck(cudaMemcpy(out_arr, out_arr_dev, ARR_SIZE, cudaMemcpyDeviceToHost));
 
   // sanity check: inverse should match in_arr (up to scaling)
+  nvtxRangePushA("inverse_fft_check");
   {
     // malloc space for the inverse computation
     bComplexElem *out_check_arr = zeroComplexArray({EXTENT});
@@ -213,6 +217,7 @@ double complex_to_complex_1d_j_fft_array_transpose(bComplexElem *in_arr, bComple
     cudaCheck(cudaFree(out_check_arr_dev));
     free(out_check_arr);
   }
+  nvtxRangePop();
 
   // free memory
   cudaCheck(cudaFree(out_arr_dev));
@@ -286,6 +291,7 @@ double complex_to_complex_1d_j_fft_brick(bComplexElem *in_arr, bComplexElem *out
   copyFromBrick<DIM>({EXTENT}, std::vector<long>(DIM, 0), std::vector<long>(DIM, 0), out_arr, grid_ptr, bOut);
 
   // sanity check: inverse should match in_arr (up to scaling)
+  nvtxRangePushA("inverse_fft_check");
   {
     // malloc space for the inverse computation
     bComplexElem *out_check_arr = zeroComplexArray({EXTENT});
@@ -307,6 +313,7 @@ double complex_to_complex_1d_j_fft_brick(bComplexElem *in_arr, bComplexElem *out
     cudaCheck(cudaFree(out_check_arr_dev));
     free(out_check_arr);
   }
+  nvtxRangePop();
 
   // free memory
   cudaCheck(cudaFree(grid_ptr_dev));
@@ -364,22 +371,29 @@ int main(int argc, char **argv)
   // time cufft for arrays
   if(run_1d_j_array)
   {
+    nvtxRangePushA("cufft_1d_j_array_transpose");
     double cufft_1d_j_array_transpose_num_seconds = complex_to_complex_1d_j_fft_array_transpose(in_arr, out_check_arr, warmup, iter);
     std::cout << std::setw(colWidth) << "cufft_1d_j_array_transpose "
               << std::setw(colWidth) << cufft_1d_j_array_transpose_num_seconds
               << std::endl;
-    double cufft_1d_j_array_num_seconds = complex_to_complex_1d_j_fft_array(in_arr, out_check_arr, warmup, iter);
+    nvtxRangePop();
+    nvtxRangePushA("cufft_1d_j_array");
+    double cufft_1d_j_array_num_seconds = complex_to_complex_1d_j_fft_array(in_arr, out_arr, warmup, iter);
     std::cout << std::setw(colWidth) << "cufft_1d_j_array "
               << std::setw(colWidth) << cufft_1d_j_array_num_seconds
               << std::endl;
+    nvtxRangePop();
+    check_close(out_check_arr, out_arr, NUM_ELEMENTS, "Mismatch between cufft_1d_j_array and cufft_1d_j_array_transpose");
   }
   // time cufft for bricks
   if(run_1d_j_brick)
   {
+    nvtxRangePushA("cufft_1d_j_array");
     double cufft_1d_j_brick_num_seconds = complex_to_complex_1d_j_fft_brick(in_arr, out_arr, warmup, iter);
     std::cout << std::setw(colWidth) << "cufft_1d_j_brick "
               << std::setw(colWidth) << cufft_1d_j_brick_num_seconds
               << std::endl;
+    nvtxRangePop();
     // run correctness check
     if(run_1d_j_array)
     {

@@ -94,9 +94,9 @@ if(BRICKS_ENABLE_FFT)
     if(BRICKS_BUILD_GTENSOR_BENCHMARKS)
         add_executable(single-fft-gene-6d fft-gene-6d.cu)
         if(${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.17")
-            target_link_libraries(single-fft-gene-6d brickhelper CUDA::cufft_static CUDA::culibos gtensor::gtensor)
+            target_link_libraries(single-fft-gene-6d brickhelper CUDA::cufft_static CUDA::culibos CUDA::nvToolsExt gtensor::gtensor)
         else()
-            target_link_libraries(single-fft-gene-6d brickhelper cufft_static culibos gtensor::gtensor)
+            target_link_libraries(single-fft-gene-6d brickhelper cufft_static culibos gtensor::gtensor nvToolsExt)
         endif()
         target_include_directories(single-fft-gene-6d PUBLIC
                 "${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES}"
