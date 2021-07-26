@@ -194,13 +194,13 @@ struct alignas(sizeof(bElem[2])) bComplexElem
 
     // comparison
     FORCUDA inline
-    bool operator==(const bComplexElem &that)
+    bool operator==(const bComplexElem &that) const
     {
         return this->real() == that.real()  && this->imag() == that.imag();
     }
 
     FORCUDA inline
-    bool operator!=(const bComplexElem &that)
+    bool operator!=(const bComplexElem &that) const
     {
         return !(*this == that);
     }
