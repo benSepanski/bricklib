@@ -11,6 +11,7 @@
 #include <cuda_runtime.h>
 #include <numeric>
 #include <vector>
+#include "brick.h"
 
 /**
  * @brief flatten index [k][j][i]
@@ -116,6 +117,7 @@ namespace // anonymous namespace
     constexpr unsigned BDIM_j = BrickType::template getBrickDim<1>(),
                        BDIM_i = BrickType::template getBrickDim<0>();
     
+    // transpose data
     for(unsigned flat_idx = threadIdx.x; flat_idx < BDIM_j * BDIM_i; flat_idx += blockDim.x)
     {
       unsigned i = flat_idx % BDIM_i;
@@ -125,6 +127,17 @@ namespace // anonymous namespace
                                 + (1 - BDIM_i) * j;
       unsigned val = out_brick->dat[index];
       out_brick->dat[index_tr] = val;
+    }
+    // transpose adjacency list
+    if(BrickType::myBrickInfo::adjListIncludesDim(0) && BrickType::myBrickInfo::adjListIncludesDim(1))
+    {
+      for(unsigned i = threadIdx.x; i < static_power<3, BrickType::myBrickInfo::numDimsWithRecordedNeighbors>::value; i += blockDim.x)
+      {
+        unsigned first_digit = i % 3;
+        unsigned second_digit = (i / 3) % 3;
+        unsigned transposed_i = i + 2 * first_digit - 2 * second_digit;
+        out_brick->bInfo->adj[transposed_i] = in_brick.bInfo->adj[i];
+      }
     }
   }
 } // end anonymous namespace
