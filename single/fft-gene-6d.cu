@@ -364,7 +364,7 @@ int main(int argc, char **argv)
                *out_check_arr = zeroComplexArray({EXTENT});
   
   // print table
-  int colWidth = 20;
+  int colWidth = 30;
   std::cout << std::setw(colWidth) << "method"
             << std::setw(colWidth) << "time(s)" 
             << std::endl;
@@ -388,6 +388,8 @@ int main(int argc, char **argv)
   // time cufft for bricks
   if(run_1d_j_brick)
   {
+    #pragma omp parallal
+    for(unsigned i = 0; i < NUM_ELEMENTS; ++i) out_arr[i] = 0.0;
     nvtxRangePushA("cufft_1d_j_array");
     double cufft_1d_j_brick_num_seconds = complex_to_complex_1d_j_fft_brick(in_arr, out_arr, warmup, iter);
     std::cout << std::setw(colWidth) << "cufft_1d_j_brick "
