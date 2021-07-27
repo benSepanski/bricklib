@@ -535,7 +535,8 @@ struct Brick<Dim<BDims...>, Dim<Folds...>, isComplex, CommDims<CommInDim...> > {
   typedef typename std::conditional<isComplex, std::complex<bElem>, bElem>::type stdElemType; ///< STL-compatible type of elements
 
   static constexpr unsigned VECLEN = cal_size<Folds...>::value;     ///< Vector length shorthand
-  static constexpr unsigned BRICKSIZE = cal_size<BDims...>::value * (isComplex ? 2 : 1);  ///< Brick size shorthand
+  static constexpr unsigned BRICKLEN = cal_size<BDims...>::value;     ///< number of elements in brick
+  static constexpr unsigned BRICKSIZE = BRICKLEN * (isComplex ? 2 : 1);  ///< Brick size shorthand
   static constexpr bool complex = isComplex;  ///< True iff the elements of this brick are complex
 
   myBrickInfo *bInfo;        ///< Pointer to (possibly shared) metadata
@@ -547,7 +548,13 @@ struct Brick<Dim<BDims...>, Dim<Folds...>, isComplex, CommDims<CommInDim...> > {
    * @brief Get the *dim*th (starting at 0) brick-dim
    */
   template<unsigned dim>
-  static constexpr void getBrickDim() {return Dim<BDims...>::template get<dim>();}
+  static constexpr unsigned getBrickDim() {return Dim<BDims...>::template get<dim>();}
+
+  /**
+   * @brief Get the *dim*th (starting at 0) fold
+   */
+  template<unsigned dim>
+  static constexpr unsigned getVectorFold() {return Dim<Folds...>::template getOrDefault<dim>(1);}
 
   /// Indexing operator returns: @ref _BrickAccessor
   FORCUDA
