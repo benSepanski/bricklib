@@ -367,12 +367,19 @@ void _cufftCheck(T e, const char *func, const char *call, const int line) {
 
 // Need a __device__ global to read callbacks from symbol memory
 // https://docs.nvidia.com/cuda/cufft/index.html#callback-creation
-template<typename BricksCufftPlanType>
-__device__ typename BricksCufftPlanType::myCufftCallbackLoadType globalBricksCufftLoadCallBack = BricksCufftPlanType::bricksLoadCallback;
+template<typename BricksCufftPlanType, bool fourierBrickDimsFillGridDims>
+__device__ typename BricksCufftPlanType::myCufftCallbackLoadType 
+globalBricksCufftLoadCallBack = BricksCufftPlanType::template bricksLoadCallback<fourierBrickDimsFillGridDims>;
 // Need a __device__ global to read callbacks from symbol memory
 // https://docs.nvidia.com/cuda/cufft/index.html#callback-creation
-template<typename BricksCufftPlanType>
-__device__ typename BricksCufftPlanType::myCufftCallbackStoreType globalBricksCufftStoreCallBack = BricksCufftPlanType::bricksStoreCallback;
+template<typename BricksCufftPlanType, bool fourierBrickDimsFillGridDims>
+__device__ typename BricksCufftPlanType::myCufftCallbackStoreType
+globalBricksCufftStoreCallBack = BricksCufftPlanType::template bricksStoreCallback<fourierBrickDimsFillGridDims>;
+// __constant__ memory for cufft-info
+template<typename BricksCufftInfo>
+__device__ __constant__ BricksCufftInfo globalInBricksCufftInfo_dev_const;
+template<typename BricksCufftInfo>
+__device__ __constant__ BricksCufftInfo globalOutBricksCufftInfo_dev_const;
 
 /**
  * @brief Interface from bricks into cfftu
@@ -385,6 +392,10 @@ __device__ typename BricksCufftPlanType::myCufftCallbackStoreType globalBricksCu
 template<typename BrickType, typename FFTDims> class BricksCufftPlan;
 
 /**
+ * ONLY ONE OF THESE CAN EXIST AT A TIME DUE TO USE OF CONSTANT MEMORY
+ * 
+ * TODO: Allow people to pass in pointers to constant memory
+ * 
  * @tparam FFTDims the dimensions to take a fourier transfor over (must be at least 1, at most 3)
  * @tparam isComplex is ignored
  * @see BricksCufftPlan
@@ -459,6 +470,21 @@ class BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
                                       typename std::conditional<outIsReal, cufftCallbackStoreR, cufftCallbackStoreC>::type
                                       >::type myCufftCallbackStoreType;
 
+    /// pointers needed by callbacks, stored in constant memory
+    template<typename elemType>
+    struct BricksCufftInfo
+    {
+      size_t batchSize; ///< size of each batch
+      size_t nonFourierGridExtent[sizeof...(BDims) - FFTRank];
+      size_t nonFourierGridStride[sizeof...(BDims) - FFTRank];
+      size_t fourierGridExtent[FFTRank];
+      size_t fourierGridStride[FFTRank];
+      size_t brick_step; ///< step-size of brick
+      const unsigned *grid_ptr; ///< pointer to brick-grid on device
+      elemType *dat; ///< pointer to brick data
+    };
+
+
     /**
      * @brief Construct a new Bricks CufftPlan object
      * 
@@ -496,19 +522,22 @@ class BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
                                myCufftType, numBatches));
       
       //// build host-side BricksCufftInfo
-      myCufftInfo.batchSize = batchSize;
-      myCufftInfo.in_grid_ptr = nullptr;
-      myCufftInfo.out_grid_ptr = nullptr;
-      myCufftInfo.in_dat = nullptr;
-      myCufftInfo.out_dat = nullptr;
+      myInCufftInfo.batchSize = batchSize;
+      myOutCufftInfo.batchSize = batchSize;
+      myInCufftInfo.grid_ptr = nullptr;
+      myOutCufftInfo.grid_ptr = nullptr;
+      myInCufftInfo.dat = nullptr;
+      myOutCufftInfo.dat = nullptr;
       // store grid extents (separated by non-fourier/fourier dims)
       for(unsigned i = 0; i < sizeof...(BDims) - FFTRank; ++i)
       {
-        myCufftInfo.nonFourierGridExtent[i] = grid_size[nonFourierDims[i]];
+        myInCufftInfo.nonFourierGridExtent[i] = grid_size[nonFourierDims[i]];
+        myOutCufftInfo.nonFourierGridExtent[i] = grid_size[nonFourierDims[i]];
       }
       for(unsigned i = 0; i < FFTRank; ++i)
       {
-        myCufftInfo.fourierGridExtent[i] = grid_size[fourierDims[i]];
+        myInCufftInfo.fourierGridExtent[i] = grid_size[fourierDims[i]];
+        myOutCufftInfo.fourierGridExtent[i] = grid_size[fourierDims[i]];
       }
       // store grid strides (separated by non-fourier/fourier dims)
       size_t stride = 1;
@@ -516,16 +545,26 @@ class BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
       {
         if(nonFourierDimIdx < sizeof...(BDims) - FFTRank && nonFourierDims[nonFourierDimIdx] == dim)
         {
-          myCufftInfo.nonFourierGridStride[nonFourierDimIdx++] = stride;
+          myInCufftInfo.nonFourierGridStride[nonFourierDimIdx] = stride;
+          myOutCufftInfo.nonFourierGridStride[nonFourierDimIdx++] = stride;
         }
         else
         {
-          myCufftInfo.fourierGridStride[fourierDimIdx++] = stride;
+          myInCufftInfo.fourierGridStride[fourierDimIdx] = stride;
+          myOutCufftInfo.fourierGridStride[fourierDimIdx++] = stride;
         }
         stride *= grid_size[dim];
       }
-      /// allocate memory for device-side cufftInfo
-      cudaCheck(cudaMalloc(&myCufftInfo_dev, sizeof(BricksCufftInfo)));
+      // make sure fft dimensions can be factored into primes that allow __syncthreads()
+      // https://docs.nvidia.com/cuda/cufft/index.html#callback-coding
+      std::array<int, 4> allowed_factors = {2, 3, 5, 7};
+      for(auto fDim : fourierBrickDims) {
+        for(auto factor : allowed_factors) {
+          if(factor <= 1) continue;
+          while(fDim > 1 && fDim % factor == 0) fDim /= factor;
+        }
+        if(fDim != 1) throw std::runtime_error("Each Fourier dimension must not have prime factors greater than 7");
+      }
     }
 
     /**
@@ -535,7 +574,6 @@ class BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
     ~BricksCufftPlan()
     {
       cufftCheck(cufftDestroy(plan));
-      cudaCheck(cudaFree(myCufftInfo_dev));
     }
 
     /**
@@ -556,31 +594,60 @@ class BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
       validateIsDevicePointer(outBrick_dev.dat);
 
       // set up host-side myCufftInfo
-      myCufftInfo.in_grid_ptr = in_grid_ptr_dev;
-      myCufftInfo.in_dat = inBrick_dev.dat;
-      myCufftInfo.in_brick_step = inBrick_dev.step;
-      myCufftInfo.out_grid_ptr = out_grid_ptr_dev;
-      myCufftInfo.out_dat = outBrick_dev.dat;
-      myCufftInfo.out_brick_step = outBrick_dev.step;
+      myInCufftInfo.grid_ptr = in_grid_ptr_dev;
+      myInCufftInfo.dat = inBrick_dev.dat;
+      myInCufftInfo.brick_step = inBrick_dev.step;
+      myOutCufftInfo.grid_ptr = out_grid_ptr_dev;
+      myOutCufftInfo.dat = outBrick_dev.dat;
+      myOutCufftInfo.brick_step = outBrick_dev.step;
 
       // copy myCufftInfo to device
-      cudaCheck(cudaMemcpy(myCufftInfo_dev, &myCufftInfo, sizeof(BricksCufftInfo), cudaMemcpyHostToDevice));
+      cudaCheck(cudaMemcpyToSymbol(globalInBricksCufftInfo_dev_const<BricksCufftInfo<const inElemType> >,
+                                   &myInCufftInfo,
+                                   sizeof(BricksCufftInfo<const inElemType>)
+                                   ));
+      cudaCheck(cudaMemcpyToSymbol(globalOutBricksCufftInfo_dev_const<BricksCufftInfo<outElemType> >,
+                                   &myOutCufftInfo,
+                                   sizeof(BricksCufftInfo<outElemType>)
+                                   ));
 
       // setup load and store callback
       myCufftCallbackLoadType loadCallbackPtr;
       myCufftCallbackStoreType storeCallbackPtr;
+      // if the brick-dim in the FFT-dimensions fills the grid, use a specialized
+      // callback to just traverse the BrickStorage contiguously and avoid having
+      // to use the grid-pointer
+      bool fourier_brick_dims_fill_grid_dims = true;
+      for(unsigned i = 0; i < FFTRank ; ++i)
+      {
+        // if grid-dimension is 1, then the brick fills that dimension
+        fourier_brick_dims_fill_grid_dims &= (myInCufftInfo.fourierGridExtent[i] == 1);
+      }
       // get address of function
-      cudaCheck(cudaMemcpyFromSymbol(
-                              &loadCallbackPtr, 
-                              globalBricksCufftLoadCallBack<myType>,
-                              sizeof(loadCallbackPtr)));
-      cudaCheck(cudaMemcpyFromSymbol(
-                              &storeCallbackPtr, 
-                              globalBricksCufftStoreCallBack<myType>,
-                              sizeof(storeCallbackPtr)));
-      // set the callbacks
-      cufftCheck(cufftXtSetCallback(plan, (void **)&loadCallbackPtr,  myCufft_CB_LD, (void **) &myCufftInfo_dev));
-      cufftCheck(cufftXtSetCallback(plan, (void **)&storeCallbackPtr, myCufft_CB_ST, (void **) &myCufftInfo_dev));
+      if(fourier_brick_dims_fill_grid_dims)
+      {
+        cudaCheck(cudaMemcpyFromSymbol(
+                                &loadCallbackPtr, 
+                                globalBricksCufftLoadCallBack<myType, true>,
+                                sizeof(loadCallbackPtr)));
+        cudaCheck(cudaMemcpyFromSymbol(
+                                &storeCallbackPtr, 
+                                globalBricksCufftStoreCallBack<myType, true>,
+                                sizeof(storeCallbackPtr)));
+      }
+      else
+      {
+        cudaCheck(cudaMemcpyFromSymbol(
+                                &loadCallbackPtr, 
+                                globalBricksCufftLoadCallBack<myType, false>,
+                                sizeof(loadCallbackPtr)));
+        cudaCheck(cudaMemcpyFromSymbol(
+                                &storeCallbackPtr, 
+                                globalBricksCufftStoreCallBack<myType, false>,
+                                sizeof(storeCallbackPtr)));
+      }
+      cufftCheck(cufftXtSetCallback(plan, (void **)&loadCallbackPtr,  myCufft_CB_LD, 0));
+      cufftCheck(cufftXtSetCallback(plan, (void **)&storeCallbackPtr, myCufft_CB_ST, 0));
     }
 
     /**
@@ -590,8 +657,8 @@ class BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
     void launch(bool inverse = BRICKS_FFT_FORWARD)
     {
       // make sure we've setup
-      if(myCufftInfo.in_dat == nullptr || myCufftInfo.in_grid_ptr == nullptr
-         || myCufftInfo.out_dat == nullptr || myCufftInfo.out_grid_ptr == nullptr)
+      if(myInCufftInfo.dat == nullptr || myInCufftInfo.grid_ptr == nullptr
+         || myOutCufftInfo.dat == nullptr || myOutCufftInfo.grid_ptr == nullptr)
       {
         throw std::runtime_error("Must call setup before calling launch()");
       }
@@ -601,45 +668,45 @@ class BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
         throw std::runtime_error("Invalid FourierDataType");
       }
       // start execution
-      cufftCheck(cufftXtExec(plan, (void *) myCufftInfo.in_dat, (void *) myCufftInfo.out_dat,
+      cufftCheck(cufftXtExec(plan, (void *) myInCufftInfo.dat, (void *) myOutCufftInfo.dat,
                              inverse == BRICKS_FFT_FORWARD ? CUFFT_FORWARD : CUFFT_INVERSE));
     }
 
     /**
      * @brief callback into bricks from cufft for loads
+     * @tparam fourierBrickDimsFillGridDims true if the fourier brick-dims fill the grid dimensions
      * https://docs.nvidia.com/cuda/cufft/index.html#callback-routines
      */
-    static __device__
+    template<bool fourierBrickDimsFillGridDims>
+    static __device__ __forceinline__
     inCuElemType bricksLoadCallback(void *dataIn,
                                     size_t offset,
                                     void *callerInfo,
                                     void *sharedPtr)
     {
-      BricksCufftInfo *cufftInfo = (BricksCufftInfo *) callerInfo;
-      const unsigned *in_grid_ptr = cufftInfo->in_grid_ptr;
-      size_t in_brick_step = cufftInfo->in_brick_step;
-      unsigned index = getIndex(in_grid_ptr, in_brick_step, offset, cufftInfo);
-      const inElemType *in_dat = cufftInfo->in_dat;
+      BricksCufftInfo<const inElemType> *cufftInfo = &globalInBricksCufftInfo_dev_const<BricksCufftInfo<const inElemType> >;
+      size_t index = getIndex<fourierBrickDimsFillGridDims>(offset, cufftInfo);
+      const inElemType *in_dat = cufftInfo->dat;
       inElemType element = in_dat[index];
       return (inCuElemType) element;
     }
 
     /**
      * @brief callback into bricks from cufft for stores
+     * @tparam fourierBrickDimsFillGridDims true if the fourier brick-dims equal the grid dimensions
      * https://docs.nvidia.com/cuda/cufft/index.html#callback-routines
      */
-    static __device__
+    template<bool fourierBrickDimsFillGridDims>
+    static __device__ __forceinline__
     void bricksStoreCallback(void *dataOut,
                              size_t offset,
                              outCuElemType element,
                              void *callerInfo,
                              void *sharedPtr)
     {
-      BricksCufftInfo *cufftInfo = (BricksCufftInfo *) callerInfo;
-      const unsigned *out_grid_ptr = cufftInfo->out_grid_ptr;
-      size_t out_brick_step = cufftInfo->out_brick_step;
-      unsigned index = getIndex(out_grid_ptr, out_brick_step, offset, cufftInfo);
-      outElemType *out_dat = cufftInfo->out_dat;
+      BricksCufftInfo<outElemType> *cufftInfo = &globalOutBricksCufftInfo_dev_const<BricksCufftInfo<outElemType> >;
+      size_t index = getIndex<fourierBrickDimsFillGridDims>(offset, cufftInfo);
+      outElemType *out_dat = cufftInfo->dat;
       out_dat[index] = element;
     }
 
@@ -657,46 +724,34 @@ class BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
     static_assert(outIsReal * 2 + outDoublePrecision < 4);
     static constexpr cufftXtCallbackType myCufft_CB_ST = cufftXtCallbackTypeTable[((outIsReal) * 2 + outDoublePrecision) + 4];
 
-    /// pointers passed to callbacks
-    struct BricksCufftInfo
-    {
-      size_t batchSize; ///< size of each batch
-      size_t nonFourierGridExtent[sizeof...(BDims) - FFTRank];
-      size_t nonFourierGridStride[sizeof...(BDims) - FFTRank];
-      size_t fourierGridExtent[FFTRank];
-      size_t fourierGridStride[FFTRank];
-      size_t in_brick_step; ///< step-size of in-brick
-      size_t out_brick_step; ///< step-size of out-brick
-      const unsigned *in_grid_ptr; ///< pointer to in-brick-grid on device
-      const unsigned *out_grid_ptr; ///< pointer to out-brick-grid on device
-      const inElemType *in_dat; ///< pointer to input brick data
-      outElemType *out_dat; ///< pointer to output brick data
-    };
-
+    /// the in/out cufft infos
+    BricksCufftInfo<const inElemType> myInCufftInfo;
+    BricksCufftInfo<outElemType> myOutCufftInfo;
     /// cuda plan for FFT execution
     cufftHandle plan;
-    // info needed for callbacks
-    BricksCufftInfo myCufftInfo, *myCufftInfo_dev;
 
     /**
      * @brief Base case for zipping non-fourier and fourier flattened indexes
      * @see zipFlatIndices
      */
     template<unsigned dim, unsigned nonFourierDimIdx, unsigned fourierDimIdx>
-    __device__ static
-    typename std::enable_if<sizeof...(BDims) <= dim>::type
-    zipFlatIndices(unsigned flatNonFourierIndex, unsigned flatFourierIndex, unsigned *indexOfVec, unsigned *indexInVec) {}
+    static __device__ __forceinline__
+    typename std::enable_if<sizeof...(BDims) <= dim, size_t>::type
+    zipFlatIndices(unsigned flatNonFourierIndex, unsigned flatFourierIndex, const size_t base) 
+    {
+      return base;
+    }
 
     /**
      * @brief compute index of vector and index in vector inside the brick
      * @see zipFlatIndices
      */
     template<unsigned dim, unsigned nonFourierDimIdx, unsigned fourierDimIdx>
-    __device__ static
+    static __device__ __forceinline__
     typename std::enable_if<dim < sizeof...(BDims)
                             && nonFourierDimIdx < sizeof...(BDims) - FFTRank
-                            && dim == nonFourierDims[nonFourierDimIdx]>::type
-    zipFlatIndices(unsigned flatNonFourierIndex, unsigned flatFourierIndex, unsigned *indexOfVec, unsigned *indexInVec)
+                            && dim == nonFourierDims[nonFourierDimIdx], size_t>::type
+    zipFlatIndices(unsigned flatNonFourierIndex, unsigned flatFourierIndex, size_t base)
     {
       constexpr unsigned BRICK_DIM = Dim<BDims...>::template get<dim>();
       constexpr unsigned BRICK_STRIDE = Dim<BDims...>::template product<dim>();
@@ -704,32 +759,33 @@ class BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
       constexpr unsigned VFOLD = Dim<Fold...>::template get<fold_index>();
       constexpr unsigned STRIDE_IN_VEC = Dim<Fold...>::template product<fold_index>();
       // get index in dim and update indexIn/OfVec based on out vector folds
-      unsigned indexInDim = flatNonFourierIndex % BRICK_DIM;
-      *indexOfVec += (indexInDim / VFOLD) * (BRICK_STRIDE / STRIDE_IN_VEC);
-      *indexInVec += (indexInDim % VFOLD) * STRIDE_IN_VEC;
+      base += (flatNonFourierIndex % VFOLD) * STRIDE_IN_VEC;
+      flatNonFourierIndex /= VFOLD;
+      base += (flatNonFourierIndex % (BRICK_DIM / VFOLD)) * (BRICK_STRIDE / STRIDE_IN_VEC);
+      flatNonFourierIndex /= (BRICK_DIM / VFOLD);
       // recurse to get indexOfVec and indexInVec
-      zipFlatIndices<dim+1, nonFourierDimIdx+1, fourierDimIdx>(flatNonFourierIndex / BRICK_DIM, flatFourierIndex, indexOfVec, indexInVec);
+      return zipFlatIndices<dim+1, nonFourierDimIdx+1, fourierDimIdx>(flatNonFourierIndex, flatFourierIndex, base);
     }
 
     /**
-     * @brief zip the flat indexes (represented as index of vec and index in vec)
+     * @brief zip the flat indexes (represented as index of vec and index in vec) and add to base
      * 
      * case where current dim is a fourier dimension
      * 
      * @tparam dim current dimension
      * @tparam nonFourierDimIdx current index into non-fourier dimensions
      * @tparam fourierDimIdx current index into fourier dimensions
-     * @param[in] flatNonFourierIndex flattened index into remaining non-fourier dimensions
-     * @param[in] flatFourierIndex flattened index into remaining fourier dimensions
-     * @param[out] indexOfVec index of vec (should start at 0)
-     * @param[out] indexInVec index in vec (should start at 0)
+     * @param flatNonFourierIndex flattened index into remaining non-fourier dimensions
+     * @param flatFourierIndex flattened index into remaining fourier dimensions
+     * @param base the base value to add the index to
+     * @return base + the index into the brick
      */
     template<unsigned dim, unsigned nonFourierDimIdx, unsigned fourierDimIdx>
-    __device__ static
+    static __device__ __forceinline__
     typename std::enable_if<dim < sizeof...(BDims)
                             && fourierDimIdx < FFTRank
-                            && dim == fourierDims[fourierDimIdx]>::type
-    zipFlatIndices(unsigned flatNonFourierIndex, unsigned flatFourierIndex, unsigned *indexOfVec, unsigned *indexInVec)
+                            && dim == fourierDims[fourierDimIdx], size_t>::type
+    zipFlatIndices(unsigned flatNonFourierIndex, unsigned flatFourierIndex, size_t base)
     {
       constexpr unsigned BRICK_DIM = Dim<BDims...>::template get<dim>();
       constexpr unsigned BRICK_STRIDE = Dim<BDims...>::template product<dim>();
@@ -737,25 +793,73 @@ class BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
       constexpr unsigned VFOLD = Dim<Fold...>::template get<fold_index>();
       constexpr unsigned STRIDE_IN_VEC = Dim<Fold...>::template product<fold_index>();
       // get index in dim and update indexIn/OfVec based on out vector folds
-      unsigned indexInDim = flatFourierIndex % BRICK_DIM;
-      *indexOfVec += (indexInDim / VFOLD) * (BRICK_STRIDE / STRIDE_IN_VEC);
-      *indexInVec += (indexInDim % VFOLD) * STRIDE_IN_VEC;
+      base += (flatFourierIndex % VFOLD) * STRIDE_IN_VEC;
+      flatFourierIndex /= VFOLD;
+      base += (flatFourierIndex % (BRICK_DIM / VFOLD)) * (BRICK_STRIDE / STRIDE_IN_VEC);
+      flatFourierIndex /= (BRICK_DIM / VFOLD);
       // recurse to get indexOfVec and indexInVec
-      zipFlatIndices<dim+1, nonFourierDimIdx, fourierDimIdx+1>(flatNonFourierIndex, flatFourierIndex / BRICK_DIM, indexOfVec, indexInVec);
+      return zipFlatIndices<dim+1, nonFourierDimIdx, fourierDimIdx+1>(flatNonFourierIndex, flatFourierIndex, base);
+    }
+
+    /**
+     * @brief Get the Index Of the brick object
+     * 
+     * Case where fourier brick dimenions equal fourier grid dimensions
+     * @see getIndexOfBrick
+     */
+    template<bool fftBrickDimsFillGridDims, typename elemType>
+    static __device__ __forceinline__
+    typename std::enable_if<fftBrickDimsFillGridDims, size_t>::type
+    getIndexOfBrick(int batchIndex, int fourierIndex, const BricksCufftInfo<elemType> * cufftInfo) 
+    {
+      return batchIndex;
+    }
+
+    /**
+     * @brief Get the Index Of the brick object
+     * 
+     * Case where fourier brick dimensions are not equal fourier grid dimensions
+     * 
+     * @tparam fftBrickDimsFillGridDims true if each fourier brick dimension fills the grid-dimension
+     * @param batchIndex index of the batch into the grid
+     * @param fourierIndex index of the fourier transform into the grid
+     * @param cufftInfo bricks cufft info
+     * @return index of the brick
+     */
+    template<bool fftBrickDimsFillGridDims, typename elemType>
+    static __device__ __forceinline__
+    typename std::enable_if<!fftBrickDimsFillGridDims, size_t>::type
+    getIndexOfBrick(int batchIndex, int fourierIndex, const BricksCufftInfo<elemType> * cufftInfo) 
+    {
+      // get index into grid
+      unsigned gridIndex = 0;
+      for(unsigned idx = 0; idx < sizeof...(BDims) - FFTRank; ++idx)
+      {
+        gridIndex += (batchIndex % cufftInfo->nonFourierGridExtent[idx]) * cufftInfo->nonFourierGridStride[idx];
+        batchIndex /= (cufftInfo->nonFourierGridExtent[idx]);
+      }
+      for(unsigned idx = 0; idx < FFTRank; ++idx)
+      {
+        gridIndex += (fourierIndex % cufftInfo->fourierGridExtent[idx]) * cufftInfo->fourierGridStride[idx];
+        fourierIndex /= (cufftInfo->fourierGridExtent[idx]);
+      }
+      // return index of brick
+      const unsigned * grid_ptr = cufftInfo->grid_ptr;
+      return grid_ptr[gridIndex];
     }
 
     /**
      * @brief Get index into brick array
      * 
-     * @param grid_ptr pointer to the grid of bricks
-     * @param step the step-size inside the array of brick
+     * @tparam fftBricksDimsFillGridDims true if fourier brick-dims equal grid-dims
      * @param offset lofical offset in the batches of FFTs received from a cufft callback
      * @param cufftInfo pointer to the BricksCufftInfo object
      * @see BricksCufftInfo
      * @return pointer to the element
      */
-    static __device__ 
-    size_t getIndex(const unsigned *grid_ptr, size_t step, size_t offset, const BricksCufftInfo *cufftInfo)
+    template<bool fftBrickDimsFillGridDims, typename elemType>
+    static __device__  __forceinline__
+    size_t getIndex(size_t offset, const BricksCufftInfo<elemType> *cufftInfo)
     {
       // Figure out flat indices (separated by fourier and non-fourier dimensions)
       int batchIndex = offset / cufftInfo->batchSize;
@@ -766,25 +870,10 @@ class BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
       int fourierIndexInGrid = fourierIndex / FOURIER_BRICK_SIZE;
       int fourierIndexInBrick = fourierIndex % FOURIER_BRICK_SIZE;
 
-      // get index into grid
-      unsigned gridIndex = 0;
-      for(unsigned idx = 0; idx < sizeof...(BDims) - FFTRank; ++idx)
-      {
-        gridIndex += (batchIndexInGrid % cufftInfo->nonFourierGridExtent[idx]) * cufftInfo->nonFourierGridStride[idx];
-        batchIndexInGrid /= (cufftInfo->nonFourierGridExtent[idx]);
-      }
-      for(unsigned idx = 0; idx < FFTRank; ++idx)
-      {
-        gridIndex += (fourierIndexInGrid % cufftInfo->fourierGridExtent[idx]) * cufftInfo->fourierGridStride[idx];
-        fourierIndexInGrid /= (cufftInfo->fourierGridExtent[idx]);
-      }
+      // get brick index
+      unsigned indexOfBrick = getIndexOfBrick<fftBrickDimsFillGridDims>(batchIndexInGrid, fourierIndexInGrid, cufftInfo);
 
-      // return full index
-      unsigned indexOfBrick = grid_ptr[gridIndex];
-      unsigned indexOfVec = 0, indexInVec = 0;
-      zipFlatIndices<0,0,0>(batchIndexInBrick, fourierIndexInBrick, &indexOfVec, &indexInVec);
-      unsigned indexInBrick = indexOfVec * Dim<Fold...>::template product<sizeof...(Fold)>() + indexInVec;
-      return indexOfBrick * step + indexInBrick;
+      return zipFlatIndices<0,0,0>(batchIndexInBrick, fourierIndexInBrick, indexOfBrick * cufftInfo->brick_step);
     }
 };
 
