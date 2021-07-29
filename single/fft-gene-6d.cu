@@ -537,7 +537,6 @@ double complex_to_complex_1d_collaped_ij_fft_brick(bComplexElem *in_arr, bComple
   auto compute_fft = [&plan] (bool direction = FFTPlanType::BRICKS_FFT_FORWARD) -> void { plan.launch(direction); };
   // time function (and compute fft in process)
   double num_seconds = cutime_func(compute_fft, warmup, iter);
-  std::cout << "NUM MILLISECONDS = " << num_seconds * 1000 << std::endl;
 
   // copy data back from device
   cudaCheck(cudaMemcpy(bOutStorage.dat.get(), bOutStorage_dev.dat.get(), bInfo.nbricks * bOutStorage.step * sizeof(bElem),

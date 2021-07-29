@@ -111,11 +111,17 @@ void transpose_ij(const elemType * __restrict__ in_mat, elemType * __restrict__ 
  * @tparam BrickType type of in brick
  * @tparam BrickTypeTransposed type of out brick
  * @param[in] in_brick to the brick
+ * @param[in] in_grid_ptr grid-pointer for in-brick
  * @param[out] out_brick to the brick to transpose into
+ * @param[in] out_grid_ptr grid-pointer for out-brick
+ * @param grid_extent_j j-extent of in_grid_ptr
+ * @param grid_extent_i i-extent of in_grid_ptr
  */
 template<typename BrickType, typename BrickTypeTransposed>
 __global__
-void transpose_brick_ij(const BrickType in_brick, BrickTypeTransposed out_brick)
+void transpose_brick_ij(const BrickType in_brick, const unsigned *in_grid_ptr,
+                        BrickTypeTransposed out_brick, const unsigned *out_grid_ptr,
+                        unsigned grid_extent_j, unsigned grid_extent_i)
 {
   constexpr unsigned BDIM_j = BrickType::template getBrickDim<1>(),
                      BDIM_i = BrickType::template getBrickDim<0>(),
@@ -124,8 +130,13 @@ void transpose_brick_ij(const BrickType in_brick, BrickTypeTransposed out_brick)
   static_assert(BDIM_i == BrickTypeTransposed::template getBrickDim<1>());
   static_assert(BDIM_j == BrickTypeTransposed::template getBrickDim<0>());
   // grid-strided loop over bricks
-  for(unsigned brick_idx = blockIdx.x ; brick_idx < in_brick.bInfo->nbricks; brick_idx += gridDim.x)
+  for(unsigned grid_idx = blockIdx.x ; grid_idx < in_brick.bInfo->nbricks; grid_idx += gridDim.x)
   {
+    unsigned brick_idx = in_grid_ptr[grid_idx];
+    unsigned i = grid_idx % grid_extent_i;
+    unsigned j = (grid_idx / grid_extent_i) % grid_extent_j;
+    unsigned grid_idx_tr = grid_idx + (grid_extent_j - 1) * i + (1 - grid_extent_i) * j;
+    unsigned brick_idx_tr = out_grid_ptr[grid_idx_tr];
     // transpose data
     for(unsigned flat_idx = threadIdx.x; flat_idx < BrickType::BRICKLEN; flat_idx += blockDim.x)
     {
@@ -144,7 +155,7 @@ void transpose_brick_ij(const BrickType in_brick, BrickTypeTransposed out_brick)
       unsigned new_in_brick_idx = new_of_vec_idx * BrickType::VECLEN + new_in_vec_idx;
 
       unsigned index = flat_idx + in_brick.step * brick_idx;
-      unsigned index_tr = new_in_brick_idx + out_brick.step * brick_idx;
+      unsigned index_tr = new_in_brick_idx + out_brick.step * brick_idx_tr;
       assert(index < in_brick.bInfo->nbricks * in_brick.step);
       assert(index_tr < out_brick.bInfo->nbricks * out_brick.step);
       typename BrickType::elemType val = in_brick.dat[index];
