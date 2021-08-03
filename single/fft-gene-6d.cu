@@ -70,7 +70,7 @@ double complex_to_complex_1d_j_fft_array(bComplexElem *in_arr, bComplexElem *out
   int numBatches = NUM_ELEMENTS / distBetweenBatches;
   static_assert(std::is_same<bElem, float>::value || std::is_same<bElem, double>::value);
   cufftType type = std::is_same<bElem, float>::value ? CUFFT_C2C : CUFFT_Z2Z;
-  cufftCheck(cufftPlanMany(&plan, fft_rank, array_rank,
+  cufftAlwaysCheck(cufftPlanMany(&plan, fft_rank, array_rank,
                            embed, stride, distBetweenBatches,
                            embed, stride, distBetweenBatches,
                            type, numBatches));
@@ -88,7 +88,7 @@ double complex_to_complex_1d_j_fft_array(bComplexElem *in_arr, bComplexElem *out
     // launch cufft execution
     for(unsigned i = 0; i < EXTENT_i; ++i)
     {
-      cufftCheck(cufftXtExec(plan, in_arr + i, out_arr + i, direction));
+      cufftAlwaysCheck(cufftXtExec(plan, in_arr + i, out_arr + i, direction));
     }
   };
   // time function (and compute fft in process)
@@ -123,7 +123,161 @@ double complex_to_complex_1d_j_fft_array(bComplexElem *in_arr, bComplexElem *out
   // free memory
   cudaCheck(cudaFree(out_arr_dev));
   cudaCheck(cudaFree(in_arr_dev));
-  cufftCheck(cufftDestroy(plan));
+  cufftAlwaysCheck(cufftDestroy(plan));
+
+  // return timing
+  return num_seconds;
+}
+
+/**
+ * @brief callback into array from cufft for loads
+ * Swaps logical i-j to physical j-i
+ * https://docs.nvidia.com/cuda/cufft/index.html#callback-routines
+ */
+__device__ __forceinline__
+bCuComplexElem array_load_callback(void * __restrict__ dataIn,
+                                   size_t offset,
+                                   void * __restrict__ callerInfo,
+                                   void * __restrict__ sharedPtr)
+{
+  assert(offset < NUM_ELEMENTS);
+  unsigned j = offset % EXTENT_j;
+  unsigned i = (offset / EXTENT_j) % EXTENT_i;
+  size_t index = offset + (EXTENT_i - 1) * j + (1 - (size_t) EXTENT_j) * i;
+  assert(index < NUM_ELEMENTS);
+  return ((bCuComplexElem *) dataIn)[index];
+}
+
+/**
+ * @brief callback into array from cufft for stores
+ * Swaps logical i-j to physical j-i
+ * https://docs.nvidia.com/cuda/cufft/index.html#callback-routines
+ */
+__device__ __forceinline__
+void array_store_callback(void * __restrict__ dataOut,
+                          size_t offset,
+                          bCuComplexElem element,
+                          void * __restrict__ callerInfo,
+                          void * __restrict__ sharedPtr)
+{
+  assert(offset < NUM_ELEMENTS);
+  unsigned j = offset % EXTENT_j;
+  unsigned i = (offset / EXTENT_j) % EXTENT_i;
+  size_t index = offset + (EXTENT_i - 1) * j + (1 - (size_t) EXTENT_j) * i;
+  assert(index < NUM_ELEMENTS);
+  ((bCuComplexElem *) dataOut)[index] = element;
+}
+
+// global pointers to the array load/store callbacks
+typedef typename std::conditional<std::is_same<bElem, double>::value, 
+                                  cufftCallbackLoadZ,
+                                  cufftCallbackLoadC>::type ArrayLoadCallback;
+typedef typename std::conditional<std::is_same<bElem, double>::value, 
+                                  cufftCallbackStoreZ,
+                                  cufftCallbackStoreC>::type ArrayStoreCallback;
+__device__ ArrayLoadCallback array_load_callback_ptr = array_load_callback;
+__device__ ArrayStoreCallback array_store_callback_ptr = array_store_callback;
+
+/**
+ * @brief time computation of 1D FFT in j-dimension of in_arr into out_arr
+ * 
+ * Uses callbacks to perform a single call to cufft (no data reordering)
+ * 
+ * @param in_arr[in] host-side input array, of rank DIM with extents EXTENT_n,...,EXTENT_i
+ * @param out_arr[out] host-side output array of same shape as in_arr
+ * @param direction[in] either CUFFT_FORWARD or CUFFT_INVERSE
+ * @param warmup the number of warmups
+ * @param iter the number of iters
+ * @return the average number of seconds to compute the FFT
+ */
+double complex_to_complex_1d_j_fft_array_callback(bComplexElem *in_arr, bComplexElem *out_arr, int warmup, int iter, int direction = CUFFT_FORWARD)
+{
+  if(direction != CUFFT_FORWARD && direction != CUFFT_INVERSE) throw std::runtime_error("Unrecognized direction");
+  // build cufft plan
+  cufftHandle plan;
+  int fft_rank = 1;
+  int array_rank[1] = {EXTENT_j};
+  int embed[1] = {EXTENT_j};
+  int logical_stride = 1;
+  int logical_dist_between_batches = EXTENT_j;
+  int num_batches = NUM_ELEMENTS / array_rank[0];
+  static_assert(std::is_same<bElem, float>::value || std::is_same<bElem, double>::value);
+  cufftType type = std::is_same<bElem, float>::value ? CUFFT_C2C : CUFFT_Z2Z;
+  cufftAlwaysCheck(cufftPlanMany(&plan, fft_rank, array_rank,
+                           embed, logical_stride, logical_dist_between_batches,
+                           embed, logical_stride, logical_dist_between_batches,
+                           type, num_batches));
+  
+  // copy callback addresses from symbol memory
+  ArrayLoadCallback array_load_cb;
+  ArrayStoreCallback array_store_cb;
+  cudaCheck(cudaMemcpyFromSymbol(
+                          &array_load_cb, 
+                          array_load_callback_ptr,
+                          sizeof(array_load_cb)));
+  cudaCheck(cudaMemcpyFromSymbol(
+                          &array_store_cb, 
+                          array_store_callback_ptr,
+                          sizeof(array_store_cb)));
+  // setup callbacks for cufft plan
+  cufftXtCallbackType load_cb_type, store_cb_type;
+  if(std::is_same<bElem, double>::value) {
+    load_cb_type = CUFFT_CB_LD_COMPLEX_DOUBLE;
+    store_cb_type = CUFFT_CB_ST_COMPLEX_DOUBLE;
+  }
+  else {
+    load_cb_type = CUFFT_CB_LD_COMPLEX;
+    store_cb_type = CUFFT_CB_ST_COMPLEX;
+  }
+
+  cufftAlwaysCheck(cufftXtSetCallback(plan, (void **)&array_load_cb,  load_cb_type, 0));
+  cufftAlwaysCheck(cufftXtSetCallback(plan, (void **)&array_store_cb, store_cb_type, 0));
+
+  // copy data to device
+  bCuComplexElem *in_arr_dev, *out_arr_dev;
+  constexpr size_t ARR_SIZE = sizeof(bComplexElem) * NUM_ELEMENTS;
+  cudaCheck(cudaMalloc(&in_arr_dev, ARR_SIZE));
+  cudaCheck(cudaMalloc(&out_arr_dev, ARR_SIZE));
+  cudaCheck(cudaMemcpy(in_arr_dev, in_arr, ARR_SIZE, cudaMemcpyHostToDevice));
+
+  // lambda function for timing
+  auto compute_fft = [&plan](bCuComplexElem *in_arr, bCuComplexElem *out_arr, int direction) -> void {
+    // launch cufft execution
+    cufftAlwaysCheck(cufftXtExec(plan, in_arr, out_arr, direction));
+  };
+  // time function (and compute fft in process)
+  double num_seconds = cutime_func([&compute_fft, &in_arr_dev, &out_arr_dev, &direction]() -> void {
+    compute_fft(in_arr_dev, out_arr_dev, direction);
+  }, warmup, iter);
+
+  // copy data back from device
+  cudaCheck(cudaMemcpy(out_arr, out_arr_dev, ARR_SIZE, cudaMemcpyDeviceToHost));
+
+  // sanity check: inverse should match in_arr (up to scaling)
+  nvtxRangePushA("inverse_fft_check");
+  {
+    // malloc space for the inverse computation
+    bComplexElem *out_check_arr = zeroComplexArray({EXTENT});
+    bCuComplexElem *out_check_arr_dev;
+    size_t size = NUM_ELEMENTS * sizeof(bComplexElem);
+    cudaCheck(cudaMalloc(&out_check_arr_dev, size));
+    // perform the inverse computation
+    int inverse_direction = (direction == CUFFT_FORWARD) ? CUFFT_INVERSE : CUFFT_FORWARD;
+    compute_fft(out_arr_dev, out_check_arr_dev, inverse_direction);
+    cudaCheck(cudaDeviceSynchronize());
+    // copy check back to host and make sure it is correct
+    cudaCheck(cudaMemcpy(out_check_arr, out_check_arr_dev, size, cudaMemcpyDeviceToHost));
+    check_close(in_arr, out_check_arr, NUM_ELEMENTS, "cufft 1d j array callback inverse check failed", 1.0 / EXTENT_j);
+    // free memroy
+    cudaCheck(cudaFree(out_check_arr_dev));
+    free(out_check_arr);
+  }
+  nvtxRangePop();
+
+  // free memory
+  cudaCheck(cudaFree(out_arr_dev));
+  cudaCheck(cudaFree(in_arr_dev));
+  cufftAlwaysCheck(cufftDestroy(plan));
 
   // return timing
   return num_seconds;
@@ -154,7 +308,7 @@ double complex_to_complex_1d_j_fft_array_transpose(bComplexElem *in_arr, bComple
   int numBatches = NUM_ELEMENTS / distBetweenBatches;
   static_assert(std::is_same<bElem, float>::value || std::is_same<bElem, double>::value);
   cufftType type = std::is_same<bElem, float>::value ? CUFFT_C2C : CUFFT_Z2Z;
-  cufftCheck(cufftPlanMany(&plan, fft_rank, array_rank,
+  cufftAlwaysCheck(cufftPlanMany(&plan, fft_rank, array_rank,
                            embed, stride, distBetweenBatches,
                            embed, stride, distBetweenBatches,
                            type, numBatches));
@@ -178,7 +332,7 @@ double complex_to_complex_1d_j_fft_array_transpose(bComplexElem *in_arr, bComple
     constexpr unsigned TileJ = 32, TileI = 8;
     transpose_ij<TileJ, TileI><< <numBlocks, blockSize>> >(in_arr, out_arr, NUM_ELEMENTS / EXTENT_j / EXTENT_i, EXTENT_j, EXTENT_i);
     // fft out -> intermed
-    cufftCheck(cufftXtExec(plan, out_arr, intermed_arr, direction));
+    cufftAlwaysCheck(cufftXtExec(plan, out_arr, intermed_arr, direction));
     // transpose intermed -> out
     transpose_ij<TileI, TileJ><< <numBlocks, blockSize>> >(intermed_arr, out_arr, NUM_ELEMENTS / EXTENT_j / EXTENT_i, EXTENT_i, EXTENT_j);
   };
@@ -215,7 +369,7 @@ double complex_to_complex_1d_j_fft_array_transpose(bComplexElem *in_arr, bComple
   cudaCheck(cudaFree(out_arr_dev));
   cudaCheck(cudaFree(intermed_arr_dev));
   cudaCheck(cudaFree(in_arr_dev));
-  cufftCheck(cufftDestroy(plan));
+  cufftAlwaysCheck(cufftDestroy(plan));
 
   // return timing
   return num_seconds;
@@ -632,12 +786,19 @@ int main(int argc, char **argv)
   // time cufft for arrays
   if(run_1d_j_array)
   {
+    nvtxRangePushA("cufft_1d_j_array_callback");
+    double cufft_1d_j_array_callback_num_seconds = complex_to_complex_1d_j_fft_array_callback(in_arr, out_check_arr, warmup, iter);
+    std::cout << std::setw(colWidth) << "cufft_1d_j_array_callback "
+              << std::setw(colWidth) << 1000 * cufft_1d_j_array_callback_num_seconds
+              << std::endl;
+    nvtxRangePop();
     nvtxRangePushA("cufft_1d_j_array_transpose");
-    double cufft_1d_j_array_transpose_num_seconds = complex_to_complex_1d_j_fft_array_transpose(in_arr, out_check_arr, warmup, iter);
+    double cufft_1d_j_array_transpose_num_seconds = complex_to_complex_1d_j_fft_array_transpose(in_arr, out_arr, warmup, iter);
     std::cout << std::setw(colWidth) << "cufft_1d_j_array_transpose "
               << std::setw(colWidth) << 1000 * cufft_1d_j_array_transpose_num_seconds
               << std::endl;
     nvtxRangePop();
+    check_close(out_check_arr, out_arr, NUM_ELEMENTS, "Mismatch between cufft_1d_j_array_callback and cufft_1d_j_array_transpose");
     nvtxRangePushA("cufft_1d_j_array");
     double cufft_1d_j_array_num_seconds = complex_to_complex_1d_j_fft_array(in_arr, out_arr, warmup, iter);
     std::cout << std::setw(colWidth) << "cufft_1d_j_array "

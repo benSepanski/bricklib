@@ -335,6 +335,9 @@ struct FourierType;
 #define cufftCheck(x) _cufftCheck(x, #x ,__FILE__, __LINE__)
 #endif
 
+// always check, even if in debug mode
+#define cufftAlwaysCheck(x) _cufftCheck(x, #x ,__FILE__, __LINE__)
+
 /// Internal for #cufftCheck(x)
 template<typename T>
 void _cufftCheck(T e, const char *func, const char *call, const int line) {
