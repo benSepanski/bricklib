@@ -62,9 +62,9 @@ if(BRICKS_BUILD_GTENSOR_BENCHMARKS)
 
 #     VSTARGET(GENE5D ../stencils/gene-6d-main.cpp ../stencils/gene-6d-main-out.cpp)
 #     add_executable(single-gene6d ${VSTARGET_GENE5D_OUTPUT} ../stencils/gene-6d.cu)
-    add_executable(single-gene6d ../stencils/gene-6d-main.cpp ../stencils/gene-6d.cu)
+    add_executable(single-gene6d gene-6d-main.cpp ../stencils/gene-6d.cpp ../stencils/gene-6d.cu)
 #     target_gtensor_sources(single-gene6d PRIVATE ${VSTARGET_GENE5D_OUTPUT})
-    target_gtensor_sources(single-gene6d PRIVATE ../stencils/gene-6d-main.cpp)
+    target_gtensor_sources(single-gene6d PRIVATE gene-6d-main.cpp ../stencils/gene-6d.cpp)
     target_link_libraries(single-gene6d brickhelper gtensor::gtensor nvToolsExt)
 
     set_target_properties(single-gene6d 

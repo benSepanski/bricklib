@@ -192,4 +192,12 @@ semi_arakawa_brick_kernel_vec(unsigned *fieldGrid,
                               FieldBrick_kl bOut,
                               RealCoeffBrick *coeff);
 
+// declare functions which time gtensor vs bricks
+void semi_arakawa(bool run_bricks, bool run_gtensor);
+void ij_deriv(bool run_bricks, bool run_gtensor);
+
+// constants in gene-6d.cpp
+extern unsigned NUM_WARMUP_ITERS;
+extern unsigned NUM_ITERS;
+
 #endif // BRICK_GENE_5D_H
