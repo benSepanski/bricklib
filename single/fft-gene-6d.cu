@@ -756,6 +756,14 @@ int main(int argc, char **argv)
     else throw std::runtime_error("Unrecognized argument, expected 'a', 'b', or 'c'");
   }
 
+  int cufft_major_version, cufft_minor_version, cufft_patch_level;
+  cufftAlwaysCheck(cufftGetProperty(MAJOR_VERSION, &cufft_major_version));
+  cufftAlwaysCheck(cufftGetProperty(MINOR_VERSION, &cufft_minor_version));
+  cufftAlwaysCheck(cufftGetProperty(PATCH_LEVEL, &cufft_patch_level));
+  std::cout << "cufft Version: "
+            << cufft_major_version << "."
+            << cufft_minor_version << "."
+            << cufft_patch_level << std::endl;
   std::cout << "Array Size: "
             << std::setw(2) << EXTENT_n << " x "
             << std::setw(2) << EXTENT_m << " x "
