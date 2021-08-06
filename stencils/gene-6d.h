@@ -32,7 +32,7 @@ constexpr bElem pi = 3.14159265358979323846;
 
 // blocking dimensions
 constexpr unsigned DIM = 6;
-constexpr unsigned TILE = 2;
+constexpr unsigned TILE = 8;
 // set brick sizes
 constexpr unsigned BDIM_i = 2;
 constexpr unsigned BDIM_j = 32;
@@ -40,6 +40,7 @@ constexpr unsigned BDIM_k = 2;
 constexpr unsigned BDIM_l = 2;
 constexpr unsigned BDIM_m = 1;
 constexpr unsigned BDIM_n = 1;
+constexpr std::array<unsigned, DIM> BDIM_arr = {BDIM_i, BDIM_j, BDIM_k, BDIM_l, BDIM_m, BDIM_n};
 constexpr unsigned NUM_ELEMENTS_PER_BRICK = BDIM_i * BDIM_j * BDIM_k * BDIM_l * BDIM_m * BDIM_n;
 // num elements in each direction
 constexpr unsigned EXTENT_i = 72;
@@ -58,6 +59,7 @@ constexpr unsigned PADDING_l = BDIM_l > 1 ? BDIM_l : 0;
 constexpr unsigned PADDING_m = 0;
 constexpr unsigned PADDING_n = 0;
 #define PADDING PADDING_i,PADDING_j,PADDING_k,PADDING_l,PADDING_m,PADDING_n
+constexpr std::array<unsigned, DIM> PADDING_arr = {PADDING};
 // ghost zone (for arrays and bricks)
 constexpr unsigned GHOST_ZONE_i = PADDING_i;
 constexpr unsigned GHOST_ZONE_j = PADDING_j;
@@ -66,6 +68,7 @@ constexpr unsigned GHOST_ZONE_l = PADDING_l;
 constexpr unsigned GHOST_ZONE_m = PADDING_m;
 constexpr unsigned GHOST_ZONE_n = PADDING_n;
 #define GHOST_ZONE GHOST_ZONE_i,GHOST_ZONE_j,GHOST_ZONE_k,GHOST_ZONE_l,GHOST_ZONE_m,GHOST_ZONE_n
+constexpr std::array<unsigned, DIM> GHOST_ZONE_arr = {GHOST_ZONE};
 
 // num elements in each direction + ghosts
 constexpr unsigned GZ_EXTENT_i = (EXTENT_i + 2 * GHOST_ZONE_i);

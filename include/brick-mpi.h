@@ -296,12 +296,20 @@ public:
   std::unordered_map<uint64_t, int> rank_map;        ///< Mapping from neighbor to each neighbor's rank
 
   /**
+   * @param ghost_depth the depths of ghost in all dimensions (in elements)
+   * @see BrickDecomp
+   */
+  BrickDecomp(const std::vector<unsigned> &dims, const unsigned ghost_depth, unsigned numfield = 1)
+      : BrickDecomp(dims, std::vector<unsigned>(ghost_depth, dims.size()), numfield) 
+      { }
+
+  /**
    * @brief MPI decomposition for bricks
    * @param dims the size of each dimension excluding the ghost (in elements)
    * @param depth the depths of ghost (in elements)
    * @param numfield number of interleaved fields
    */
-  BrickDecomp(const std::vector<unsigned> &dims, const unsigned depth, unsigned numfield = 1)
+  BrickDecomp(const std::vector<unsigned> &dims, const std::vector<unsigned> ghost_depth, unsigned numfield = 1)
       : dims(dims), numfield(numfield), bInfo(nullptr), grid(nullptr) {
     assert(dims.size() == dim);
     std::vector<unsigned> bdims = {BDims ...};
@@ -310,7 +318,7 @@ public:
 
     for (int i = 0; i < dim; ++i) {
       assert(depth % bdims[i] == 0);
-      g_depth.emplace_back(depth / bdims[i]);
+      g_depth.emplace_back(ghost_depth[i] / bdims[i]);
       this->dims[i] /= bdims[i];
     }
   };

@@ -17,15 +17,17 @@
  * @param src source
  * @param size in number of bElem
  */
-inline void elemcpy(bElem *dst, const bElem *src, unsigned long size) {
+template<typename elemType>
+inline void elemcpy(elemType *dst, const elemType *src, unsigned long size) {
 #pragma omp simd
   for (unsigned long i = 0; i < size; ++i)
     dst[i] = src[i];
 }
 
-template<unsigned dim>
-inline bElem *pack(bElem *arr, BitSet neighbor, bElem *buffer_out, const std::vector<unsigned long> &arrstride,
-                   const std::vector<long> &dimlist, const std::vector<long> &padding, const std::vector<long> &ghost) {
+template<unsigned dim, typename elemType>
+inline typename std::enable_if<dim != 1, elemType*>::type 
+pack(elemType *arr, BitSet neighbor, elemType *buffer_out, const std::vector<unsigned long> &arrstride,
+     const std::vector<long> &dimlist, const std::vector<long> &padding, const std::vector<long> &ghost) {
   // Inner region
   long sec = 0;
   long st = 0;
@@ -50,10 +52,11 @@ inline bElem *pack(bElem *arr, BitSet neighbor, bElem *buffer_out, const std::ve
   return buffer_out;
 }
 
-template<>
-inline bElem *pack<1>(bElem *arr, BitSet neighbor, bElem *buffer_out, const std::vector<unsigned long> &arrstride,
-                      const std::vector<long> &dimlist, const std::vector<long> &padding,
-                      const std::vector<long> &ghost) {
+template<unsigned dim, typename elemType>
+inline typename std::enable_if<dim == 1, elemType*>::type 
+pack(elemType *arr, BitSet neighbor, elemType *buffer_out, const std::vector<unsigned long> &arrstride,
+     const std::vector<long> &dimlist, const std::vector<long> &padding,
+     const std::vector<long> &ghost) {
   // Inner region
   long sec = 0;
   long st = 0;
@@ -74,10 +77,11 @@ inline bElem *pack<1>(bElem *arr, BitSet neighbor, bElem *buffer_out, const std:
   }
 }
 
-template<unsigned dim>
-inline bElem *unpack(bElem *arr, BitSet neighbor, bElem *buffer_recv, const std::vector<unsigned long> &arrstride,
-                     const std::vector<long> &dimlist, const std::vector<long> &padding,
-                     const std::vector<long> &ghost) {
+template<unsigned dim, typename elemType>
+inline typename std::enable_if<dim != 1, elemType*>::type 
+unpack(elemType *arr, BitSet neighbor, elemType *buffer_recv, const std::vector<unsigned long> &arrstride,
+       const std::vector<long> &dimlist, const std::vector<long> &padding,
+       const std::vector<long> &ghost) {
   // Inner region
   long sec = 0;
   long st = 0;
@@ -101,10 +105,11 @@ inline bElem *unpack(bElem *arr, BitSet neighbor, bElem *buffer_recv, const std:
   return buffer_recv;
 }
 
-template<>
-inline bElem *unpack<1>(bElem *arr, BitSet neighbor, bElem *buffer_recv, const std::vector<unsigned long> &arrstride,
-                        const std::vector<long> &dimlist, const std::vector<long> &padding,
-                        const std::vector<long> &ghost) {
+template<unsigned dim, typename elemType>
+inline typename std::enable_if<dim == 1, elemType*>::type 
+unpack(elemType *arr, BitSet neighbor, elemType *buffer_recv, const std::vector<unsigned long> &arrstride,
+       const std::vector<long> &dimlist, const std::vector<long> &padding,
+       const std::vector<long> &ghost) {
   // Inner region
   long sec = 0;
   long st = 0;
@@ -142,8 +147,8 @@ extern std::vector<bElem *> arr_buffers_out;
 extern std::vector<bElem *> arr_buffers_recv;
 
 // ID is used to prevent message mismatch from messages with the same node, low performance only for validation testing.
-template<unsigned dim>
-void exchangeArr(bElem *arr, const MPI_Comm &comm, std::unordered_map<uint64_t, int> &rank_map,
+template<unsigned dim, typename elemType>
+void exchangeArr(elemType *arr, const MPI_Comm &comm, std::unordered_map<uint64_t, int> &rank_map,
                  const std::vector<long> &dimlist, const std::vector<long> &padding, const std::vector<long> &ghost) {
   std::vector<BitSet> neighbors;
   allneighbors(0, 1, dim, neighbors);
@@ -166,15 +171,15 @@ void exchangeArr(bElem *arr, const MPI_Comm &comm, std::unordered_map<uint64_t, 
 
   if (arr_buffers_out.size() == 0)
     for (int i = 0; i < (int) neighbors.size(); ++i) {
-      arr_buffers_recv.emplace_back((bElem*)aligned_alloc(4096, sizeof(bElem) * tot[i]));
-      arr_buffers_out.emplace_back((bElem*)aligned_alloc(4096, sizeof(bElem) * tot[i]));
+      arr_buffers_recv.emplace_back((bElem*)aligned_alloc(4096, sizeof(elemType) * tot[i]));
+      arr_buffers_out.emplace_back((bElem*)aligned_alloc(4096, sizeof(elemType) * tot[i]));
     }
 
   double st = omp_get_wtime(), ed;
   // Pack
 #pragma omp parallel for
   for (int i = 0; i < (int) neighbors.size(); ++i)
-    pack<dim>(arr, neighbors[i], arr_buffers_out[i], arrstride, dimlist, padding, ghost);
+    pack<dim>(arr, neighbors[i], reinterpret_cast<elemType*>(arr_buffers_out[i]), arrstride, dimlist, padding, ghost);
 
   ed = omp_get_wtime();
   packtime += ed - st;
@@ -206,12 +211,41 @@ void exchangeArr(bElem *arr, const MPI_Comm &comm, std::unordered_map<uint64_t, 
   // Unpack
 #pragma omp parallel for
   for (int i = 0; i < (int) neighbors.size(); ++i)
-    unpack<dim>(arr, neighbors[i], arr_buffers_recv[i], arrstride, dimlist, padding, ghost);
+    unpack<dim>(arr, neighbors[i], reinterpret_cast<elemType*>(arr_buffers_recv[i]), arrstride, dimlist, padding, ghost);
 
   ed = omp_get_wtime();
   packtime += ed - st;
 }
 
+/**
+ * @brief Get the MPI_Datatype for a scalar of type elemType
+ * 
+ * @tparam elemType the type of the scalar
+ * @return MPI_Datatype the MPI equivalent
+ */
+template<typename elemType>
+MPI_Datatype get_scalar_MPI_Datatype() {
+  static_assert(!std::is_same<elemType, elemType>::value, "Unrecognized elemType");
+  return MPI_DATATYPE_NULL;
+}
+/**
+ * @see get_scalar_MPI_Datatype
+ */
+template<> MPI_Datatype get_scalar_MPI_Datatype<float>() { return MPI_FLOAT; }
+/**
+ * @see get_scalar_MPI_Datatype
+ */
+template<> MPI_Datatype get_scalar_MPI_Datatype<double>() { return MPI_DOUBLE; }
+/**
+ * @see get_scalar_MPI_Datatype
+ */
+template<> MPI_Datatype get_scalar_MPI_Datatype<bComplexElem>() {
+  static_assert(std::is_same<bElem, float>::value || std::is_same<bElem, double>::value);
+  if(std::is_same<bElem, float>::value) return MPI_C_FLOAT_COMPLEX;
+  return MPI_C_DOUBLE_COMPLEX;
+}
+
+template<typename elemType = bElem>
 inline MPI_Datatype pack_type(BitSet neighbor, const std::vector<long> &dimlist, const std::vector<long> &padding,
                        const std::vector<long> &ghost) {
   int ndims = dimlist.size();
@@ -235,14 +269,16 @@ inline MPI_Datatype pack_type(BitSet neighbor, const std::vector<long> &dimlist,
       start[dd] = padding[d] + ghost[d];
     }
   }
-  MPI_Datatype ret;
+  MPI_Datatype ret, scalar_mpi_datatype = get_scalar_MPI_Datatype<elemType>();
   // Subarray is most contiguous dimension first (largest index)
-  MPI_Type_create_subarray(ndims, size.data(), subsize.data(), start.data(), MPI_ORDER_C, MPI_DOUBLE, &ret);
+  MPI_Type_create_subarray(ndims, size.data(), subsize.data(), start.data(), MPI_ORDER_C, scalar_mpi_datatype, &ret);
   return ret;
 }
 
-inline MPI_Datatype unpack_type(BitSet neighbor, const std::vector<long> &dimlist, const std::vector<long> &padding,
-                         const std::vector<long> &ghost) {
+template<typename elemType = bElem>
+inline MPI_Datatype unpack_type(BitSet neighbor, const std::vector<long> &dimlist,
+                                const std::vector<long> &padding,
+                                const std::vector<long> &ghost) {
   int ndims = dimlist.size();
   std::vector<int> size(ndims), subsize(ndims), start(ndims);
   for (long dd = 0; dd < dimlist.size(); ++dd) {
@@ -264,17 +300,17 @@ inline MPI_Datatype unpack_type(BitSet neighbor, const std::vector<long> &dimlis
       start[dd] = padding[d] + ghost[d];
     }
   }
-  MPI_Datatype ret;
+  MPI_Datatype ret, scalar_mpi_datatype = get_scalar_MPI_Datatype<elemType>();
   // Subarray is most contiguous dimension first (largest index)
-  MPI_Type_create_subarray(ndims, size.data(), subsize.data(), start.data(), MPI_ORDER_C, MPI_DOUBLE, &ret);
+  MPI_Type_create_subarray(ndims, size.data(), subsize.data(), start.data(), MPI_ORDER_C, scalar_mpi_datatype, &ret);
   return ret;
 }
 
-template<unsigned dim>
+template<unsigned dim, typename elemType = bElem>
 void exchangeArrPrepareTypes(std::unordered_map<uint64_t, MPI_Datatype> &stypemap,
-                          std::unordered_map<uint64_t, MPI_Datatype> &rtypemap,
-                          const std::vector<long> &dimlist, const std::vector<long> &padding,
-                          const std::vector<long> &ghost) {
+                             std::unordered_map<uint64_t, MPI_Datatype> &rtypemap,
+                             const std::vector<long> &dimlist, const std::vector<long> &padding,
+                             const std::vector<long> &ghost) {
   std::vector<BitSet> neighbors;
   allneighbors(0, 1, dim, neighbors);
   neighbors.erase(neighbors.begin() + (neighbors.size() / 2));
@@ -291,8 +327,8 @@ void exchangeArrPrepareTypes(std::unordered_map<uint64_t, MPI_Datatype> &stypema
 }
 
 // Using data types
-template<unsigned dim>
-void exchangeArrTypes(bElem *arr, const MPI_Comm &comm, std::unordered_map<uint64_t, int> &rank_map,
+template<unsigned dim, typename elemType>
+void exchangeArrTypes(elemType *arr, const MPI_Comm &comm, std::unordered_map<uint64_t, int> &rank_map,
                       std::unordered_map<uint64_t, MPI_Datatype> &stypemap,
                       std::unordered_map<uint64_t, MPI_Datatype> &rtypemap) {
   std::vector<BitSet> neighbors;

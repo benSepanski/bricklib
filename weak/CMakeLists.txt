@@ -39,4 +39,16 @@ if(CMAKE_CUDA_COMPILER)
     target_link_libraries(weak-cuda-mmap brick brick-mpi brickhelper ${MPI_CXX_LIBRARIES} ${LIBRT} cuda)
     set_target_properties(weak-cuda-mmap
             PROPERTIES OUTPUT_NAME cuda-mmap)
+
+    if(BRICKS_BUILD_GTENSOR_BENCHMARKS)
+        add_executable(weak-gene6d gene-6d-main.cu)
+        target_gtensor_sources(weak-gene6d PRIVATE gene-6d-main.cu)
+        target_link_libraries(weak-gene6d brickhelper gtensor::gtensor ${MPI_CXX_LIBRARIES} ${LIBRT})
+
+        set_target_properties(weak-gene6d 
+                PROPERTIES OUTPUT_NAME gene6d)
+        target_include_directories(weak-gene6d PUBLIC
+                "${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES}"
+                )
+    endif ()
 endif ()
