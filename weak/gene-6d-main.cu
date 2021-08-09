@@ -66,7 +66,7 @@ void _check_MPI(int return_value, const char *func, const char *filename, const 
  * Prints some useful information about the MPI setup.
  * 
  * @param[in] num_procs_per_dim the number of MPI processes to put in each dimension.
- *                                  Must sum to the number of MPI processes.
+ *                                  Product must match the number of MPI processes.
  * @param[in] per_process_extent extent in each dimension for each individual MPI processes.
  * @return MPI_comm a cartesian communicator built from MPI_COMM_WORLD
  */
@@ -76,11 +76,11 @@ MPI_Comm build_cartesian_comm(std::array<int, DIM> num_procs_per_dim, std::array
   check_MPI(MPI_Comm_size(MPI_COMM_WORLD, &size));
   check_MPI(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
 
-  // make sure num_procs_per_dim sums to number of processes
-  int sum_of_procs_per_dim = std::accumulate(num_procs_per_dim.begin(), num_procs_per_dim.end(), 0);
-  if(sum_of_procs_per_dim != size) {
+  // make sure num_procs_per_dim has product to number of processes
+  int prod_of_procs_per_dim = std::accumulate(num_procs_per_dim.begin(), num_procs_per_dim.end(), 1, std::multiplies<size_t>());
+  if(prod_of_procs_per_dim != size) {
     std::ostringstream error_stream;
-    error_stream << "Number of processes per dimension sums to " << sum_of_procs_per_dim
+    error_stream << "Product of number of processes per dimension is " << prod_of_procs_per_dim
                  << " which does not match number of MPI procceses (" << size << ")\n";
     throw std::runtime_error(error_stream.str());
   }
