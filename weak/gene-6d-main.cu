@@ -238,7 +238,7 @@ void semi_arakawa_distributed_array(bComplexElem *out_ptr,
   copyToDevice(padded_array_extent_long, in_ptr_dev, in_ptr);
   copyToDevice(padded_array_extent_long, out_ptr_dev, out_ptr);
   bElem *coeff_dev;
-  copyToDevice(coeff_extent_long, coeff_dev, coeff);
+  copyToDevice(coeff_extent_long, coeff_dev, coeffs);
 
   // build function to perform computation
   auto arr_func = [&padded_array_extent_long,

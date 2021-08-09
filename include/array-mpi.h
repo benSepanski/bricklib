@@ -231,15 +231,17 @@ MPI_Datatype get_scalar_MPI_Datatype() {
 /**
  * @see get_scalar_MPI_Datatype
  */
-template<> MPI_Datatype get_scalar_MPI_Datatype<float>() { return MPI_FLOAT; }
+template<> inline
+MPI_Datatype get_scalar_MPI_Datatype<float>() { return MPI_FLOAT; }
 /**
  * @see get_scalar_MPI_Datatype
  */
-template<> MPI_Datatype get_scalar_MPI_Datatype<double>() { return MPI_DOUBLE; }
+template<> inline
+MPI_Datatype get_scalar_MPI_Datatype<double>() { return MPI_DOUBLE; }
 /**
  * @see get_scalar_MPI_Datatype
  */
-template<> MPI_Datatype get_scalar_MPI_Datatype<bComplexElem>() {
+template<> inline MPI_Datatype get_scalar_MPI_Datatype<bComplexElem>() {
   static_assert(std::is_same<bElem, float>::value || std::is_same<bElem, double>::value);
   if(std::is_same<bElem, float>::value) return MPI_C_FLOAT_COMPLEX;
   return MPI_C_DOUBLE_COMPLEX;
