@@ -317,7 +317,7 @@ public:
     std::reverse(bdims.begin(), bdims.end());
 
     for (int i = 0; i < dim; ++i) {
-      assert(depth % bdims[i] == 0);
+      assert(ghost_depth[i] % bdims[i] == 0);
       g_depth.emplace_back(ghost_depth[i] / bdims[i]);
       this->dims[i] /= bdims[i];
     }
