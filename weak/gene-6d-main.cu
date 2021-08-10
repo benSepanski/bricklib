@@ -378,8 +378,17 @@ int main(int argc, char **argv) {
     if(i == 0) array_stride[0] = 1;
     else array_stride[i] = array_stride[i-1] * array_extent[i];
     padded_array_extent[i] = array_extent[i] + 2 * PADDING_arr[i];
-    if(array_extent[i] % BDIM_arr[i] != 0) {
-      throw std::runtime_error("brick-dimension does not divide per-process extent");
+    if(per_process_extent[i] % BDIM_arr[i] != 0) {
+      std::ostringstream error_stream;
+      error_stream << "Brick-dimension " << i << " (" << BDIM_arr[i] << ")"
+                   << " does not divide per-process extent " << i << " (" << per_process_extent[i] << ")";
+      throw std::runtime_error(error_stream.str());
+    }
+    if(GHOST_ZONE_arr[i] % BDIM_arr[i] != 0) {
+      std::ostringstream error_stream;
+      error_stream << "Brick-dimension " << i << " (" << BDIM_arr[i] << ")"
+                   << " does not divide ghost-zone " << i << " (" << GHOST_ZONE_arr[i] << ")";
+      throw std::runtime_error(error_stream.str());
     }
     brick_grid_extent[i] = array_extent[i] / BDIM_arr[i];
   }

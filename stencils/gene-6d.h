@@ -35,7 +35,7 @@ constexpr unsigned DIM = 6;
 constexpr unsigned TILE = 8;
 // set brick sizes
 constexpr unsigned BDIM_i = 2;
-constexpr unsigned BDIM_j = 32;
+constexpr unsigned BDIM_j = 16;
 constexpr unsigned BDIM_k = 2;
 constexpr unsigned BDIM_l = 2;
 constexpr unsigned BDIM_m = 1;
