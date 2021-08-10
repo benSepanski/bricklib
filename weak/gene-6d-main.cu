@@ -103,41 +103,63 @@ MPI_Comm build_cartesian_comm(std::array<int, DIM> num_procs_per_dim, std::array
   return cartesian_comm;
 }
 
-__constant__ __device__ unsigned array_stride_dev[DIM]; ///< per-process with ghost-zones
 __constant__ __device__ unsigned array_extent_dev[DIM]; ///< per-process with ghost-zones
+__constant__ __device__ unsigned padded_array_extent_dev[DIM]; ///< per-process with ghost-zones and padding
+__constant__ __device__ unsigned padded_array_stride_dev[DIM]; ///< per-process with ghost-zones and padding
 __constant__ __device__ unsigned per_process_extent_dev[DIM]; ///< per-process without ghost-zones
 
-// TODO
+/**
+ * @brief cuda kernel to compute k-l arakawa derivative (array layout)
+ * 
+ * Should be invoked 1 thread per array element (not including ghosts or padding)
+ * global thread idx should by x.y.z = K.L.IJMN
+ * 
+ * @param out_ptr output array of shape padded_array_extent_dev
+ * @param in_ptr input array of shape padded_array_extent_dev
+ * @param coeff stencil coefficients of shape (13,I,K,L,M,N) (no padding, no ghosts)
+ */
 __global__
 void semi_arakawa_arr_kernel(bComplexElem * __restrict__ out_ptr,
                              const bComplexElem * __restrict__ in_ptr,
                              bElem * __restrict__ coeff
                              )
 {
-  unsigned global_z_idx = threadIdx.z + blockIdx.z * blockDim.z;
-  unsigned ijmn = (global_z_idx % (array_extent_dev[0] * array_extent_dev[1]))
-                + (global_z_idx / (array_extent_dev[0] * array_extent_dev[1])) * array_stride_dev[3];
-  unsigned k = PADDING_k + threadIdx.x + blockIdx.x * blockDim.x;
-  unsigned l = PADDING_l + threadIdx.y + blockIdx.y * blockDim.y;
-  size_t ijklmn = ijmn + k * array_stride_dev[2]
-                       + l * array_stride_dev[3];
-  size_t iklmn = ijklmn / array_stride_dev[1] 
-               + ijklmn % array_extent_dev[0];
-  const unsigned k_stride = array_stride_dev[2];
-  const unsigned l_stride = array_stride_dev[3];
-  out_ptr[ijklmn] = coeff[0 + ARAKAWA_STENCIL_SIZE * iklmn] * in_ptr[ijklmn - 2 * l_stride]
-                  + coeff[1 + ARAKAWA_STENCIL_SIZE * iklmn] * in_ptr[ijklmn - l_stride - k_stride]
-                  + coeff[2 + ARAKAWA_STENCIL_SIZE * iklmn] * in_ptr[ijklmn - l_stride]
-                  + coeff[3 + ARAKAWA_STENCIL_SIZE * iklmn] * in_ptr[ijklmn - l_stride + k_stride]
-                  + coeff[4 + ARAKAWA_STENCIL_SIZE * iklmn] * in_ptr[ijklmn - 2 * k_stride]
-                  + coeff[5 + ARAKAWA_STENCIL_SIZE * iklmn] * in_ptr[ijklmn - k_stride]
-                  + coeff[6 + ARAKAWA_STENCIL_SIZE * iklmn] * in_ptr[ijklmn]
-                  + coeff[7 + ARAKAWA_STENCIL_SIZE * iklmn] * in_ptr[ijklmn + k_stride]
-                  + coeff[8 + ARAKAWA_STENCIL_SIZE * iklmn] * in_ptr[ijklmn + 2 * k_stride]
-                  + coeff[9 + ARAKAWA_STENCIL_SIZE * iklmn] * in_ptr[ijklmn + l_stride - k_stride]
-                  + coeff[10 + ARAKAWA_STENCIL_SIZE * iklmn] * in_ptr[ijklmn + l_stride]
-                  + coeff[11 + ARAKAWA_STENCIL_SIZE * iklmn] * in_ptr[ijklmn + l_stride + k_stride]
-                  + coeff[12 + ARAKAWA_STENCIL_SIZE * iklmn] * in_ptr[ijklmn + 2 * l_stride];
+  size_t global_z_idx = threadIdx.z + blockIdx.z * blockDim.z;
+  unsigned i = global_z_idx % array_extent_dev[0];
+  unsigned j = (global_z_idx / array_extent_dev[0]) % array_extent_dev[1];
+  unsigned m = (global_z_idx / array_extent_dev[0] / array_extent_dev[1]) % array_extent_dev[4];
+  unsigned n = (global_z_idx / array_extent_dev[0] / array_extent_dev[1] / array_extent_dev[4]);
+  unsigned k = threadIdx.x + blockIdx.x * blockDim.x;
+  unsigned l = threadIdx.y + blockIdx.y * blockDim.y;
+  size_t padded_ijklmn = PADDING_i + GHOST_ZONE_i + i 
+                       + padded_array_extent_dev[0] * (PADDING_j + GHOST_ZONE_j + j
+                       + padded_array_extent_dev[1] * (PADDING_k + GHOST_ZONE_k + k
+                       + padded_array_extent_dev[2] * (PADDING_l + GHOST_ZONE_l + l
+                       + padded_array_extent_dev[3] * (PADDING_m + GHOST_ZONE_m + m
+                       + padded_array_extent_dev[4] * (PADDING_n + GHOST_ZONE_n + n
+                       )))));
+  size_t unpadded_iklmn = i
+                        + per_process_extent_dev[0] * (j
+                        + per_process_extent_dev[1] * (k
+                        + per_process_extent_dev[2] * (l
+                        + per_process_extent_dev[3] * (m
+                        + per_process_extent_dev[4] * (n
+                        )))));
+  const size_t k_stride = padded_array_stride_dev[2];
+  const size_t l_stride = padded_array_stride_dev[3];
+  out_ptr[padded_ijklmn] = coeff[ 0 + ARAKAWA_STENCIL_SIZE * unpadded_iklmn] * in_ptr[padded_ijklmn - 2 * l_stride]
+                         + coeff[ 1 + ARAKAWA_STENCIL_SIZE * unpadded_iklmn] * in_ptr[padded_ijklmn - l_stride - k_stride]
+                         + coeff[ 2 + ARAKAWA_STENCIL_SIZE * unpadded_iklmn] * in_ptr[padded_ijklmn - l_stride]
+                         + coeff[ 3 + ARAKAWA_STENCIL_SIZE * unpadded_iklmn] * in_ptr[padded_ijklmn - l_stride + k_stride]
+                         + coeff[ 4 + ARAKAWA_STENCIL_SIZE * unpadded_iklmn] * in_ptr[padded_ijklmn - 2 * k_stride]
+                         + coeff[ 5 + ARAKAWA_STENCIL_SIZE * unpadded_iklmn] * in_ptr[padded_ijklmn - k_stride]
+                         + coeff[ 6 + ARAKAWA_STENCIL_SIZE * unpadded_iklmn] * in_ptr[padded_ijklmn]
+                         + coeff[ 7 + ARAKAWA_STENCIL_SIZE * unpadded_iklmn] * in_ptr[padded_ijklmn + k_stride]
+                         + coeff[ 8 + ARAKAWA_STENCIL_SIZE * unpadded_iklmn] * in_ptr[padded_ijklmn + 2 * k_stride]
+                         + coeff[ 9 + ARAKAWA_STENCIL_SIZE * unpadded_iklmn] * in_ptr[padded_ijklmn + l_stride - k_stride]
+                         + coeff[10 + ARAKAWA_STENCIL_SIZE * unpadded_iklmn] * in_ptr[padded_ijklmn + l_stride]
+                         + coeff[11 + ARAKAWA_STENCIL_SIZE * unpadded_iklmn] * in_ptr[padded_ijklmn + l_stride + k_stride]
+                         + coeff[12 + ARAKAWA_STENCIL_SIZE * unpadded_iklmn] * in_ptr[padded_ijklmn + 2 * l_stride];
 }
 
 /**
@@ -232,12 +254,12 @@ void semi_arakawa_distributed_array(bComplexElem *out_ptr,
   coeff_extent[0] = ARAKAWA_STENCIL_SIZE;
   coeff_extent[1] = per_process_extent[0];
 
-  bComplexElem *in_ptr_dev, *out_ptr_dev;
+  bComplexElem *in_ptr_dev = nullptr, *out_ptr_dev = nullptr;
   std::vector<long> padded_array_extent_long(padded_array_extent.begin(), padded_array_extent.end()),
                     coeff_extent_long(coeff_extent.begin(), coeff_extent.end());
   copyToDevice(padded_array_extent_long, in_ptr_dev, in_ptr);
   copyToDevice(padded_array_extent_long, out_ptr_dev, out_ptr);
-  bElem *coeff_dev;
+  bElem *coeff_dev = nullptr;
   copyToDevice(coeff_extent_long, coeff_dev, coeffs);
 
   // build function to perform computation
@@ -303,7 +325,6 @@ void semi_arakawa_distributed_array(bComplexElem *out_ptr,
   cudaCheck(cudaFree(coeff_dev));
   cudaCheck(cudaFree(out_ptr_dev));
   cudaCheck(cudaFree(in_ptr_dev));
-  cudaCheck(cudaFree(array_stride_dev));
 }
 
 /**
@@ -370,13 +391,13 @@ int main(int argc, char **argv) {
   MEMFD::setup_prefix("weak/gene-6d-main", rank);
   // get array/brick extents set up for my MPI process (all include ghost-zones)
   std::array<int, DIM> array_extent,
-                       array_stride,
+                       padded_array_stride,
                        padded_array_extent,
                        brick_grid_extent;
   for(int i = 0; i < DIM; ++i) {
     array_extent[i] = per_process_extent[i] + 2 * GHOST_ZONE_arr[i];
-    if(i == 0) array_stride[0] = 1;
-    else array_stride[i] = array_stride[i-1] * array_extent[i];
+    if(i == 0) padded_array_stride[0] = 1;
+    else padded_array_stride[i] = padded_array_stride[i-1] * padded_array_extent[i];
     padded_array_extent[i] = array_extent[i] + 2 * PADDING_arr[i];
     if(per_process_extent[i] % BDIM_arr[i] != 0) {
       std::ostringstream error_stream;
@@ -392,8 +413,9 @@ int main(int argc, char **argv) {
     }
     brick_grid_extent[i] = array_extent[i] / BDIM_arr[i];
   }
+  cudaCheck(cudaMemcpyToSymbol(padded_array_stride_dev, padded_array_stride.data(), DIM * sizeof(unsigned), cudaMemcpyHostToDevice));
   cudaCheck(cudaMemcpyToSymbol(array_extent_dev, array_extent.data(), DIM * sizeof(unsigned), cudaMemcpyHostToDevice));
-  cudaCheck(cudaMemcpyToSymbol(array_stride_dev, array_stride.data(), DIM * sizeof(unsigned), cudaMemcpyHostToDevice));
+  cudaCheck(cudaMemcpyToSymbol(padded_array_extent_dev, padded_array_extent.data(), DIM * sizeof(unsigned), cudaMemcpyHostToDevice));
   cudaCheck(cudaMemcpyToSymbol(per_process_extent_dev, per_process_extent.data(), DIM * sizeof(unsigned), cudaMemcpyHostToDevice));
   // set up shape of coeffs
   std::array<int, DIM> coeff_extent = per_process_extent;
