@@ -413,10 +413,10 @@ int main(int argc, char **argv) {
     }
     brick_grid_extent[i] = array_extent[i] / BDIM_arr[i];
   }
-  cudaCheck(cudaMemcpyToSymbol(padded_array_stride_dev, padded_array_stride.data(), DIM * sizeof(unsigned), cudaMemcpyHostToDevice));
-  cudaCheck(cudaMemcpyToSymbol(array_extent_dev, array_extent.data(), DIM * sizeof(unsigned), cudaMemcpyHostToDevice));
-  cudaCheck(cudaMemcpyToSymbol(padded_array_extent_dev, padded_array_extent.data(), DIM * sizeof(unsigned), cudaMemcpyHostToDevice));
-  cudaCheck(cudaMemcpyToSymbol(per_process_extent_dev, per_process_extent.data(), DIM * sizeof(unsigned), cudaMemcpyHostToDevice));
+  cudaCheck(cudaMemcpyToSymbol(padded_array_stride_dev, padded_array_stride.data(), DIM * sizeof(unsigned)));
+  cudaCheck(cudaMemcpyToSymbol(array_extent_dev, array_extent.data(), DIM * sizeof(unsigned)));
+  cudaCheck(cudaMemcpyToSymbol(padded_array_extent_dev, padded_array_extent.data(), DIM * sizeof(unsigned)));
+  cudaCheck(cudaMemcpyToSymbol(per_process_extent_dev, per_process_extent.data(), DIM * sizeof(unsigned)));
   // set up shape of coeffs
   std::array<int, DIM> coeff_extent = per_process_extent;
   coeff_extent[0] = ARAKAWA_STENCIL_SIZE;
