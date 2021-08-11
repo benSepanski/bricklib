@@ -30,6 +30,7 @@
 #include <array-mpi.h>
 
 unsigned NUM_GHOST_ELEMENTS;   ///< how many ghost elements?
+unsigned NUM_EXCHANGES; ///< how many mpi exchanges?
 typedef BrickDecomp<DIM, BDIM_n, BDIM_m, BDIM_l, BDIM_k, BDIM_j, BDIM_i> GENEBrickDecomp;
 
 /**
@@ -171,13 +172,12 @@ void semi_arakawa_arr_kernel(bComplexElem * __restrict__ out_ptr,
  */
 void time_and_print_mpi_stats(std::function<void(void)> func, GENEBrickDecomp b_decomp, double tot_elems) {
   // time function
-  int it = 100;  //< TODO: read from cmdline
   int warmup = 5;  //<  TODO: read from cmdline
-  int cnt = it * NUM_GHOST_ELEMENTS / 2;
+  int cnt = NUM_EXCHANGES * (NUM_GHOST_ELEMENTS / 2);
   for(int i = 0; i < warmup; ++i) func();
   packtime = calltime = waittime = movetime = calctime = 0;
   double start = omp_get_wtime(), end;
-  for (int i = 0; i < it; ++i) func();
+  for (int i = 0; i < NUM_EXCHANGES; ++i) func();
   end = omp_get_wtime();
 
   size_t tsize = 0;
@@ -328,6 +328,104 @@ void semi_arakawa_distributed_array(bComplexElem *out_ptr,
 }
 
 /**
+ * @brief Reads a tuple of unsigneds delimited by delim
+ * 
+ * @param in the input stream to read from
+ * @param delim the delimiter between unsigneds
+ * @return std::vector<unsigned> of the values read in
+ */
+std::vector<unsigned> read_uint_tuple(std::istream &in = std::cin, char delim = ',') {
+  std::vector<unsigned> tuple;
+  unsigned value;
+  do {
+    if(in.peek() == delim) in.get();
+    in >> value;
+    tuple.push_back(value);
+  } while(in.peek() == delim);
+  return tuple;
+}
+
+/**
+ * @brief parse args
+ * @param[out] per_process_domain_size the extent in each dimension of the domain
+ * @param[out] num_procs_per_dim the number of processes per dimension
+ * @param[in] in input stream to read from
+ * 
+ * @return the number of iterations, with default 100
+ */
+unsigned parse_args(std::array<int, DIM> *per_process_domain_size,
+                    std::array<int, DIM> *num_procs_per_dim,
+                    std::istream &in = std::cin)
+{
+  std::string option_string;
+  unsigned num_iters;
+  std::vector<unsigned> tuple;
+  bool read_dom_size = false, read_num_iters = false, read_num_procs_per_dim = false;
+  std::string help_string = "Program options\n"
+      "  -h: show help (this message)\n"
+      "  Domain size,  in array order contiguous first\n"
+      "  -d: comma separated Int[6], per-process domain size\n"
+      "  Num Tasks per dimension, in array order contiguous first\n"
+      "  -p: comma separated Int[6], num process per dimension"
+      "  Benchmark control:\n"
+      "  -I: number of iterations, default 100 \n"
+      "Example usage:\n"
+      "  weak/gene6d -d 70,16,24,48,32,2 -p 1,1,3,1,2,1\n";
+  std::ostringstream error_stream;
+  while(in >> option_string) {
+    if(option_string[0] != '-' || option_string.size() != 2) {
+      error_stream << "Unrecognized option " << option_string << std::endl;
+    }
+    if(error_stream.str().size() != 0) {
+      error_stream << help_string;
+      throw std::runtime_error(error_stream.str());
+    }
+    switch(option_string[1]) {
+      case 'd': 
+        tuple = read_uint_tuple(in, ',');
+        if(read_dom_size) {
+          error_stream << "-d option should only be passed once" << std::endl;
+        } else if(tuple.size() != DIM) {
+          error_stream << "Expected extent of length " << DIM << ", not " << tuple.size();
+        } else {
+          std::copy(tuple.begin(), tuple.end(), per_process_domain_size->begin());
+        }
+        read_dom_size = true;
+        break;
+      case 'p':
+        tuple = read_uint_tuple(in, ',');
+        if(read_num_procs_per_dim) {
+          error_stream << "-p option should only be passed once" << std::endl;
+        }
+        else if(tuple.size() != DIM) {
+          error_stream << "Expected num procs per dim of length " << DIM << ", not " << tuple.size();
+        } else {
+          std::copy(tuple.begin(), tuple.end(), num_procs_per_dim->begin());
+        }
+        read_num_procs_per_dim = true;
+        break;
+      case 'I':
+        if(read_num_iters) {
+          error_stream << "-I option should only be passed once" << std::endl;
+        } else {
+          in >> num_iters;
+        }
+        read_num_iters = true;
+        break;
+      default:
+        error_stream << "Unrecognized option " << option_string << std::endl;
+    }
+  }
+  if(!read_num_procs_per_dim) {
+    throw std::runtime_error("Missing -p option");
+  }
+  if(!read_dom_size) {
+    throw std::runtime_error("Missing -d option");
+  }
+  return num_iters;
+}
+
+/**
  * @brief Run weak-scaling gene6d benchmark
  */
 int main(int argc, char **argv) {
@@ -341,8 +439,7 @@ int main(int argc, char **argv) {
   // TODO: get per-process extent and number of processors per-dimension from
   //       cmdline
   std::array<int, DIM> num_procs_per_dim, global_extent, per_process_extent;
-  per_process_extent = {70, 16, 24, 48, 32, 2};
-  num_procs_per_dim = {1, 1, 3, 1, 2, 1};
+  parse_args(&per_process_extent, &num_procs_per_dim);
   for(int i = 0; i < DIM; ++i) {
     global_extent[i] = per_process_extent[i] * num_procs_per_dim[i];
   }
@@ -383,7 +480,7 @@ int main(int argc, char **argv) {
     if(NUM_GHOST_ELEMENTS % 2 != 0) throw std::runtime_error("NUM_GHOST_ELEMENTS must be even");
     std::cout << "\n"
               << "Iters Between exchanges : " << NUM_GHOST_ELEMENTS / 2 << "\n"
-              << "Num Exchanges : " << 100 << std::endl; ///< TODO: read from cmd line
+              << "Num Exchanges : " << NUM_EXCHANGES << std::endl; 
   }
 
   // build cartesian communicator and setup MEMFD
