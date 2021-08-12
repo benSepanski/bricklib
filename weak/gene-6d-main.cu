@@ -796,7 +796,8 @@ int main(int argc, char **argv) {
   coeff_extent_with_gz[1] = per_process_extent[0];
   // initialize my part of the grid to random data
   bComplexElem *in_ptr = randomComplexArray(std::vector<long>(per_process_extent_with_padding.begin(), per_process_extent_with_padding.end()));
-  bComplexElem *out_ptr = zeroComplexArray(std::vector<long>(per_process_extent_with_padding.begin(), per_process_extent_with_padding.end()));
+  bComplexElem *array_out_ptr = zeroComplexArray(std::vector<long>(per_process_extent_with_padding.begin(), per_process_extent_with_padding.end()));
+  bComplexElem *brick_out_ptr = zeroComplexArray(std::vector<long>(per_process_extent_with_padding.begin(), per_process_extent_with_padding.end()));
 
   // TODO: Actually populate this
   GENEBrickDecomp b_decomp(std::vector<unsigned>(per_process_extent.begin(), per_process_extent.end()),
@@ -833,10 +834,41 @@ int main(int argc, char **argv) {
 #endif
 
   // run array computation
-  semi_arakawa_distributed_array(out_ptr, in_ptr, coeffs, b_decomp, num_procs_per_dim, per_process_extent);
+  semi_arakawa_distributed_array(array_out_ptr, in_ptr, coeffs, b_decomp, num_procs_per_dim, per_process_extent);
+  semi_arakawa_distributed_brick(brick_out_ptr, in_ptr, coeffs, b_decomp, num_procs_per_dim, per_process_extent);
+
+  // check for correctness
+  auto array_result = (unsigned (*) [per_process_extent_with_padding[4]]
+                                    [per_process_extent_with_padding[3]]
+                                    [per_process_extent_with_padding[2]]
+                                    [per_process_extent_with_padding[1]]
+                                    [per_process_extent_with_padding[0]]) array_out_ptr;
+  auto brick_result = (unsigned (*) [per_process_extent_with_padding[4]]
+                                    [per_process_extent_with_padding[3]]
+                                    [per_process_extent_with_padding[2]]
+                                    [per_process_extent_with_padding[1]]
+                                    [per_process_extent_with_padding[0]]) brick_out_ptr;
+  #pragma omp parallel for collapse(5)
+  for(unsigned n = PADDING[5] + GHOST_ZONE[5]; n < PADDING[5] + GHOST_ZONE[5] + per_process_extent[5]; ++n)
+  for(unsigned m = PADDING[4] + GHOST_ZONE[4]; m < PADDING[4] + GHOST_ZONE[4] + per_process_extent[4]; ++m)
+  for(unsigned l = PADDING[3] + GHOST_ZONE[3]; l < PADDING[3] + GHOST_ZONE[3] + per_process_extent[3]; ++l)
+  for(unsigned k = PADDING[2] + GHOST_ZONE[2]; k < PADDING[2] + GHOST_ZONE[2] + per_process_extent[2]; ++k)
+  for(unsigned j = PADDING[1] + GHOST_ZONE[1]; j < PADDING[1] + GHOST_ZONE[1] + per_process_extent[1]; ++j)
+  #pragma omp simd 
+  for(unsigned i = PADDING[0] + GHOST_ZONE[0]; i < PADDING[0] + GHOST_ZONE[0] + per_process_extent[0]; ++i) {
+    std::complex<bElem> arr = array_result[n][m][l][k][j][i];
+    std::complex<bElem> bri = brick_result[n][m][l][k][j][i];
+    if(std::abs(arr - bri) >= 1e-7) {
+      std::ostringstream error_stream;
+      error_stream << "Mismatch at [" << n << "," << m << "," << l << "," << k << "," << j << "," << i << "]: "
+                   << "(array) " << arr << " != " << bri << "(brick)" << std::endl;
+      throw std::runtime_error(error_stream.str());
+    }
+  }
 
   // free memory
-  free(out_ptr);
+  free(brick_out_ptr);
+  free(array_out_ptr);
   free(in_ptr);
   return 0;
 }
