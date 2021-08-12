@@ -390,26 +390,28 @@ void semi_arakawa_distributed_brick(bComplexElem *out_ptr,
   BrickStorage b_storage = b_info.mmap_alloc(FieldBrick::BRICKSIZE);
   BrickStorage b_storage_out = b_info.mmap_alloc(FieldBrick::BRICKSIZE);
 #endif
-  std::array<int, DIM> per_process_extent_with_gz = per_process_extent;
+  std::array<int, DIM> per_process_extent_with_gz, brick_grid_extent_with_gz;
   for(unsigned i = 0; i < per_process_extent.size(); ++i) {
-    per_process_extent_with_gz[i] += GHOST_ZONE[i];
+    per_process_extent_with_gz[i] = per_process_extent[i] + 2 * GHOST_ZONE[i];
+    if(per_process_extent_with_gz[i] % BRICK_DIM[i] != 0) {
+      throw std::runtime_error("Per-process array extent with ghost-zones is not divisible by brick dimensions");
+    }
+    brick_grid_extent_with_gz[i] = per_process_extent_with_gz[i] / BRICK_DIM[i];
   }
-  size_t num_elts_with_gz = std::accumulate(per_process_extent_with_gz.begin(), per_process_extent_with_gz.end(),
-                                            1, std::multiplies<size_t>());
-  size_t num_bricks = num_elts_with_gz / FieldBrick::BRICKLEN;
+  size_t num_bricks = std::accumulate(brick_grid_extent_with_gz.begin(), brick_grid_extent_with_gz.end(), 1, std::multiplies<size_t>());
   unsigned *grid_ptr = (unsigned *) malloc(sizeof(unsigned) * num_bricks);
-  auto grid = (unsigned (*)[per_process_extent_with_gz[4]]
-                           [per_process_extent_with_gz[3]]
-                           [per_process_extent_with_gz[2]]
-                           [per_process_extent_with_gz[1]]
-                           [per_process_extent_with_gz[0]]
+  auto grid = (unsigned (*)[brick_grid_extent_with_gz[4]]
+                           [brick_grid_extent_with_gz[3]]
+                           [brick_grid_extent_with_gz[2]]
+                           [brick_grid_extent_with_gz[1]]
+                           [brick_grid_extent_with_gz[0]]
                ) grid_ptr;
-  for(size_t n = 0; n < per_process_extent_with_gz[5]; ++n)
-  for(size_t m = 0; m < per_process_extent_with_gz[4]; ++m)
-  for(size_t l = 0; l < per_process_extent_with_gz[3]; ++l)
-  for(size_t k = 0; k < per_process_extent_with_gz[2]; ++k)
-  for(size_t j = 0; j < per_process_extent_with_gz[1]; ++j)
-  for(size_t i = 0; i < per_process_extent_with_gz[0]; ++i) {
+  for(size_t n = 0; n < brick_grid_extent_with_gz[5]; ++n)
+  for(size_t m = 0; m < brick_grid_extent_with_gz[4]; ++m)
+  for(size_t l = 0; l < brick_grid_extent_with_gz[3]; ++l)
+  for(size_t k = 0; k < brick_grid_extent_with_gz[2]; ++k)
+  for(size_t j = 0; j < brick_grid_extent_with_gz[1]; ++j)
+  for(size_t i = 0; i < brick_grid_extent_with_gz[0]; ++i) {
     grid[n][m][l][k][j][i] = b_decomp[n][m][l][k][j][i];
   }
 
@@ -424,6 +426,31 @@ void semi_arakawa_distributed_brick(bComplexElem *out_ptr,
                    in_ptr,
                    grid_ptr,
                    b_in);
+  
+  // move bricks to device
+  BrickInfo<DIM, CommIn_kl> *b_info_dev;
+  BrickInfo<DIM, CommIn_kl> _b_info_dev = movBrickInfo(b_info, cudaMemcpyHostToDevice);
+  {
+    unsigned b_info_size = sizeof(BrickInfo<DIM, CommIn_kl>);
+    cudaMalloc(&b_info_dev, b_info_size);
+    cudaMemcpy(b_info_dev, &_b_info_dev, b_info_size, cudaMemcpyHostToDevice);
+  }
+
+  BrickStorage b_storage_dev = movBrickStorage(b_storage, cudaMemcpyHostToDevice),
+               b_storage_out_dev = movBrickStorage(b_storage_out, cudaMemcpyHostToDevice);
+
+  FieldBrick b_in_dev(b_info_dev, b_storage_dev, 0),
+             b_out_dev(b_info_dev, b_storage_out_dev, 0);
+  
+  // copy grid to device
+  unsigned *grid_ptr_dev = nullptr;
+  std::vector<long> brick_grid_extent_with_gz_as_vector(brick_grid_extent_with_gz.begin(), brick_grid_extent_with_gz.end());
+  copyToDevice(brick_grid_extent_with_gz_as_vector, grid_ptr_dev, grid_ptr);
+
+  // free memory
+  cudaCheck(cudaFree(grid_ptr_dev));
+  cudaCheck(cudaFree(_b_info_dev.adj));
+  cudaCheck(cudaFree(b_info_dev));
 }
 
 /**
