@@ -78,7 +78,7 @@ int main(int argc, char **argv) {
 
     bElem *in_ptr = randomArray(stride);
 
-    BrickDecomp<3, BDIM> bDecomp(dom_size, GZ);
+    BrickDecomp<Dim<BDIM> > bDecomp(dom_size, GZ);
     bDecomp.comm = cart;
     populate(cart, bDecomp, 0, 1, coo);
 

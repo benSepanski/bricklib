@@ -63,7 +63,7 @@ void decomp(bElem *in_ptr, bElem *out_ptr) {
       {-2,-3}, { 1,-2,-3}, { 1,-2}, { 1,-2, 3}, { 1, 3}, { 3}
   };
 
-  BrickDecomp<3, BDIM> bDecomp({512, 512, 512}, 8);
+  BrickDecomp<Dim<BDIM> > bDecomp({512, 512, 512}, 8);
 
   auto bSize = cal_size<BDIM>::value;
   bDecomp.initialize(skinlist);

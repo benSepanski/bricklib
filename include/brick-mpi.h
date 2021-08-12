@@ -165,9 +165,16 @@ struct MultiStageExchangeView {
 };
 
 /**
+ * @brief Generic template for partial template specialization
+ * @see BrickDecomp
+ */
+template<typename BDims, typename CommunicatingDims = CommDims<> >
+class BrickDecomp;
+
+/**
  * @brief Decomposition for MPI communication
- * @tparam dim number of dimensions
  * @tparam BDims Brick dimensions
+ * @tparam CommunicatingDims which dimensions to include in BrickInfo's adjacency list
  *
  * Decomposition is setup in steps:
  * 1. Reserve space of the inner-inner region
@@ -175,9 +182,8 @@ struct MultiStageExchangeView {
  * 3. Setup ghost region
  * 4. All extra ghost link to the end brick
  */
-template<unsigned dim,
-    unsigned ... BDims>
-class BrickDecomp {
+template<unsigned ... BDims, typename CommunicatingDims>
+class BrickDecomp<Dim<BDims...>, CommunicatingDims> {
 public:
   /**
    * @brief Record start and end of each region
@@ -197,15 +203,16 @@ public:
   std::vector<BitSet> skinlist;     ///< the order of skin
   std::vector<long> skin_size;      ///< the size of skin
 private:
-  typedef BrickDecomp<dim, BDims...> mytype;    ///< shorthand for type of this instance
+  typedef BrickDecomp<Dim<BDims...>, CommunicatingDims> mytype;    ///< shorthand for type of this instance
 
-  std::vector<unsigned> dims;       ///< dimension of internal in bricks
-  std::vector<unsigned> t_dims;     ///< dimension including ghosts in bricks
-  std::vector<unsigned> g_depth;    ///< The depth of ghostzone in bricks
-  std::vector<unsigned> stride;     ///< stride in bricks
-  unsigned *grid;                   ///< Grid indices
-  unsigned numfield;                ///< Number of fields that are interleaved
-  BrickInfo<dim> *bInfo;            ///< Associated BrickInfo
+  static constexpr unsigned dim = sizeof...(BDims); ///< number of dimensions
+  std::vector<unsigned> dims;                ///< dimension of internal in bricks
+  std::vector<unsigned> t_dims;              ///< dimension including ghosts in bricks
+  std::vector<unsigned> g_depth;             ///< The depth of ghostzone in bricks
+  std::vector<unsigned> stride;              ///< stride in bricks
+  unsigned *grid;                            ///< Grid indices
+  unsigned numfield;                         ///< Number of fields that are interleaved
+  BrickInfo<dim, CommunicatingDims> *bInfo;  ///< Associated BrickInfo
 
   template<typename T, unsigned di, unsigned d>
   friend
@@ -462,7 +469,7 @@ public:
     // Convert grid to adjlist
     int size = pos;
     if (bInfo == nullptr)
-      bInfo = new BrickInfo<dim>(size);
+      bInfo = new BrickInfo<dim, CommunicatingDims>(size);
     for (unsigned i = 0; i < grid_size; ++i)
       adj_populate(i, bInfo->adj[grid[i]]);
   }
@@ -516,7 +523,7 @@ public:
    * @brief Access the associated metadata
    * @return
    */
-  BrickInfo<dim> getBrickInfo() {
+  BrickInfo<dim, CommunicatingDims> getBrickInfo() {
     return *bInfo;
   }
 
@@ -722,8 +729,8 @@ public:
 
 /**
  * @brief Populate neighbor-rank map for BrickDecomp using MPI_Comm
- * @tparam dim number of dimensions
  * @tparam BDims Brick dimensions
+ * @tparam CommunicatingDims the dimensions in the brick-info
  * @param comm
  * @param bDecomp
  * @param neighbor
@@ -735,8 +742,9 @@ public:
  * populate(cart, brickDecomp, 0, 1, coo);
  * @endcode
  */
-template<unsigned dim, unsigned ...BDims>
-void populate(MPI_Comm &comm, BrickDecomp<dim, BDims...> &bDecomp, BitSet neighbor, int d, int *coo) {
+template<unsigned ...BDims, typename CommunicatingDims>
+void populate(MPI_Comm &comm, BrickDecomp<Dim<BDims...>, CommunicatingDims> &bDecomp, BitSet neighbor, int d, int *coo) {
+  constexpr unsigned dim = sizeof...(BDims); ///< number of dimensions
   if (d > dim) {
     int rank;
     MPI_Cart_rank(comm, coo, &rank);

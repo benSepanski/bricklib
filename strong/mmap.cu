@@ -100,7 +100,7 @@ int main(int argc, char **argv) {
 
   MEMFD::setup_prefix("mpi-main", rank);
 
-  BrickDecomp<3, BDIM> bDecomp({sdom_size, sdom_size, sdom_size}, GZ);
+  BrickDecomp<Dim<BDIM> > bDecomp({sdom_size, sdom_size, sdom_size}, GZ);
   auto bSize = cal_size<BDIM>::value;
   bDecomp.initialize(skin3d_good);
   BrickInfo<3> bInfo = bDecomp.getBrickInfo();

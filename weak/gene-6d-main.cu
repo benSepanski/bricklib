@@ -31,7 +31,7 @@
 
 unsigned NUM_GHOST_ELEMENTS;   ///< how many ghost elements?
 unsigned NUM_EXCHANGES; ///< how many mpi exchanges?
-typedef BrickDecomp<DIM, BDIM_n, BDIM_m, BDIM_l, BDIM_k, BDIM_j, BDIM_i> GENEBrickDecomp;
+typedef BrickDecomp<Dim<BDIM_n, BDIM_m, BDIM_l, BDIM_k, BDIM_j, BDIM_i> > GENEBrickDecomp;
 
 /**
  * @brief check for MPI failure

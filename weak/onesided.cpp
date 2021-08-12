@@ -92,7 +92,7 @@ int main(int argc, char **argv) {
         {3}
     };
 
-    BrickDecomp<3, BDIM> bDecomp({N, N, N}, GZ);
+    BrickDecomp<Dim<BDIM> > bDecomp({N, N, N}, GZ);
     bDecomp.comm = cart;
     populate(cart, bDecomp, 0, 1, coo);
 
