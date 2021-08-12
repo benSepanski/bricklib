@@ -32,6 +32,7 @@
 // useful constants
 constexpr unsigned DIM = 6;
 constexpr std::array<unsigned, DIM> BRICK_DIM = {2, 16, 2, 2, 1, 1};
+constexpr std::array<unsigned, DIM> COEFF_BRICK_DIM = {1, BRICK_DIM[0], BRICK_DIM[2], BRICK_DIM[3], BRICK_DIM[4], BRICK_DIM[5]};
 constexpr unsigned NUM_GHOST_ZONES = 1;
 constexpr std::array<unsigned, DIM> GHOST_ZONE = {0, 0, 2 * NUM_GHOST_ZONES, 2 * NUM_GHOST_ZONES, 0, 0};
 constexpr std::array<unsigned, DIM> PADDING = {0, 0, 0, 0, 0, 0};
@@ -48,12 +49,12 @@ static_assert(GHOST_ZONE[5] % BRICK_DIM[5] == 0);
 
 // useful types
 typedef Dim<BRICK_DIM[5], BRICK_DIM[4], BRICK_DIM[3], BRICK_DIM[2], BRICK_DIM[1], BRICK_DIM[0]> FieldBrickDimsType;
-typedef Dim<BRICK_DIM[5], BRICK_DIM[4], BRICK_DIM[3], BRICK_DIM[2], BRICK_DIM[0]> CoeffBrickDimsType;
+typedef Dim<COEFF_BRICK_DIM[5], COEFF_BRICK_DIM[4], COEFF_BRICK_DIM[3], COEFF_BRICK_DIM[2], COEFF_BRICK_DIM[1], COEFF_BRICK_DIM[0]> CoeffBrickDimsType;
 typedef Dim<1> VectorFoldType;
 typedef CommDims<false, false, true, true, false, false> CommIn_kl;
 typedef CommDims<false, false, false, false, false, false> NoComm;
 typedef Brick<FieldBrickDimsType, VectorFoldType, true, CommIn_kl> FieldBrick_kl;
-typedef Brick<CoeffBrickDimsType, VectorFoldType, true, NoComm> RealCoeffBrick;
+typedef Brick<CoeffBrickDimsType, VectorFoldType, false, NoComm> RealCoeffBrick;
 typedef BrickDecomp<FieldBrickDimsType, CommIn_kl> GENEBrickDecomp;
 
 // global constants set by CLI
@@ -130,65 +131,6 @@ MPI_Comm build_cartesian_comm(std::array<int, DIM> num_procs_per_dim, std::array
   return cartesian_comm;
 }
 
-__constant__ __device__ unsigned array_extent_dev[DIM]; ///< per-process with ghost-zones
-__constant__ __device__ unsigned padded_array_extent_dev[DIM]; ///< per-process with ghost-zones and padding
-__constant__ __device__ unsigned padded_array_stride_dev[DIM]; ///< per-process with ghost-zones and padding
-__constant__ __device__ unsigned per_process_extent_dev[DIM]; ///< per-process without ghost-zones
-
-/**
- * @brief cuda kernel to compute k-l arakawa derivative (array layout)
- * 
- * Should be invoked 1 thread per array element (not including ghosts or padding)
- * global thread idx should by x.y.z = K.L.IJMN
- * 
- * @param out_ptr output array of shape padded_array_extent_dev
- * @param in_ptr input array of shape padded_array_extent_dev
- * @param coeff stencil coefficients of shape (13,I,K,L,M,N) (no padding, no ghosts)
- */
-__global__
-void semi_arakawa_arr_kernel(bComplexElem * __restrict__ out_ptr,
-                             const bComplexElem * __restrict__ in_ptr,
-                             bElem * __restrict__ coeff
-                             )
-{
-  size_t global_z_idx = threadIdx.z + blockIdx.z * blockDim.z;
-  unsigned i = global_z_idx % array_extent_dev[0];
-  unsigned j = (global_z_idx / array_extent_dev[0]) % array_extent_dev[1];
-  unsigned m = (global_z_idx / array_extent_dev[0] / array_extent_dev[1]) % array_extent_dev[4];
-  unsigned n = (global_z_idx / array_extent_dev[0] / array_extent_dev[1] / array_extent_dev[4]);
-  unsigned k = threadIdx.x + blockIdx.x * blockDim.x;
-  unsigned l = threadIdx.y + blockIdx.y * blockDim.y;
-  size_t padded_ijklmn = PADDING[0] + GHOST_ZONE[0] + i 
-                       + padded_array_extent_dev[0] * (PADDING[1] + GHOST_ZONE[1] + j
-                       + padded_array_extent_dev[1] * (PADDING[2] + GHOST_ZONE[2] + k
-                       + padded_array_extent_dev[2] * (PADDING[3] + GHOST_ZONE[3] + l
-                       + padded_array_extent_dev[3] * (PADDING[4] + GHOST_ZONE[4] + m
-                       + padded_array_extent_dev[4] * (PADDING[5] + GHOST_ZONE[5] + n
-                       )))));
-  size_t unpadded_iklmn = i
-                        + per_process_extent_dev[0] * (j
-                        + per_process_extent_dev[1] * (k
-                        + per_process_extent_dev[2] * (l
-                        + per_process_extent_dev[3] * (m
-                        + per_process_extent_dev[4] * (n
-                        )))));
-  const size_t k_stride = padded_array_stride_dev[2];
-  const size_t l_stride = padded_array_stride_dev[3];
-  out_ptr[padded_ijklmn] = coeff[ 0 + ARAKAWA_STENCIL_SIZE * unpadded_iklmn] * in_ptr[padded_ijklmn - 2 * l_stride]
-                         + coeff[ 1 + ARAKAWA_STENCIL_SIZE * unpadded_iklmn] * in_ptr[padded_ijklmn - l_stride - k_stride]
-                         + coeff[ 2 + ARAKAWA_STENCIL_SIZE * unpadded_iklmn] * in_ptr[padded_ijklmn - l_stride]
-                         + coeff[ 3 + ARAKAWA_STENCIL_SIZE * unpadded_iklmn] * in_ptr[padded_ijklmn - l_stride + k_stride]
-                         + coeff[ 4 + ARAKAWA_STENCIL_SIZE * unpadded_iklmn] * in_ptr[padded_ijklmn - 2 * k_stride]
-                         + coeff[ 5 + ARAKAWA_STENCIL_SIZE * unpadded_iklmn] * in_ptr[padded_ijklmn - k_stride]
-                         + coeff[ 6 + ARAKAWA_STENCIL_SIZE * unpadded_iklmn] * in_ptr[padded_ijklmn]
-                         + coeff[ 7 + ARAKAWA_STENCIL_SIZE * unpadded_iklmn] * in_ptr[padded_ijklmn + k_stride]
-                         + coeff[ 8 + ARAKAWA_STENCIL_SIZE * unpadded_iklmn] * in_ptr[padded_ijklmn + 2 * k_stride]
-                         + coeff[ 9 + ARAKAWA_STENCIL_SIZE * unpadded_iklmn] * in_ptr[padded_ijklmn + l_stride - k_stride]
-                         + coeff[10 + ARAKAWA_STENCIL_SIZE * unpadded_iklmn] * in_ptr[padded_ijklmn + l_stride]
-                         + coeff[11 + ARAKAWA_STENCIL_SIZE * unpadded_iklmn] * in_ptr[padded_ijklmn + l_stride + k_stride]
-                         + coeff[12 + ARAKAWA_STENCIL_SIZE * unpadded_iklmn] * in_ptr[padded_ijklmn + 2 * l_stride];
-}
-
 /**
  * @brief times func and prints stats
  * 
@@ -241,14 +183,74 @@ void time_and_print_mpi_stats(std::function<void(void)> func, GENEBrickDecomp b_
   }
 }
 
+__device__ __constant__ unsigned array_extent_with_gz_dev[DIM];
+__device__ __constant__ unsigned array_extent_with_padding_dev[DIM];
+
+/**
+ * @brief cuda kernel to compute k-l arakawa derivative (array layout)
+ * 
+ * Should be invoked 1 thread per array element (including ghosts, but not padding)
+ * global thread idx should by x.y.z = K.L.IJMN
+ * 
+ * @param out_ptr output array of shape array_extent_with_padding_dev
+ * @param in_ptr input array of shape array_extent_with_padding_dev
+ * @param coeff stencil coefficients of shape (13,)+array_extent_with_gz_dev
+ */
+__global__
+void semi_arakawa_arr_kernel(bComplexElem * __restrict__ out_ptr,
+                             const bComplexElem * __restrict__ in_ptr,
+                             bElem * __restrict__ coeff)
+{
+  // convenient aliases
+  unsigned * extent_with_gz = array_extent_with_gz_dev;
+  unsigned * extent_with_padding = array_extent_with_padding_dev;
+
+  size_t global_z_idx = threadIdx.z + blockIdx.z * blockDim.z;
+  unsigned i = global_z_idx % extent_with_gz[0];
+  unsigned j = (global_z_idx / extent_with_gz[0]) % extent_with_gz[1];
+  unsigned m = (global_z_idx / extent_with_gz[0] / extent_with_gz[1]) % extent_with_gz[4];
+  unsigned n = (global_z_idx / extent_with_gz[0] / extent_with_gz[1] / extent_with_gz[4]);
+  unsigned k = threadIdx.x + blockIdx.x * blockDim.x;
+  unsigned l = threadIdx.y + blockIdx.y * blockDim.y;
+  size_t padded_ijklmn = PADDING[0] + GHOST_ZONE[0] + i 
+                       + extent_with_padding[0] * (PADDING[1] + GHOST_ZONE[1] + j
+                       + extent_with_padding[1] * (PADDING[2] + GHOST_ZONE[2] + k
+                       + extent_with_padding[2] * (PADDING[3] + GHOST_ZONE[3] + l
+                       + extent_with_padding[3] * (PADDING[4] + GHOST_ZONE[4] + m
+                       + extent_with_padding[4] * (PADDING[5] + GHOST_ZONE[5] + n
+                       )))));
+  size_t unpadded_iklmn = i
+                        + extent_with_gz[0] * (j
+                        + extent_with_gz[1] * (k
+                        + extent_with_gz[2] * (l
+                        + extent_with_gz[3] * (m
+                        + extent_with_gz[4] * (n
+                        )))));
+  const size_t k_stride = extent_with_padding[1] * extent_with_padding[0];
+  const size_t l_stride = extent_with_padding[2] * k_stride;
+  out_ptr[padded_ijklmn] = coeff[ 0 + ARAKAWA_STENCIL_SIZE * unpadded_iklmn] * in_ptr[padded_ijklmn - 2 * l_stride]
+                         + coeff[ 1 + ARAKAWA_STENCIL_SIZE * unpadded_iklmn] * in_ptr[padded_ijklmn - l_stride - k_stride]
+                         + coeff[ 2 + ARAKAWA_STENCIL_SIZE * unpadded_iklmn] * in_ptr[padded_ijklmn - l_stride]
+                         + coeff[ 3 + ARAKAWA_STENCIL_SIZE * unpadded_iklmn] * in_ptr[padded_ijklmn - l_stride + k_stride]
+                         + coeff[ 4 + ARAKAWA_STENCIL_SIZE * unpadded_iklmn] * in_ptr[padded_ijklmn - 2 * k_stride]
+                         + coeff[ 5 + ARAKAWA_STENCIL_SIZE * unpadded_iklmn] * in_ptr[padded_ijklmn - k_stride]
+                         + coeff[ 6 + ARAKAWA_STENCIL_SIZE * unpadded_iklmn] * in_ptr[padded_ijklmn]
+                         + coeff[ 7 + ARAKAWA_STENCIL_SIZE * unpadded_iklmn] * in_ptr[padded_ijklmn + k_stride]
+                         + coeff[ 8 + ARAKAWA_STENCIL_SIZE * unpadded_iklmn] * in_ptr[padded_ijklmn + 2 * k_stride]
+                         + coeff[ 9 + ARAKAWA_STENCIL_SIZE * unpadded_iklmn] * in_ptr[padded_ijklmn + l_stride - k_stride]
+                         + coeff[10 + ARAKAWA_STENCIL_SIZE * unpadded_iklmn] * in_ptr[padded_ijklmn + l_stride]
+                         + coeff[11 + ARAKAWA_STENCIL_SIZE * unpadded_iklmn] * in_ptr[padded_ijklmn + l_stride + k_stride]
+                         + coeff[12 + ARAKAWA_STENCIL_SIZE * unpadded_iklmn] * in_ptr[padded_ijklmn + 2 * l_stride];
+}
+
 /**
  * @brief perform semi-arakawa k-l derivative kernel weak-scaling benchmark
  * 
  * Uses array layout
  * 
- * @param[out] out_ptr output data
- * @param[in] in_ptr input data
- * @param[in] coeffs input coefficients
+ * @param[out] out_ptr output data (has ghost-zones and padding)
+ * @param[in] in_ptr input data (has ghost-zones and padding)
+ * @param[in] coeffs input coefficients (has ghost-zones but no padding)
  * @param[in] b_decomp the brick decomposition
  * @param[in] num_procs_per_dim number of processes in each dimension of cartesian communicator
  * @param[in] extent extent in each dimension (per MPI process) without ghost-zone/padding
@@ -272,31 +274,31 @@ void semi_arakawa_distributed_array(bComplexElem *out_ptr,
                                              padding_as_vector,
                                              ghost_zone_as_vector);
   // set up in/out ptrs on device
-  std::array<long, DIM> gz_extent, padded_extent, coeff_extent;
+  std::array<long, DIM> extent_with_gz, extent_with_padding, coeff_extent;
   for(int i = 0; i < DIM; ++i) {
-    gz_extent[i] = 2 * GHOST_ZONE[i] + extent[i];
-    padded_extent[i] = 2 * PADDING[i] + gz_extent[i];
+    extent_with_gz[i] = 2 * GHOST_ZONE[i] + extent[i];
+    extent_with_padding[i] = 2 * PADDING[i] + extent_with_gz[i];
   }
   coeff_extent[0] = ARAKAWA_STENCIL_SIZE;
-  coeff_extent[1] = extent[0];
+  coeff_extent[1] = extent_with_gz[0];
   for(int i = 2; i < DIM; ++i) {
-    coeff_extent[i] = extent[i - 1];
+    coeff_extent[i] = extent_with_gz[i - 1];
   }
 
   bComplexElem *in_ptr_dev = nullptr, *out_ptr_dev = nullptr;
-  std::vector<long> padded_extent_as_vector(padded_extent.begin(), padded_extent.end()),
+  std::vector<long> extent_with_padding_as_vector(extent_with_padding.begin(), extent_with_padding.end()),
                     coeff_extent_as_vector(coeff_extent.begin(), coeff_extent.end());
-  copyToDevice(padded_extent_as_vector, in_ptr_dev,  in_ptr);
-  copyToDevice(padded_extent_as_vector, out_ptr_dev, out_ptr);
+  copyToDevice(extent_with_padding_as_vector, in_ptr_dev,  in_ptr);
+  copyToDevice(extent_with_padding_as_vector, out_ptr_dev, out_ptr);
   bElem *coeff_dev = nullptr;
   copyToDevice(coeff_extent_as_vector, coeff_dev, coeffs);
 
   // build function to perform computation
-  auto arr_func = [&gz_extent,
-                   &padded_extent_as_vector,
+  auto arr_func = [&extent_with_gz,
+                   &extent_with_padding_as_vector,
                    &extent_as_vector,
-                   &padding_as_vector,
                    &ghost_zone_as_vector,
+                   &padding_as_vector,
                    &b_decomp,
                    &in_ptr,
                    &in_ptr_dev,
@@ -309,7 +311,7 @@ void semi_arakawa_distributed_array(bComplexElem *out_ptr,
 #if !defined(CUDA_AWARE) || !defined(USE_TYPES)
     // Copy everything back from device
     double st = omp_get_wtime();
-    copyFromDevice(padded_extent_as_vector, in_ptr, in_ptr_dev);
+    copyFromDevice(extent_with_padding_as_vector, in_ptr, in_ptr_dev);
     movetime += omp_get_wtime() - st;
     exchangeArr<DIM>(in_ptr,
                      b_decomp.comm,
@@ -318,21 +320,22 @@ void semi_arakawa_distributed_array(bComplexElem *out_ptr,
                      padding_as_vector,
                      ghost_zone_as_vector);
     st = omp_get_wtime();
-    copyToDevice(padded_extent_as_vector, in_ptr_dev, in_ptr);
+    copyToDevice(extent_with_padding_as_vector, in_ptr_dev, in_ptr);
     movetime += omp_get_wtime() - st;
 #else
     exchangeArrTypes<DIM>(in_ptr_dev, b_decomp.comm, b_decomp.rank_map, stypemap, rtypemap);
 #endif
     cudaEventRecord(c_0);
     dim3 block(TILE_SIZE, TILE_SIZE),
-          grid((gz_extent[2] + block.x - 1) / block.x,
-               (gz_extent[3] + block.y - 1) / block.y,
-               (gz_extent[0] * gz_extent[1] * gz_extent[3] * gz_extent[4]) / block.z);
-    for (int i = 0; i < NUM_GHOST_ZONES / 2; ++i) {
+          grid((extent_with_gz[2] + block.x - 1) / block.x,
+               (extent_with_gz[3] + block.y - 1) / block.y,
+               (extent_with_gz[0] * extent_with_gz[1] * extent_with_gz[3] * extent_with_gz[4]) / block.z);
+    for (int i = 0; i < NUM_GHOST_ZONES; ++i) {
       semi_arakawa_arr_kernel << < grid, block>> > (out_ptr_dev, in_ptr_dev, coeff_dev);
-      semi_arakawa_arr_kernel << < grid, block>> > (in_ptr_dev, out_ptr_dev, coeff_dev);
+      if(i + 1 < NUM_GHOST_ZONES) { 
+        std::swap(out_ptr_dev, in_ptr_dev);
+      }
     }
-    if(NUM_GHOST_ZONES % 2 == 1) semi_arakawa_arr_kernel << < grid, block>> > (out_ptr_dev, in_ptr_dev, coeff_dev);
     cudaEventRecord(c_1);
     cudaEventSynchronize(c_1);
     cudaEventElapsedTime(&elapsed, c_0, c_1);
@@ -348,12 +351,7 @@ void semi_arakawa_distributed_array(bComplexElem *out_ptr,
   time_and_print_mpi_stats(arr_func, b_decomp, tot_num_elements);
 
   // Copy back
-  if(NUM_GHOST_ZONES % 2 == 1) {
-    copyFromDevice(padded_extent_as_vector, out_ptr, out_ptr_dev);
-  }
-  else {
-    copyFromDevice(padded_extent_as_vector, out_ptr, in_ptr_dev);
-  }
+  copyFromDevice(extent_with_padding_as_vector, out_ptr, in_ptr_dev);
   
   // free memory
   cudaCheck(cudaFree(coeff_dev));
@@ -361,15 +359,36 @@ void semi_arakawa_distributed_array(bComplexElem *out_ptr,
   cudaCheck(cudaFree(in_ptr_dev));
 }
 
+/**
+ * @brief cuda kernel to compute k-l arakawa derivative (brick layout)
+ * 
+ * Should be invoked 1 thread per array element (including ghosts, but not padding)
+ * and 1 thread-block per brick. Assumes thread-block index is K.L.IJMN
+ * 
+ * @param grid_ptr brick-grid for field bricks (includes ghost bricks)
+ * @param coeff_grid_ptr brick-grid for coefficients (includes ghost bricks)
+ * @param out_brick output brick
+ * @param in_brick input brick
+ * @param coeff_brick coefficients
+ */
+__global__
+void semi_arakawa_brick_kernel(unsigned * grid_ptr,
+                               unsigned * coeff_grid_ptr,
+                               FieldBrick_kl out_brick,
+                               FieldBrick_kl in_brick,
+                               RealCoeffBrick coeff_brick)
+{
+   // TODO
+}
 
 /**
  * @brief perform semi-arakawa k-l derivative kernel weak-scaling benchmark
  * 
  * Uses bricks layout
  * 
- * @param[out] out_ptr output data
- * @param[in] in_ptr input data
- * @param[in] coeffs input coefficients
+ * @param[out] out_ptr output data (has ghost-zones and padding)
+ * @param[in] in_ptr input data (has ghost-zones and padding)
+ * @param[in] coeffs input coefficients (has ghost-zones but no padding)
  * @param[in] b_decomp the brick decomposition
  * @param[in] num_procs_per_dim number of processes in each dimension of cartesian communicator
  * @param[in] per_process_extent extent in each dimension (per MPI process)
@@ -398,7 +417,7 @@ void semi_arakawa_distributed_brick(bComplexElem *out_ptr,
     }
     brick_grid_extent_with_gz[i] = per_process_extent_with_gz[i] / BRICK_DIM[i];
   }
-  size_t num_bricks = std::accumulate(brick_grid_extent_with_gz.begin(), brick_grid_extent_with_gz.end(), 1, std::multiplies<size_t>());
+  const size_t num_bricks = std::accumulate(brick_grid_extent_with_gz.begin(), brick_grid_extent_with_gz.end(), 1, std::multiplies<size_t>());
   unsigned *grid_ptr = (unsigned *) malloc(sizeof(unsigned) * num_bricks);
   auto grid = (unsigned (*)[brick_grid_extent_with_gz[4]]
                            [brick_grid_extent_with_gz[3]]
@@ -415,7 +434,33 @@ void semi_arakawa_distributed_brick(bComplexElem *out_ptr,
     grid[n][m][l][k][j][i] = b_decomp[n][m][l][k][j][i];
   }
 
-  // setup bricks on host and copy in data
+  // setup coefficient bricks metadata 
+  std::array<unsigned, DIM> coeff_extent_with_gz;
+  coeff_extent_with_gz[0] = ARAKAWA_STENCIL_SIZE;
+  coeff_extent_with_gz[1] = per_process_extent_with_gz[0];
+  for(unsigned i = 2; i < DIM; ++i) {
+    coeff_extent_with_gz[i] = per_process_extent_with_gz[i - 1];
+  }
+  std::vector<long> coeff_brick_grid_extent_with_gz;
+  coeff_brick_grid_extent_with_gz.reserve(DIM);
+  for(unsigned i = 0; i < DIM; ++i) {
+    coeff_brick_grid_extent_with_gz[i] = coeff_extent_with_gz[i] / COEFF_BRICK_DIM[i];
+  }
+  const size_t num_coeff_bricks = std::accumulate(coeff_extent_with_gz.begin() + 1, coeff_extent_with_gz.end(),
+                                                  1, std::multiplies<size_t>());
+  unsigned *coeff_grid_ptr;
+  BrickInfo<DIM, NoComm> coeff_b_info = init_grid<DIM, NoComm>(coeff_grid_ptr, coeff_brick_grid_extent_with_gz);
+
+  // setup coeff bricks on host
+  BrickStorage coeff_b_storage = coeff_b_info.allocate(RealCoeffBrick::BRICKSIZE);
+  RealCoeffBrick coeff_brick(&coeff_b_info, coeff_b_storage, 0);
+  std::vector<long> coeff_extent_with_gz_as_vector(coeff_extent_with_gz.begin(), coeff_extent_with_gz.end());
+  copyToBrick<DIM>(coeff_extent_with_gz_as_vector,
+                   coeffs,
+                   coeff_grid_ptr,
+                   coeff_brick);
+
+  // setup field bricks on host and copy in data
   FieldBrick b_in(&b_info, b_storage, 0),
              b_out(&b_info, b_storage_out, 0);
   std::vector<long> per_process_extent_with_gz_as_vector(per_process_extent_with_gz.begin(), per_process_extent_with_gz.end()),
@@ -435,22 +480,124 @@ void semi_arakawa_distributed_brick(bComplexElem *out_ptr,
     cudaMalloc(&b_info_dev, b_info_size);
     cudaMemcpy(b_info_dev, &_b_info_dev, b_info_size, cudaMemcpyHostToDevice);
   }
+  BrickInfo<DIM, NoComm> *coeff_b_info_dev;
+  BrickInfo<DIM, NoComm> _coeff_b_info_dev = movBrickInfo(coeff_b_info, cudaMemcpyHostToDevice);
+  {
+    unsigned coeff_b_info_size = sizeof(BrickInfo<DIM, NoComm>);
+    cudaMalloc(&coeff_b_info_dev, coeff_b_info_size);
+    cudaMemcpy(coeff_b_info_dev, &_coeff_b_info_dev, coeff_b_info_size, cudaMemcpyHostToDevice);
+  }
 
   BrickStorage b_storage_dev = movBrickStorage(b_storage, cudaMemcpyHostToDevice),
-               b_storage_out_dev = movBrickStorage(b_storage_out, cudaMemcpyHostToDevice);
+               b_storage_out_dev = movBrickStorage(b_storage_out, cudaMemcpyHostToDevice),
+               coeff_b_storage_dev = movBrickStorage(coeff_b_storage, cudaMemcpyHostToDevice);
 
   FieldBrick b_in_dev(b_info_dev, b_storage_dev, 0),
              b_out_dev(b_info_dev, b_storage_out_dev, 0);
+  RealCoeffBrick coeff_brick_dev(&coeff_b_info, coeff_b_storage, 0);
   
   // copy grid to device
-  unsigned *grid_ptr_dev = nullptr;
+  unsigned *grid_ptr_dev = nullptr, 
+           *coeff_grid_ptr_dev = nullptr;
   std::vector<long> brick_grid_extent_with_gz_as_vector(brick_grid_extent_with_gz.begin(), brick_grid_extent_with_gz.end());
   copyToDevice(brick_grid_extent_with_gz_as_vector, grid_ptr_dev, grid_ptr);
+  copyToDevice(coeff_brick_grid_extent_with_gz, coeff_grid_ptr_dev, coeff_grid_ptr);
+
+#ifndef DECOMP_PAGEUNALIGN
+  ExchangeView ev = b_decomp.exchangeView(b_storage);
+#endif
+  // setup brick function to compute stencil
+  auto brick_func = [&]() -> void {
+    float elapsed;
+    cudaEvent_t c_0, c_1;
+    cudaEventCreate(&c_0);
+    cudaEventCreate(&c_1);
+#ifndef CUDA_AWARE
+  {
+    double t_a = omp_get_wtime();
+    cudaCheck(cudaMemcpy(b_storage.dat.get() + b_storage.step * b_decomp.sep_pos[0],
+                         b_storage_dev.dat.get() + b_storage.step * b_decomp.sep_pos[0],
+                         b_storage.step * (b_decomp.sep_pos[1] - b_decomp.sep_pos[0]) * sizeof(bElem),
+                         cudaMemcpyDeviceToHost));
+    double t_b = omp_get_wtime();
+    movetime += t_b - t_a;
+  #ifdef DECOMP_PAGEUNALIGN
+    b_decomp.exchange(b_storage);
+  #else
+    ev.exchange();
+  #endif
+    t_a = omp_get_wtime();
+    cudaCheck(cudaMemcpy(b_storage_dev.dat.get() + b_storage.step * b_decomp.sep_pos[1],
+                         b_storage.dat.get() + b_storage.step * b_decomp.sep_pos[1],
+                         b_storage.step * (b_decomp.sep_pos[2] - b_decomp.sep_pos[1]) * sizeof(bElem),
+                         cudaMemcpyHostToDevice));
+    t_b = omp_get_wtime();
+    movetime += t_b - t_a;
+  }
+#else
+  bDecomp.exchange(bStorage_dev);
+#endif
+    std::array<unsigned, DIM> brick_grid_extent;
+    for(unsigned i = 0; i < DIM; ++i) {
+      brick_grid_extent[i] = per_process_extent[i] / BRICK_DIM[i];
+    }
+    dim3 cuda_grid_size(brick_grid_extent[2],
+                        brick_grid_extent[3],
+                        num_bricks / brick_grid_extent[2] / brick_grid_extent[3]),
+         cuda_block_size(BRICK_DIM[0], BRICK_DIM[1], FieldBrick::BRICKLEN / BRICK_DIM[0] / BRICK_DIM[1]);
+    cudaEventRecord(c_0);
+    for (int i = 0; i < NUM_GHOST_ZONES; ++i) {
+      semi_arakawa_brick_kernel << < cuda_grid_size, cuda_block_size>> >(grid_ptr_dev,
+                                                                         coeff_grid_ptr_dev,
+                                                                         b_out_dev,
+                                                                         b_in_dev,
+                                                                         coeff_brick_dev);
+      if(i + 1 < NUM_GHOST_ZONES) { 
+        std::swap(b_out_dev, b_in_dev);
+        std::swap(b_storage, b_storage_out);
+        std::swap(b_storage_dev, b_storage_out_dev);
+      }
+    }
+    cudaEventRecord(c_1);
+    cudaEventSynchronize(c_1);
+    cudaEventElapsedTime(&elapsed, c_0, c_1);
+    calctime += elapsed / 1000.0;
+  };
+
+  // time function
+  int rank;
+  check_MPI(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
+  if (rank == 0)
+    std::cout << "brick MPI decomp" << std::endl;
+  size_t tot_num_elements = std::accumulate(per_process_extent.begin(), per_process_extent.end(), 1, std::multiplies<size_t>())
+                          * std::accumulate(num_procs_per_dim.begin(), num_procs_per_dim.end(), 1, std::multiplies<size_t>());
+  time_and_print_mpi_stats(brick_func, b_decomp, tot_num_elements);
+
+  // Copy back
+  cudaCheck(cudaMemcpy(b_storage_out.dat.get(),
+                       b_storage_out_dev.dat.get(),
+                       b_storage.step * b_info.nbricks * sizeof(bElem),
+                       cudaMemcpyDeviceToHost));
+
+  std::vector<long> per_process_extent_as_vector(per_process_extent.begin(), per_process_extent.end()),
+                    ghost_zone_as_vector(GHOST_ZONE.begin(), GHOST_ZONE.end());
+  copyFromBrick<DIM>(per_process_extent_as_vector,
+                     padding_as_vector,
+                     ghost_zone_as_vector,
+                     in_ptr,
+                     grid_ptr,
+                     b_in);
 
   // free memory
+  cudaCheck(cudaFree(coeff_grid_ptr_dev));
   cudaCheck(cudaFree(grid_ptr_dev));
   cudaCheck(cudaFree(_b_info_dev.adj));
   cudaCheck(cudaFree(b_info_dev));
+  cudaCheck(cudaFree(_coeff_b_info_dev.adj));
+  cudaCheck(cudaFree(coeff_b_info_dev));
+  free(coeff_b_info.adj);
+  free(coeff_grid_ptr);
+  free(grid_ptr);
 }
 
 /**
@@ -623,15 +770,11 @@ int main(int argc, char **argv) {
   MPI_Comm cartesian_comm = build_cartesian_comm(num_procs_per_dim, per_process_extent);
   MEMFD::setup_prefix("weak/gene-6d-main", rank);
   // get array/brick extents set up for my MPI process (all include ghost-zones)
-  std::array<int, DIM> array_extent,
-                       padded_array_stride,
-                       padded_array_extent,
-                       brick_grid_extent;
+  std::array<int, DIM> per_process_extent_with_gz,
+                       per_process_extent_with_padding;
   for(int i = 0; i < DIM; ++i) {
-    array_extent[i] = per_process_extent[i] + 2 * GHOST_ZONE[i];
-    if(i == 0) padded_array_stride[0] = 1;
-    else padded_array_stride[i] = padded_array_stride[i-1] * padded_array_extent[i];
-    padded_array_extent[i] = array_extent[i] + 2 * PADDING[i];
+    per_process_extent_with_gz[i] = per_process_extent[i] + 2 * GHOST_ZONE[i];
+    per_process_extent_with_padding[i] = per_process_extent_with_gz[i] + 2 * PADDING[i];
     if(per_process_extent[i] % BRICK_DIM[i] != 0) {
       std::ostringstream error_stream;
       error_stream << "Brick-dimension " << i << " (" << BRICK_DIM[i] << ")"
@@ -644,25 +787,50 @@ int main(int argc, char **argv) {
                    << " does not divide ghost-zone " << i << " (" << GHOST_ZONE[i] << ")";
       throw std::runtime_error(error_stream.str());
     }
-    brick_grid_extent[i] = array_extent[i] / BRICK_DIM[i];
   }
-  cudaCheck(cudaMemcpyToSymbol(padded_array_stride_dev, padded_array_stride.data(), DIM * sizeof(unsigned)));
-  cudaCheck(cudaMemcpyToSymbol(array_extent_dev, array_extent.data(), DIM * sizeof(unsigned)));
-  cudaCheck(cudaMemcpyToSymbol(padded_array_extent_dev, padded_array_extent.data(), DIM * sizeof(unsigned)));
-  cudaCheck(cudaMemcpyToSymbol(per_process_extent_dev, per_process_extent.data(), DIM * sizeof(unsigned)));
+  cudaCheck(cudaMemcpyToSymbol(array_extent_with_gz_dev, per_process_extent_with_gz.data(), DIM * sizeof(unsigned)));
+  cudaCheck(cudaMemcpyToSymbol(array_extent_with_padding_dev, per_process_extent_with_padding.data(), DIM * sizeof(unsigned)));
   // set up shape of coeffs
-  std::array<int, DIM> coeff_extent = per_process_extent;
-  coeff_extent[0] = ARAKAWA_STENCIL_SIZE;
-  coeff_extent[1] = per_process_extent[0];
+  std::array<int, DIM> coeff_extent_with_gz = per_process_extent_with_gz;
+  coeff_extent_with_gz[0] = ARAKAWA_STENCIL_SIZE;
+  coeff_extent_with_gz[1] = per_process_extent[0];
   // initialize my part of the grid to random data
-  bComplexElem *in_ptr = randomComplexArray(std::vector<long>(padded_array_extent.begin(), padded_array_extent.end()));
-  bElem *coeffs = randomArray(std::vector<long>(coeff_extent.begin(), coeff_extent.end()));
-  bComplexElem *out_ptr = zeroComplexArray(std::vector<long>(padded_array_extent.begin(), padded_array_extent.end()));
+  bComplexElem *in_ptr = randomComplexArray(std::vector<long>(per_process_extent_with_padding.begin(), per_process_extent_with_padding.end()));
+  bComplexElem *out_ptr = zeroComplexArray(std::vector<long>(per_process_extent_with_padding.begin(), per_process_extent_with_padding.end()));
 
   // TODO: Actually populate this
   GENEBrickDecomp b_decomp(std::vector<unsigned>(per_process_extent.begin(), per_process_extent.end()),
-                           std::vector<unsigned>(GHOST_ZONE.begin(), GHOST_ZONE.end())
-                           );
+                          std::vector<unsigned>(GHOST_ZONE.begin(), GHOST_ZONE.end())
+                          );
+
+  // initialize my coefficients to random data, and receive coefficients for ghost-zones
+  bElem *coeffs = randomArray(std::vector<long>(coeff_extent_with_gz.begin(), coeff_extent_with_gz.end()));
+  // build extent/ghost-zones for coeff extent
+  std::vector<long> coeff_extent, coeff_ghost_zone;
+  coeff_extent.push_back(ARAKAWA_STENCIL_SIZE);
+  coeff_ghost_zone.push_back(0);
+  coeff_extent.push_back(per_process_extent[0]);
+  coeff_ghost_zone.push_back(GHOST_ZONE[0]);
+  for(unsigned i = 2; i < DIM; ++i) {
+    coeff_ghost_zone.push_back(per_process_extent[i]);
+    coeff_ghost_zone.push_back(GHOST_ZONE[i]);
+  }
+#if defined(USE_TYPES)
+  // set up MPI types for transfer of ghost-zone coeffs
+  std::unordered_map<uint64_t, MPI_Datatype> coeffs_stypemap;
+  std::unordered_map<uint64_t, MPI_Datatype> coeffs_rtypemap;
+  exchangeArrPrepareTypes<DIM, bElem>(coeffs_stypemap,
+                                      coeffs_rtypemap,
+                                      coeff_extent,
+                                      std::vector<long>(coeff_extent.size(), 0), ///< no padding for coeffs
+                                      coeff_ghost_zone);
+  exchangeArrTypes<DIM>(coeffs, b_decomp.comm, b_decomp.rank_map, coeffs_stypemap, coeffs_rtypemap);
+#else
+  exchangeArr<DIM>(coeffs, b_decomp.comm, b_decomp.rank_map,
+                   coeff_extent,
+                   std::vector<long>(coeff_extent.size(), 0), ///< no padding for coeffs
+                   coeff_ghost_zone);
+#endif
 
   // run array computation
   semi_arakawa_distributed_array(out_ptr, in_ptr, coeffs, b_decomp, num_procs_per_dim, per_process_extent);
