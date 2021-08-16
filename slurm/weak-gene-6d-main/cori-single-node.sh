@@ -2,7 +2,7 @@
 
 #SBATCH -q regular
 #SBATCH -C gpu
-#SBATCH --time 02:00:00
+#SBATCH --time 00:30:00
 
 #SBATCH --nodes 1
 #SBATCH --gpus 2
@@ -28,6 +28,8 @@ export gtensor_DIR=${HOME}/bricks2021/gtensor/bin
 export BRICKS_DIR=${HOME}/bricks2021/bricklib
 
 #run the application:
-srun ${BRICKS_DIR}/dbuild/weak/gene6d
+srun ${BRICKS_DIR}/dbuild/weak/gene6d \
+      -d 70,16,24,48,32,2 \
+      -p 1,1,2,1,1,1
 
 # perform any cleanup or short post-processing here

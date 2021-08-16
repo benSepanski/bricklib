@@ -628,10 +628,10 @@ std::vector<unsigned> read_uint_tuple(std::istream &in = std::cin, char delim = 
  */
 unsigned parse_args(std::array<int, DIM> *per_process_domain_size,
                     std::array<int, DIM> *num_procs_per_dim,
-                    std::istream &in = std::cin)
+                    std::istream &in)
 {
   std::string option_string;
-  unsigned num_iters;
+  unsigned num_iters = 100;
   std::vector<unsigned> tuple;
   bool read_dom_size = false, read_num_iters = false, read_num_procs_per_dim = false;
   std::string help_string = "Program options\n"
@@ -712,7 +712,11 @@ int main(int argc, char **argv) {
   // TODO: get per-process extent and number of processors per-dimension from
   //       cmdline
   std::array<int, DIM> num_procs_per_dim, global_extent, per_process_extent;
-  parse_args(&per_process_extent, &num_procs_per_dim);
+  std::stringstream input_stream;
+  for(int i = 1; i < argc; ++i) {
+    input_stream << argv[i] << " ";
+  }
+  NUM_EXCHANGES = parse_args(&per_process_extent, &num_procs_per_dim, input_stream);
   for(int i = 0; i < DIM; ++i) {
     global_extent[i] = per_process_extent[i] * num_procs_per_dim[i];
   }
@@ -816,6 +820,7 @@ int main(int argc, char **argv) {
     coeff_ghost_zone.push_back(per_process_extent[i]);
     coeff_ghost_zone.push_back(GHOST_ZONE[i]);
   }
+  std::cout << "Beginning coefficient exchange" << std::endl;
 #if defined(USE_TYPES)
   // set up MPI types for transfer of ghost-zone coeffs
   std::unordered_map<uint64_t, MPI_Datatype> coeffs_stypemap;
@@ -833,8 +838,10 @@ int main(int argc, char **argv) {
                    coeff_ghost_zone);
 #endif
 
+  std::cout << "Beginning array computation" << std::endl;
   // run array computation
   semi_arakawa_distributed_array(array_out_ptr, in_ptr, coeffs, b_decomp, num_procs_per_dim, per_process_extent);
+  std::cout << "Beginning brickc computation" << std::endl;
   semi_arakawa_distributed_brick(brick_out_ptr, in_ptr, coeffs, b_decomp, num_procs_per_dim, per_process_extent);
 
   // check for correctness
