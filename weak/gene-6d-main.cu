@@ -846,8 +846,6 @@ int main(int argc, char **argv) {
     }
   }
   b_decomp.initialize(skin2d);
-  std::cout << "initialization complete" << std::endl;
-  exit(123);
 
   // initialize my coefficients to random data, and receive coefficients for ghost-zones
   bElem *coeffs = randomArray(std::vector<long>(coeff_extent_with_gz.begin(), coeff_extent_with_gz.end()));
