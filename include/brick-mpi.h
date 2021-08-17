@@ -731,7 +731,7 @@ public:
  * @brief Populate neighbor-rank map for BrickDecomp using MPI_Comm
  * @tparam BDims Brick dimensions
  * @tparam CommunicatingDims the dimensions in the brick-info
- * @param comm
+ * @param comm A cartesian communicator. Must be periodic if one of neighbors has boundary
  * @param bDecomp
  * @param neighbor
  * @param d current dimension

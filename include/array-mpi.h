@@ -191,9 +191,9 @@ void exchangeArr(elemType *arr, const MPI_Comm &comm, std::unordered_map<uint64_
   st = omp_get_wtime();
 
   for (int i = 0; i < (int) neighbors.size(); ++i) {
-    MPI_Irecv(arr_buffers_recv[i], (int) (tot[i] * sizeof(bElem)), MPI_CHAR, rank_map[neighbors[i].set],
+    MPI_Irecv(arr_buffers_recv[i], (int) (tot[i] * sizeof(elemType)), MPI_CHAR, rank_map[neighbors[i].set],
               (int) neighbors.size() - i - 1, comm, &(requests[i * 2]));
-    MPI_Isend(arr_buffers_out[i], (int) (tot[i] * sizeof(bElem)), MPI_CHAR, rank_map[neighbors[i].set], i, comm,
+    MPI_Isend(arr_buffers_out[i], (int) (tot[i] * sizeof(elemType)), MPI_CHAR, rank_map[neighbors[i].set], i, comm,
               &(requests[i * 2 + 1]));
   }
 
