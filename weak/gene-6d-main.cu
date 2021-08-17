@@ -797,6 +797,8 @@ int main(int argc, char **argv) {
       throw std::runtime_error(error_stream.str());
     }
   }
+  std::cout << "Building input arrays..." << std::endl;
+
   cudaCheck(cudaMemcpyToSymbol(array_extent_with_gz_dev, per_process_extent_with_gz.data(), DIM * sizeof(unsigned)));
   cudaCheck(cudaMemcpyToSymbol(array_extent_with_padding_dev, per_process_extent_with_padding.data(), DIM * sizeof(unsigned)));
   // set up shape of coeffs
@@ -811,6 +813,7 @@ int main(int argc, char **argv) {
   bComplexElem *array_out_ptr = zeroComplexArray(std::vector<long>(per_process_extent_with_padding.begin(), per_process_extent_with_padding.end()));
   bComplexElem *brick_out_ptr = zeroComplexArray(std::vector<long>(per_process_extent_with_padding.begin(), per_process_extent_with_padding.end()));
 
+  std::cout << "Input arrays built. Setting up brick decomposition..." << std::endl;
   // build brick decomp
   GENEBrickDecomp b_decomp(std::vector<unsigned>(per_process_extent.begin(), per_process_extent.end()),
                            std::vector<unsigned>(GHOST_ZONE.begin(), GHOST_ZONE.end())
@@ -847,6 +850,7 @@ int main(int argc, char **argv) {
   }
   b_decomp.initialize(skin2d);
 
+  std::cout << "Brick decomposition setup complete. Beginning coefficient setup..." << std::endl;
   // initialize my coefficients to random data, and receive coefficients for ghost-zones
   bElem *coeffs = randomArray(std::vector<long>(coeff_extent_with_gz.begin(), coeff_extent_with_gz.end()));
   // build extent/ghost-zones for coeff extent
@@ -871,8 +875,6 @@ int main(int argc, char **argv) {
                                       coeff_ghost_zone);
   exchangeArrTypes<DIM>(coeffs, b_decomp.comm, b_decomp.rank_map, coeffs_stypemap, coeffs_rtypemap);
 #else
-  std::cout << b_decomp.rank_map.size() << std::endl;
-  exit(1);
   exchangeArr<DIM>(coeffs, b_decomp.comm, b_decomp.rank_map,
                    coeff_extent,
                    std::vector<long>(coeff_extent.size(), 0), ///< no padding for coeffs
