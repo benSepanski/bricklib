@@ -279,10 +279,12 @@ private:
     idx *= 3;
     if (d == 0) {
       for (int i = 0; i < 3; ++i) {
-        if (i + cur < 1 || i + cur > t_dims[d] || ref < 0)
+        if (i + cur < 1 || i + cur > t_dims[d] || ref < 0) {
           adj[idx + i] = 0;
-        else
+        }
+        else {
           adj[idx + i] = grid[ref + i - 1];
+        }
       }
     } else {
       for (int i = 0; i < 3; ++i)
@@ -307,7 +309,7 @@ public:
    * @see BrickDecomp
    */
   BrickDecomp(const std::vector<unsigned> &dims, const unsigned ghost_depth, unsigned numfield = 1)
-      : BrickDecomp(dims, std::vector<unsigned>(ghost_depth, dims.size()), numfield) 
+      : BrickDecomp(dims, std::vector<unsigned>(dims.size(), ghost_depth), numfield)
       { }
 
   /**
@@ -470,8 +472,9 @@ public:
     int size = pos;
     if (bInfo == nullptr)
       bInfo = new BrickInfo<dim, CommunicatingDims>(size);
-    for (unsigned i = 0; i < grid_size; ++i)
+    for (unsigned i = 0; i < grid_size; ++i) {
       adj_populate(i, bInfo->adj[grid[i]]);
+    }
   }
 
   /**

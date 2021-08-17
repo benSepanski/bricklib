@@ -819,16 +819,34 @@ int main(int argc, char **argv) {
   std::array<int, DIM> coords_of_proc;
   check_MPI(MPI_Cart_coords(cartesian_comm, rank, DIM, coords_of_proc.data()));
   populate(cartesian_comm, b_decomp, 0, 1, coords_of_proc.data());
-  // build 2d skin from 3d skin
+  // build 2d skin from 3d skin by removing all faces with a 3,
+  // and replacing 1 -> 3, 2 -> 4
   std::vector<BitSet> skin2d = skin3d_good;
   auto set_contains_three = [](BitSet set) -> bool {
-    return set.get(3) && set.get(-3);
+    return set.get(3) || set.get(-3);
   };
-  std::remove_if(skin2d.begin(), skin2d.end(), set_contains_three);
-  std::sort(skin2d.begin(), skin2d.end());
-  auto first_non_unique = std::unique(skin2d.begin(), skin2d.end());
-  skin2d.erase(first_non_unique, skin2d.end());
+  skin2d.erase(std::remove_if(skin2d.begin(), skin2d.end(), set_contains_three),
+               skin2d.end()) ;
+  for(BitSet &bitset : skin2d) {
+    if(bitset.get(1)) {
+      bitset.flip(1);
+      bitset.flip(3);
+    }
+    if(bitset.get(-1)) {
+      bitset.flip(-1);
+      bitset.flip(-3);
+    }
+    if(bitset.get(2)) {
+      bitset.flip(2);
+      bitset.flip(4);
+    }
+    if(bitset.get(-2)) {
+      bitset.flip(-2);
+      bitset.flip(-4);
+    }
+  }
   b_decomp.initialize(skin2d);
+  std::cout << "initialization complete" << std::endl;
   exit(123);
 
   // initialize my coefficients to random data, and receive coefficients for ghost-zones
