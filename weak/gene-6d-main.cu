@@ -114,7 +114,10 @@ MPI_Comm build_cartesian_comm(std::array<int, DIM> num_procs_per_dim, std::array
   }
 
   // set up processes on a cartesian communication grid
-  std::array<int, DIM> periodic = { true }; ///< use periodic BCs
+  std::array<int, DIM> periodic;
+  for(int i = 0; i < DIM; ++i) {
+    periodic[i] = true;
+  }
   bool allow_ranking_reordering = true;
   MPI_Comm cartesian_comm;
   check_MPI(MPI_Cart_create(MPI_COMM_WORLD,
@@ -282,7 +285,7 @@ void semi_arakawa_distributed_array(bComplexElem *out_ptr,
   coeff_extent[0] = ARAKAWA_STENCIL_SIZE;
   coeff_extent[1] = extent_with_gz[0];
   for(int i = 2; i < DIM; ++i) {
-    coeff_extent[i] = extent_with_gz[i - 1];
+    coeff_extent[i] = extent_with_gz[i];
   }
 
   bComplexElem *in_ptr_dev = nullptr, *out_ptr_dev = nullptr;
@@ -439,7 +442,7 @@ void semi_arakawa_distributed_brick(bComplexElem *out_ptr,
   coeff_extent_with_gz[0] = ARAKAWA_STENCIL_SIZE;
   coeff_extent_with_gz[1] = per_process_extent_with_gz[0];
   for(unsigned i = 2; i < DIM; ++i) {
-    coeff_extent_with_gz[i] = per_process_extent_with_gz[i - 1];
+    coeff_extent_with_gz[i] = per_process_extent_with_gz[i];
   }
   std::vector<long> coeff_brick_grid_extent_with_gz;
   coeff_brick_grid_extent_with_gz.reserve(DIM);
@@ -607,7 +610,7 @@ void semi_arakawa_distributed_brick(bComplexElem *out_ptr,
  * @param delim the delimiter between unsigneds
  * @return std::vector<unsigned> of the values read in
  */
-std::vector<unsigned> read_uint_tuple(std::istream &in = std::cin, char delim = ',') {
+std::vector<unsigned> read_uint_tuple(std::istream &in, char delim = ',') {
   std::vector<unsigned> tuple;
   unsigned value;
   do {
@@ -690,10 +693,12 @@ unsigned parse_args(std::array<int, DIM> *per_process_domain_size,
     }
   }
   if(!read_num_procs_per_dim) {
-    throw std::runtime_error("Missing -p option");
+    error_stream << "Missing -p option" << std::endl << help_string;
+    throw std::runtime_error(error_stream.str());
   }
   if(!read_dom_size) {
-    throw std::runtime_error("Missing -d option");
+    error_stream << "Missing -d option" << std::endl << help_string;
+    throw std::runtime_error(error_stream.str());
   }
   return num_iters;
 }
@@ -797,16 +802,34 @@ int main(int argc, char **argv) {
   // set up shape of coeffs
   std::array<int, DIM> coeff_extent_with_gz = per_process_extent_with_gz;
   coeff_extent_with_gz[0] = ARAKAWA_STENCIL_SIZE;
-  coeff_extent_with_gz[1] = per_process_extent[0];
+  coeff_extent_with_gz[1] = per_process_extent[0] + GHOST_ZONE[0];
+  for(unsigned i = 2; i < DIM; ++i) {
+    coeff_extent_with_gz[i] = per_process_extent[i] + 2 * GHOST_ZONE[i];
+  }
   // initialize my part of the grid to random data
   bComplexElem *in_ptr = randomComplexArray(std::vector<long>(per_process_extent_with_padding.begin(), per_process_extent_with_padding.end()));
   bComplexElem *array_out_ptr = zeroComplexArray(std::vector<long>(per_process_extent_with_padding.begin(), per_process_extent_with_padding.end()));
   bComplexElem *brick_out_ptr = zeroComplexArray(std::vector<long>(per_process_extent_with_padding.begin(), per_process_extent_with_padding.end()));
 
-  // TODO: Actually populate this
+  // build brick decomp
   GENEBrickDecomp b_decomp(std::vector<unsigned>(per_process_extent.begin(), per_process_extent.end()),
-                          std::vector<unsigned>(GHOST_ZONE.begin(), GHOST_ZONE.end())
+                           std::vector<unsigned>(GHOST_ZONE.begin(), GHOST_ZONE.end())
                           );
+  b_decomp.comm = cartesian_comm;
+  std::array<int, DIM> coords_of_proc;
+  check_MPI(MPI_Cart_coords(cartesian_comm, rank, DIM, coords_of_proc.data()));
+  populate(cartesian_comm, b_decomp, 0, 1, coords_of_proc.data());
+  // build 2d skin from 3d skin
+  std::vector<BitSet> skin2d = skin3d_good;
+  auto set_contains_three = [](BitSet set) -> bool {
+    return set.get(3) && set.get(-3);
+  };
+  std::remove_if(skin2d.begin(), skin2d.end(), set_contains_three);
+  std::sort(skin2d.begin(), skin2d.end());
+  auto first_non_unique = std::unique(skin2d.begin(), skin2d.end());
+  skin2d.erase(first_non_unique, skin2d.end());
+  b_decomp.initialize(skin2d);
+  exit(123);
 
   // initialize my coefficients to random data, and receive coefficients for ghost-zones
   bElem *coeffs = randomArray(std::vector<long>(coeff_extent_with_gz.begin(), coeff_extent_with_gz.end()));
@@ -817,7 +840,7 @@ int main(int argc, char **argv) {
   coeff_extent.push_back(per_process_extent[0]);
   coeff_ghost_zone.push_back(GHOST_ZONE[0]);
   for(unsigned i = 2; i < DIM; ++i) {
-    coeff_ghost_zone.push_back(per_process_extent[i]);
+    coeff_extent.push_back(per_process_extent[i]);
     coeff_ghost_zone.push_back(GHOST_ZONE[i]);
   }
   std::cout << "Beginning coefficient exchange" << std::endl;
@@ -832,6 +855,8 @@ int main(int argc, char **argv) {
                                       coeff_ghost_zone);
   exchangeArrTypes<DIM>(coeffs, b_decomp.comm, b_decomp.rank_map, coeffs_stypemap, coeffs_rtypemap);
 #else
+  std::cout << b_decomp.rank_map.size() << std::endl;
+  exit(1);
   exchangeArr<DIM>(coeffs, b_decomp.comm, b_decomp.rank_map,
                    coeff_extent,
                    std::vector<long>(coeff_extent.size(), 0), ///< no padding for coeffs
