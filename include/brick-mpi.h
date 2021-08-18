@@ -208,11 +208,12 @@ private:
   static constexpr unsigned dim = sizeof...(BDims); ///< number of dimensions
   std::vector<unsigned> dims;                ///< dimension of internal in bricks
   std::vector<unsigned> t_dims;              ///< dimension including ghosts in bricks
+  long num_bricks = -1;                      ///< total number of bricks (including ghost-zones)
   std::vector<unsigned> g_depth;             ///< The depth of ghostzone in bricks
   std::vector<unsigned> stride;              ///< stride in bricks
-  unsigned *grid;                            ///< Grid indices
+  unsigned *grid = nullptr;                  ///< Grid indices
   unsigned numfield;                         ///< Number of fields that are interleaved
-  BrickInfo<dim, CommunicatingDims> *bInfo;  ///< Associated BrickInfo
+  BrickInfo<dim, CommunicatingDims> *bInfo = nullptr; ///< Associated BrickInfo
 
   template<typename T, unsigned di, unsigned d>
   friend
@@ -224,6 +225,8 @@ private:
    */
   void _populate(BitSet region, long ref, int d, unsigned &pos) {
     if (d == -1) {
+      assert(ref >= 0);
+      assert(ref < num_bricks);
       grid[ref] = pos++;
       return;
     }
@@ -276,9 +279,14 @@ private:
       cur = ref / stride[d];
       cur = cur % (t_dims[d]);
     }
-    idx *= 3;
+    // CommDims uses dimension starting at 0
+    if(CommunicatingDims::communicatesInDim(d)) {
+      idx *= 3;
+    }
     if (d == 0) {
       for (int i = 0; i < 3; ++i) {
+        constexpr size_t num_neighbors = static_power<3, CommunicatingDims::numCommunicatingDims(sizeof...(BDims))>::value;
+        assert(idx + i < num_neighbors);
         if (i + cur < 1 || i + cur > t_dims[d] || ref < 0) {
           adj[idx + i] = 0;
         }
@@ -287,11 +295,16 @@ private:
         }
       }
     } else {
-      for (int i = 0; i < 3; ++i)
+      for (int i = 0; i < 3; ++i) {
+        unsigned next_idx = idx;
+        if(CommunicatingDims::communicatesInDim(d)) { ///< CommDims uses dimension starting at 0
+          next_idx++;
+        }
         if (i + cur < 1 || i + cur > t_dims[d] || ref < 0)
-          _adj_populate(-1, d - 1, idx + i, adj);
+          _adj_populate(-1, d - 1, next_idx, adj);
         else
-          _adj_populate(ref + (i - 1) * (long) stride[d], d - 1, idx + i, adj);
+          _adj_populate(ref + (i - 1) * (long) stride[d], d - 1, next_idx, adj);
+      }
     }
   }
 
@@ -352,6 +365,7 @@ public:
       t_dims[i] = dims[i] + 2 * g_depth[i];
       grid_size *= t_dims[i];
     }
+    num_bricks = grid_size;
 
     // Global reference to grid Index
     grid = new unsigned[grid_size];
@@ -408,8 +422,9 @@ public:
       long ppos = pos;
       if (pad_first[i])
         pos += calc_pad(skinlist[i]);
-      if (skinlist[i].set != 0)
+      if (skinlist[i].set != 0) {
         mypop(0, skinlist[i]);
+      }
       st_pos.emplace_back(pos);
       skin_size.emplace_back(pos - ppos);
     }
