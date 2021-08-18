@@ -746,7 +746,7 @@ int main(int argc, char **argv) {
       std::cout << std::setw(2) << per_process_extent[i];
       if(i < DIM - 1) std::cout << " x ";
     }
-    std::cout << std::endl
+    std::cout << " for a total of " << tot_elems << " elements " << std::endl
               << std::setw(io_col_width) << "Ghost Zone :";
     for(int i = 0; i < DIM; ++i) {
       std::cout << std::setw(2) << GHOST_ZONE[i];
