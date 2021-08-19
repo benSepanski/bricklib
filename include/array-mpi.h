@@ -336,13 +336,18 @@ void exchangeArrPrepareTypes(std::unordered_map<uint64_t, MPI_Datatype> &stypema
   std::vector<BitSet> neighbors;
   allneighbors(0, 1, dim, neighbors);
   neighbors.erase(neighbors.begin() + (neighbors.size() / 2));
+  auto section_is_empty = [&](BitSet section) -> bool {
+    return 0 == evalsize(section, dimlist, ghost, section.set == 0);
+  };
+  neighbors.erase(std::remove_if(neighbors.begin(), neighbors.end(), section_is_empty),
+                  neighbors.end());
   std::vector<MPI_Request> requests(neighbors.size() * 2);
 
   for (auto n: neighbors) {
-    MPI_Datatype MPI_rtype = unpack_type(n, dimlist, padding, ghost);
+    MPI_Datatype MPI_rtype = unpack_type<elemType>(n, dimlist, padding, ghost);
     MPI_Type_commit(&MPI_rtype);
     rtypemap[n.set] = MPI_rtype;
-    MPI_Datatype MPI_stype = pack_type(n, dimlist, padding, ghost);
+    MPI_Datatype MPI_stype = pack_type<elemType>(n, dimlist, padding, ghost);
     MPI_Type_commit(&MPI_stype);
     stypemap[n.set] = MPI_stype;
   }
