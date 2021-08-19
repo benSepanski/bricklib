@@ -881,10 +881,10 @@ int main(int argc, char **argv) {
                    coeff_ghost_zone);
 #endif
 
-  std::cout << "Beginning array computation" << std::endl;
+  std::cout << "Coefficient exchange complete. Beginning array computation" << std::endl;
   // run array computation
   semi_arakawa_distributed_array(array_out_ptr, in_ptr, coeffs, b_decomp, num_procs_per_dim, per_process_extent);
-  std::cout << "Beginning brickc computation" << std::endl;
+  std::cout << "Array computation complete. Beginning bricks computation" << std::endl;
   semi_arakawa_distributed_brick(brick_out_ptr, in_ptr, coeffs, b_decomp, num_procs_per_dim, per_process_extent);
 
   // check for correctness
