@@ -20,8 +20,9 @@
 template<typename elemType>
 inline void elemcpy(elemType *dst, const elemType *src, unsigned long size) {
 #pragma omp simd
-  for (unsigned long i = 0; i < size; ++i)
+  for (unsigned long i = 0; i < size; ++i) {
     dst[i] = src[i];
+  }
 }
 
 template<unsigned dim, typename elemType>
@@ -68,10 +69,15 @@ pack(elemType *arr, BitSet neighbor, elemType *buffer_out, const std::vector<uns
     sec = -1;
     st = padding[d] + ghost[d];
   }
+  const size_t ARR_SIZE = arrstride[dimlist.size() - 1] * (dimlist.back() + 2 * (padding.back() + ghost.back())); ///< Used for assertions
   if (sec != 0) {
+    assert(st >= 0);
+    assert(st + ghost[d] <= ARR_SIZE);
     elemcpy(buffer_out, arr + st, ghost[d]);
     return buffer_out + ghost[d];
   } else {
+    assert(padding[d] + ghost[d] >= 0);
+    assert(padding[d] + ghost[d] + dimlist[d] <= ARR_SIZE);
     elemcpy(buffer_out, arr + padding[d] + ghost[d], dimlist[d]);
     return buffer_out + dimlist[d];
   }
@@ -153,7 +159,7 @@ void exchangeArr(elemType *arr, const MPI_Comm &comm, std::unordered_map<uint64_
   std::vector<BitSet> neighbors;
   allneighbors(0, 1, dim, neighbors);
   neighbors.erase(neighbors.begin() + (neighbors.size() / 2));
-  std::vector<unsigned long> tot(neighbors.size());
+  std::vector<unsigned long> tot;
   std::vector<MPI_Request> requests(neighbors.size() * 2);
   std::vector<MPI_Status> stats(requests.size());
 
@@ -165,26 +171,30 @@ void exchangeArr(elemType *arr, const MPI_Comm &comm, std::unordered_map<uint64_
     stri = stri * ((padding[i] + ghost[i]) * 2 + dimlist[i]);
   }
 
+  std::vector<BitSet> non_empty_neighbors;
   for (int i = 0; i < (int) neighbors.size(); ++i) {
-    tot[i] = (unsigned long) evalsize(neighbors[i], dimlist, ghost, false);
+    unsigned long sector_size = evalsize(neighbors[i], dimlist, ghost, false);
+    if(sector_size > 0) {
+      non_empty_neighbors.emplace_back(neighbors[i]);
+      tot.emplace_back(sector_size);
+    }
   }
 
   if (arr_buffers_out.size() == 0) {
-    for (int i = 0; i < (int) neighbors.size(); ++i) {
-      if(tot[i] > 0) {
-        arr_buffers_recv.emplace_back((bElem*)aligned_alloc(4096, sizeof(elemType) * tot[i]));
-        arr_buffers_out.emplace_back((bElem*)aligned_alloc(4096, sizeof(elemType) * tot[i]));
-      }
+    for(unsigned long sector_size : tot) {
+      size_t size_in_bytes = sizeof(elemType) * sector_size;
+      arr_buffers_recv.emplace_back((bElem*)aligned_alloc(4096, size_in_bytes));
+      arr_buffers_out.emplace_back((bElem*)aligned_alloc(4096, size_in_bytes));
     }
   }
+  assert(non_empty_neighbors.size() <= arr_buffers_out.size());
+  assert(non_empty_neighbors.size() <= arr_buffers_recv.size());
 
   double st = omp_get_wtime(), ed;
   // Pack
 #pragma omp parallel for
-  for (int i = 0; i < (int) neighbors.size(); ++i) {
-    if(tot[i] > 0) {
-      pack<dim>(arr, neighbors[i], reinterpret_cast<elemType*>(arr_buffers_out[i]), arrstride, dimlist, padding, ghost);
-    }
+  for (int i = 0; i < (int) non_empty_neighbors.size(); ++i) {
+    pack<dim>(arr, non_empty_neighbors[i], reinterpret_cast<elemType*>(arr_buffers_out[i]), arrstride, dimlist, padding, ghost);
   }
 
   ed = omp_get_wtime();
@@ -196,13 +206,11 @@ void exchangeArr(elemType *arr, const MPI_Comm &comm, std::unordered_map<uint64_
 
   st = omp_get_wtime();
 
-  for (int i = 0; i < (int) neighbors.size(); ++i) {
-    if(tot[i] > 0) {
-      MPI_Irecv(arr_buffers_recv[i], (int) (tot[i] * sizeof(elemType)), MPI_CHAR, rank_map[neighbors[i].set],
-                (int) neighbors.size() - i - 1, comm, &(requests[i * 2]));
-      MPI_Isend(arr_buffers_out[i], (int) (tot[i] * sizeof(elemType)), MPI_CHAR, rank_map[neighbors[i].set], i, comm,
-                &(requests[i * 2 + 1]));
-    }
+  for (int i = 0; i < (int) non_empty_neighbors.size(); ++i) {
+    MPI_Irecv(arr_buffers_recv[i], (int) (tot[i] * sizeof(elemType)), MPI_CHAR, rank_map[non_empty_neighbors[i].set],
+              (int) non_empty_neighbors.size() - i - 1, comm, &(requests[i * 2]));
+    MPI_Isend(arr_buffers_out[i], (int) (tot[i] * sizeof(elemType)), MPI_CHAR, rank_map[non_empty_neighbors[i].set], i, comm,
+              &(requests[i * 2 + 1]));
   }
 
   ed = omp_get_wtime();
@@ -218,9 +226,9 @@ void exchangeArr(elemType *arr, const MPI_Comm &comm, std::unordered_map<uint64_
 
   // Unpack
 #pragma omp parallel for
-  for (int i = 0; i < (int) neighbors.size(); ++i)
+  for (int i = 0; i < (int) non_empty_neighbors.size(); ++i)
     if(tot[i] > 0) 
-      unpack<dim>(arr, neighbors[i], reinterpret_cast<elemType*>(arr_buffers_recv[i]), arrstride, dimlist, padding, ghost);
+      unpack<dim>(arr, non_empty_neighbors[i], reinterpret_cast<elemType*>(arr_buffers_recv[i]), arrstride, dimlist, padding, ghost);
 
   ed = omp_get_wtime();
   packtime += ed - st;
