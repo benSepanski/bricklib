@@ -186,8 +186,12 @@ void exchangeArr(elemType *arr, const MPI_Comm &comm, std::unordered_map<uint64_
   if (arr_buffers_out.size() == 0) {
     for(unsigned long sector_size : tot) {
       size_t size_in_bytes = sizeof(elemType) * sector_size;
-      arr_buffers_recv.emplace_back((bElem*)aligned_alloc(4096, size_in_bytes));
-      arr_buffers_out.emplace_back((bElem*)aligned_alloc(4096, size_in_bytes));
+      bElem *buf = (bElem*)aligned_alloc(4096, size_in_bytes);
+      if(buf == nullptr) throw std::runtime_error("aligned alloc failed");
+      arr_buffers_recv.emplace_back(buf);
+      buf = (bElem*)aligned_alloc(4096, size_in_bytes);
+      if(buf == nullptr) throw std::runtime_error("aligned alloc failed");
+      arr_buffers_out.emplace_back(buf);
     }
   }
   assert(non_empty_neighbors.size() <= arr_buffers_out.size());
@@ -210,9 +214,11 @@ void exchangeArr(elemType *arr, const MPI_Comm &comm, std::unordered_map<uint64_
   st = omp_get_wtime();
 
   for (int i = 0; i < (int) non_empty_neighbors.size(); ++i) {
-    MPI_Irecv(arr_buffers_recv[i], (int) (tot[i] * sizeof(elemType)), MPI_CHAR, rank_map[non_empty_neighbors[i].set],
+    long section_set = non_empty_neighbors[i].set;
+    assert(rank_map.find(section_set) != rank_map.end());
+    MPI_Irecv(arr_buffers_recv[i], (int) (tot[i] * sizeof(elemType)), MPI_CHAR, rank_map[section_set],
               (int) non_empty_neighbors.size() - i - 1, comm, &(requests[i * 2]));
-    MPI_Isend(arr_buffers_out[i], (int) (tot[i] * sizeof(elemType)), MPI_CHAR, rank_map[non_empty_neighbors[i].set], i, comm,
+    MPI_Isend(arr_buffers_out[i], (int) (tot[i] * sizeof(elemType)), MPI_CHAR, rank_map[section_set], i, comm,
               &(requests[i * 2 + 1]));
   }
 
