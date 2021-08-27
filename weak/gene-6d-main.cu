@@ -35,7 +35,7 @@ constexpr std::array<unsigned, DIM> BRICK_DIM = {2, 16, 2, 2, 1, 1};
 constexpr std::array<unsigned, DIM> COEFF_BRICK_DIM = {1, BRICK_DIM[0], BRICK_DIM[2], BRICK_DIM[3], BRICK_DIM[4], BRICK_DIM[5]};
 constexpr unsigned NUM_GHOST_ZONES = 1;
 constexpr std::array<unsigned, DIM> GHOST_ZONE = {0, 0, 2 * NUM_GHOST_ZONES, 2 * NUM_GHOST_ZONES, 0, 0};
-constexpr std::array<unsigned, DIM> PADDING = {0, 0, 0, 0, 0, 0};
+constexpr std::array<unsigned, DIM> PADDING = {0, 0, 2, 2, 0, 0};
 constexpr unsigned TILE_SIZE = 8;
 constexpr unsigned ARAKAWA_STENCIL_SIZE = 13;
 
@@ -215,6 +215,14 @@ void semi_arakawa_arr_kernel(bComplexElem * __restrict__ out_ptr,
   unsigned n = (global_z_idx / extent_with_gz[0] / extent_with_gz[1] / extent_with_gz[4]);
   unsigned k = threadIdx.x + blockIdx.x * blockDim.x;
   unsigned l = threadIdx.y + blockIdx.y * blockDim.y;
+
+  // guard OOB access
+  if(    i < extent_with_gz[0] || j < extent_with_gz[1] || k < extent_with_gz[2]
+      || l < extent_with_gz[3] || m < extent_with_gz[4] || n < extent_with_gz[5])
+  {
+    return;
+  }
+
   size_t padded_ijklmn = PADDING[0] + GHOST_ZONE[0] + i 
                        + extent_with_padding[0] * (PADDING[1] + GHOST_ZONE[1] + j
                        + extent_with_padding[1] * (PADDING[2] + GHOST_ZONE[2] + k
@@ -223,27 +231,62 @@ void semi_arakawa_arr_kernel(bComplexElem * __restrict__ out_ptr,
                        + extent_with_padding[4] * (PADDING[5] + GHOST_ZONE[5] + n
                        )))));
   size_t unpadded_iklmn = i
-                        + extent_with_gz[0] * (j
-                        + extent_with_gz[1] * (k
+                        + extent_with_gz[0] * (k
                         + extent_with_gz[2] * (l
                         + extent_with_gz[3] * (m
                         + extent_with_gz[4] * (n
-                        )))));
+                        ))));
+  size_t coeff_base_index = ARAKAWA_STENCIL_SIZE * unpadded_iklmn;
+  // check for OOB coeff access
+  size_t COEFF_ARR_SIZE = ARAKAWA_STENCIL_SIZE * extent_with_gz[0] * extent_with_gz[2]
+                        * extent_with_gz[3] * extent_with_gz[4] * extent_with_gz[5];
+  for(unsigned stencil_idx = 0; stencil_idx < ARAKAWA_STENCIL_SIZE; ++stencil_idx) {
+    assert(coeff_base_index + stencil_idx < COEFF_ARR_SIZE);
+  }
+  // used check for OOB coeff access
+  size_t ARR_SIZE = extent_with_padding[0] * extent_with_padding[1] * extent_with_padding[2]
+                  * extent_with_padding[3] * extent_with_padding[4] * extent_with_padding[5];
+
   const size_t k_stride = extent_with_padding[1] * extent_with_padding[0];
   const size_t l_stride = extent_with_padding[2] * k_stride;
-  out_ptr[padded_ijklmn] = coeff[ 0 + ARAKAWA_STENCIL_SIZE * unpadded_iklmn] * in_ptr[padded_ijklmn - 2 * l_stride]
-                         + coeff[ 1 + ARAKAWA_STENCIL_SIZE * unpadded_iklmn] * in_ptr[padded_ijklmn - l_stride - k_stride]
-                         + coeff[ 2 + ARAKAWA_STENCIL_SIZE * unpadded_iklmn] * in_ptr[padded_ijklmn - l_stride]
-                         + coeff[ 3 + ARAKAWA_STENCIL_SIZE * unpadded_iklmn] * in_ptr[padded_ijklmn - l_stride + k_stride]
-                         + coeff[ 4 + ARAKAWA_STENCIL_SIZE * unpadded_iklmn] * in_ptr[padded_ijklmn - 2 * k_stride]
-                         + coeff[ 5 + ARAKAWA_STENCIL_SIZE * unpadded_iklmn] * in_ptr[padded_ijklmn - k_stride]
-                         + coeff[ 6 + ARAKAWA_STENCIL_SIZE * unpadded_iklmn] * in_ptr[padded_ijklmn]
-                         + coeff[ 7 + ARAKAWA_STENCIL_SIZE * unpadded_iklmn] * in_ptr[padded_ijklmn + k_stride]
-                         + coeff[ 8 + ARAKAWA_STENCIL_SIZE * unpadded_iklmn] * in_ptr[padded_ijklmn + 2 * k_stride]
-                         + coeff[ 9 + ARAKAWA_STENCIL_SIZE * unpadded_iklmn] * in_ptr[padded_ijklmn + l_stride - k_stride]
-                         + coeff[10 + ARAKAWA_STENCIL_SIZE * unpadded_iklmn] * in_ptr[padded_ijklmn + l_stride]
-                         + coeff[11 + ARAKAWA_STENCIL_SIZE * unpadded_iklmn] * in_ptr[padded_ijklmn + l_stride + k_stride]
-                         + coeff[12 + ARAKAWA_STENCIL_SIZE * unpadded_iklmn] * in_ptr[padded_ijklmn + 2 * l_stride];
+  assert(padded_ijklmn - 2 * l_stride < ARR_SIZE);
+  out_ptr[padded_ijklmn] = coeff[ 0 + coeff_base_index] * in_ptr[padded_ijklmn - 2 * l_stride];
+
+  assert(padded_ijklmn - l_stride - k_stride < ARR_SIZE);
+  out_ptr[padded_ijklmn] += coeff[ 1 + coeff_base_index] * in_ptr[padded_ijklmn - l_stride - k_stride];
+
+  assert(padded_ijklmn - l_stride < ARR_SIZE);
+  out_ptr[padded_ijklmn] += coeff[ 2 + coeff_base_index] * in_ptr[padded_ijklmn - l_stride];
+
+  assert(padded_ijklmn - l_stride + k_stride < ARR_SIZE);
+  out_ptr[padded_ijklmn] += coeff[ 3 + coeff_base_index] * in_ptr[padded_ijklmn - l_stride + k_stride];
+
+  assert(padded_ijklmn - 2 * k_stride < ARR_SIZE);
+  out_ptr[padded_ijklmn] += coeff[ 4 + coeff_base_index] * in_ptr[padded_ijklmn - 2 * k_stride];
+
+  assert(padded_ijklmn - k_stride < ARR_SIZE);
+  out_ptr[padded_ijklmn] += coeff[ 5 + coeff_base_index] * in_ptr[padded_ijklmn - k_stride];
+
+  assert(padded_ijklmn < ARR_SIZE);
+  out_ptr[padded_ijklmn] += coeff[ 6 + coeff_base_index] * in_ptr[padded_ijklmn];
+
+  assert(padded_ijklmn + k_stride < ARR_SIZE);
+  out_ptr[padded_ijklmn] += coeff[ 7 + coeff_base_index] * in_ptr[padded_ijklmn + k_stride];
+
+  assert(padded_ijklmn + 2 * k_stride < ARR_SIZE);
+  out_ptr[padded_ijklmn] += coeff[ 8 + coeff_base_index] * in_ptr[padded_ijklmn + 2 * k_stride];
+
+  assert(padded_ijklmn + l_stride - k_stride < ARR_SIZE);
+  out_ptr[padded_ijklmn] += coeff[ 9 + coeff_base_index] * in_ptr[padded_ijklmn + l_stride - k_stride];
+
+  assert(padded_ijklmn + l_stride < ARR_SIZE);
+  out_ptr[padded_ijklmn] += coeff[10 + coeff_base_index] * in_ptr[padded_ijklmn + l_stride];
+
+  assert(padded_ijklmn + l_stride + k_stride < ARR_SIZE);
+  out_ptr[padded_ijklmn] += coeff[11 + coeff_base_index] * in_ptr[padded_ijklmn + l_stride + k_stride];
+
+  assert(padded_ijklmn + 2 * l_stride < ARR_SIZE);
+  out_ptr[padded_ijklmn] += coeff[12 + coeff_base_index] * in_ptr[padded_ijklmn + 2 * l_stride];
 }
 
 /**
@@ -332,7 +375,7 @@ void semi_arakawa_distributed_array(bComplexElem *out_ptr,
     dim3 block(TILE_SIZE, TILE_SIZE),
           grid((extent_with_gz[2] + block.x - 1) / block.x,
                (extent_with_gz[3] + block.y - 1) / block.y,
-               (extent_with_gz[0] * extent_with_gz[1] * extent_with_gz[3] * extent_with_gz[4]) / block.z);
+               (extent_with_gz[0] * extent_with_gz[1] * extent_with_gz[4] * extent_with_gz[5]) / block.z);
     for (int i = 0; i < NUM_GHOST_ZONES; ++i) {
       semi_arakawa_arr_kernel << < grid, block>> > (out_ptr_dev, in_ptr_dev, coeff_dev);
       if(i + 1 < NUM_GHOST_ZONES) { 
