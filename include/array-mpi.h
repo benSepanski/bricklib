@@ -149,8 +149,12 @@ evalsize(BitSet region, const std::vector<long> &dimlist, const std::vector<long
   return size;
 }
 
-extern std::vector<bElem *> arr_buffers_out;
-extern std::vector<bElem *> arr_buffers_recv;
+// TODO: Can we make this arguments instead of globals?
+//       The current setup can complicate
+//       computations involving different message patterns/sizes
+extern std::vector<bElem *> arr_buffers_out,
+                            arr_buffers_recv;
+extern std::vector<size_t> arr_buffers_size;
 
 // ID is used to prevent message mismatch from messages with the same node, low performance only for validation testing.
 template<unsigned dim, typename elemType>
@@ -180,18 +184,37 @@ void exchangeArr(elemType *arr, const MPI_Comm &comm, std::unordered_map<uint64_
     }
   }
   // allocate MPI requests/stats arrays
-  requests.resize(non_empty_neighbors.size());
-  stats.resize(non_empty_neighbors.size());
+  requests.resize(2 * non_empty_neighbors.size());
+  stats.resize(2 * non_empty_neighbors.size());
 
-  if (arr_buffers_out.size() == 0) {
-    for(unsigned long sector_size : tot) {
-      size_t size_in_bytes = sizeof(elemType) * sector_size;
+  // make sure buffers are big enough
+  assert(arr_buffers_out.size() == arr_buffers_size.size());
+  assert(arr_buffers_recv.size() == arr_buffers_size.size());
+  for(size_t i = 0; i < tot.size(); ++i) {
+    if(i >= arr_buffers_out.size())
+    {
+      arr_buffers_out.emplace_back(nullptr);
+      arr_buffers_recv.emplace_back(nullptr);
+      arr_buffers_size.emplace_back(0);
+    }
+    unsigned long sector_size = tot[i];
+    size_t size_in_bytes = sizeof(elemType) * sector_size;
+    if(arr_buffers_size[i] < size_in_bytes)
+    {
+      assert(arr_buffers_out.size() == arr_buffers_recv.size());
+      // free previous buffers
+      if(arr_buffers_size[i] > 0)
+      {
+        free(arr_buffers_recv[i]);
+        free(arr_buffers_out[i]);
+      }
+      // allocate bigger buffers
       bElem *buf = (bElem*)aligned_alloc(4096, size_in_bytes);
       if(buf == nullptr) throw std::runtime_error("aligned alloc failed");
-      arr_buffers_recv.emplace_back(buf);
+      arr_buffers_recv[i] = buf;
       buf = (bElem*)aligned_alloc(4096, size_in_bytes);
       if(buf == nullptr) throw std::runtime_error("aligned alloc failed");
-      arr_buffers_out.emplace_back(buf);
+      arr_buffers_out[i] = buf;
     }
   }
   assert(non_empty_neighbors.size() <= arr_buffers_out.size());
@@ -215,10 +238,12 @@ void exchangeArr(elemType *arr, const MPI_Comm &comm, std::unordered_map<uint64_
 
   for (int i = 0; i < (int) non_empty_neighbors.size(); ++i) {
     long section_set = non_empty_neighbors[i].set;
-    assert(rank_map.find(section_set) != rank_map.end());
-    MPI_Irecv(arr_buffers_recv[i], (int) (tot[i] * sizeof(elemType)), MPI_CHAR, rank_map[section_set],
+    assert(rank_map.find(section_set) != rank_map.end()); //< rank_map should contain section_set
+    int section_set_rank = rank_map[section_set];
+    int buf_size = (int) tot[i] * sizeof(elemType);
+    MPI_Irecv(arr_buffers_recv[i], buf_size, MPI_CHAR, section_set_rank,
               (int) non_empty_neighbors.size() - i - 1, comm, &(requests[i * 2]));
-    MPI_Isend(arr_buffers_out[i], (int) (tot[i] * sizeof(elemType)), MPI_CHAR, rank_map[section_set], i, comm,
+    MPI_Isend(arr_buffers_out[i], buf_size, MPI_CHAR, section_set_rank, i, comm,
               &(requests[i * 2 + 1]));
   }
 
