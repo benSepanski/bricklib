@@ -497,7 +497,7 @@ public:
       adj_populate(i, bInfo->adj[grid[i]], grid_size);
       // Debug checking
 #ifndef NDEBUG
-      constexpr unsigned num_neighbors = static_power<3, CommunicatingDims::numCommunicatingDims(6)>::value;
+      constexpr unsigned num_neighbors = static_power<3, CommunicatingDims::numCommunicatingDims(dim)>::value;
       for(unsigned j = 0; j < num_neighbors; ++j) {
         assert(bInfo->adj[grid[i]][j] < size);
       }
