@@ -141,7 +141,7 @@ MPI_Comm build_cartesian_comm(std::array<int, DIM> num_procs_per_dim, std::array
  * @param b_decomp the brick decomposition used
  * @param tot_elems the number of elements
  */
-void time_and_print_mpi_stats(std::function<void(void)> func, GENEBrickDecomp b_decomp, double tot_elems) {
+void time_and_print_mpi_stats(std::function<void(void)> func, GENEBrickDecomp &b_decomp, double tot_elems) {
   // time function
   int warmup = 5;  //<  TODO: read from cmdline
   int cnt = NUM_EXCHANGES * NUM_GHOST_ZONES;
@@ -304,7 +304,7 @@ void semi_arakawa_arr_kernel(bComplexElem * __restrict__ out_ptr,
 void semi_arakawa_distributed_array(bComplexElem *out_ptr,
                                     bComplexElem *in_ptr,
                                     bElem * coeffs,
-                                    GENEBrickDecomp b_decomp,
+                                    GENEBrickDecomp &b_decomp,
                                     std::array<int, DIM> num_procs_per_dim,
                                     std::array<int, DIM> extent) {
   // set up MPI types for transfer
@@ -442,7 +442,7 @@ void semi_arakawa_brick_kernel(unsigned * grid_ptr,
 void semi_arakawa_distributed_brick(bComplexElem *out_ptr,
                                     bComplexElem *in_ptr,
                                     bElem * coeffs,
-                                    GENEBrickDecomp b_decomp,
+                                    GENEBrickDecomp &b_decomp,
                                     std::array<int, DIM> num_procs_per_dim,
                                     std::array<int, DIM> per_process_extent) {
   // set up brick-info and storage on host
