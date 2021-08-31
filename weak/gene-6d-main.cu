@@ -405,11 +405,14 @@ void semi_arakawa_distributed_array(bComplexElem *out_ptr,
   cudaCheck(cudaFree(in_ptr_dev));
 }
 
+__device__ __constant__ unsigned brick_grid_extent_with_gz_dev[DIM];
 /**
  * @brief cuda kernel to compute k-l arakawa derivative (brick layout)
  * 
- * Should be invoked 1 thread per array element (including ghosts, but not padding)
- * and 1 thread-block per brick. Assumes thread-block index is K.L.IJMN
+ * Should be invoked thread-block size =  num brick elements
+ * and 1 thread-block per brick.
+ * global brick idx should by x.y.z = K.L.IJMN.
+ * intra-brick idx should be x.y.z = I.J.KLMN
  * 
  * @param grid_ptr brick-grid for field bricks (includes ghost bricks)
  * @param coeff_grid_ptr brick-grid for coefficients (includes ghost bricks)
@@ -424,7 +427,91 @@ void semi_arakawa_brick_kernel(unsigned * grid_ptr,
                                FieldBrick_kl in_brick,
                                RealCoeffBrick coeff_brick)
 {
-   // TODO
+  // get brick index for field
+  unsigned b_k = blockIdx.x;
+  unsigned b_l = blockIdx.y;
+  unsigned b_ijmn = blockIdx.z;
+  unsigned b_i = b_ijmn % brick_grid_extent_with_gz_dev[0];
+  unsigned b_jmn = b_ijmn / brick_grid_extent_with_gz_dev[0];
+  unsigned b_j = b_jmn % brick_grid_extent_with_gz_dev[1];
+  unsigned b_mn = b_jmn / brick_grid_extent_with_gz_dev[1];
+  unsigned b_m = b_mn % brick_grid_extent_with_gz_dev[4];
+  unsigned b_n = b_mn / brick_grid_extent_with_gz_dev[4];
+
+  // check OOB for brick grid
+  assert(b_i < brick_grid_extent_with_gz_dev[0]);
+  assert(b_j < brick_grid_extent_with_gz_dev[1]);
+  assert(b_k < brick_grid_extent_with_gz_dev[2]);
+  assert(b_l < brick_grid_extent_with_gz_dev[3]);
+  assert(b_m < brick_grid_extent_with_gz_dev[4]);
+  assert(b_n < brick_grid_extent_with_gz_dev[5]);
+
+  // get field and coeff brick indexes
+  unsigned field_grid_idx = b_i + brick_grid_extent_with_gz_dev[0] * (
+                            b_j + brick_grid_extent_with_gz_dev[1] * (
+                            b_k + brick_grid_extent_with_gz_dev[2] * (
+                            b_l + brick_grid_extent_with_gz_dev[3] * (
+                            b_m + brick_grid_extent_with_gz_dev[4] * (
+                            b_n )))));
+  unsigned field_b_idx = grid_ptr[field_grid_idx];
+
+  static_assert(ARAKAWA_STENCIL_SIZE % COEFF_BRICK_DIM[0] == 0);
+  unsigned coeff_grid_base_idx = ARAKAWA_STENCIL_SIZE / COEFF_BRICK_DIM[0] * (
+                                 b_i + brick_grid_extent_with_gz_dev[0] * (
+                                 b_k + brick_grid_extent_with_gz_dev[2] * (
+                                 b_l + brick_grid_extent_with_gz_dev[3] * (
+                                 b_m + brick_grid_extent_with_gz_dev[4] * (
+                                 b_n )))));
+  
+  // intra-brick indexing
+  int i = threadIdx.x;
+  int j = threadIdx.y;
+  int klmn = threadIdx.z;
+  int k = klmn % BRICK_DIM[2];
+  int lmn = klmn / BRICK_DIM[2];
+  int l = lmn % BRICK_DIM[3];
+  int mn = lmn / BRICK_DIM[3];
+  int m = mn % BRICK_DIM[4];
+  int n = mn / BRICK_DIM[4];
+
+  // check for intra-brick OOB
+  assert(i < BRICK_DIM[0] && i < COEFF_BRICK_DIM[1]);
+  assert(j < BRICK_DIM[1]);
+  assert(k < BRICK_DIM[2] && k < COEFF_BRICK_DIM[2]);
+  assert(l < BRICK_DIM[3] && l < COEFF_BRICK_DIM[3]);
+  assert(m < BRICK_DIM[4] && m < COEFF_BRICK_DIM[4]);
+  assert(n < BRICK_DIM[5] && n < COEFF_BRICK_DIM[5]);
+
+  // compute stencil
+  bComplexElem result = 0.0;
+  auto b_in = in_brick[field_b_idx];
+  constexpr int l_offset[] = {-2, -1, -1, -1,  0,  0, 0, 0, 0,  1, 1, 1, 2};
+  constexpr int k_offset[] = { 0, -1,  0,  1, -2, -1, 0, 1, 2, -1, 0, 1, 0};
+  unsigned stencil_idx = 0;
+  #pragma unroll
+  for(unsigned coeff_brick_offset = 0; coeff_brick_offset < ARAKAWA_STENCIL_SIZE / COEFF_BRICK_DIM[0] ; coeff_brick_offset++)
+  {
+    unsigned coeff_b_idx = coeff_grid_ptr[coeff_grid_base_idx + coeff_brick_offset];
+    auto b_coeff = coeff_brick[coeff_b_idx];
+    #pragma unroll
+    for(unsigned coeff_idx_in_brick = 0; coeff_idx_in_brick < COEFF_BRICK_DIM[0]; ++coeff_idx_in_brick) 
+    {
+      assert(stencil_idx < ARAKAWA_STENCIL_SIZE);
+      const unsigned delta_l = l_offset[stencil_idx];
+      const unsigned delta_k = k_offset[stencil_idx];
+      auto t0 = b_coeff[n];
+      auto t1 = t0[m];
+      auto t2 = t1[l];
+      auto t3 = t2[k];
+      auto t4 = t3[i];
+      auto t5 = t4[coeff_idx_in_brick];
+      const bElem coeff = b_coeff[n][m][l][k][i][coeff_idx_in_brick];
+      result += coeff * b_in[n][m][l + delta_l][k + delta_k][j][i];
+      stencil_idx++;
+    }
+  }
+  // store result
+  out_brick[field_b_idx][n][m][l][k][j][i] = result;
 }
 
 /**
@@ -463,8 +550,8 @@ void semi_arakawa_distributed_brick(bComplexElem *out_ptr,
     }
     brick_grid_extent_with_gz[i] = per_process_extent_with_gz[i] / BRICK_DIM[i];
   }
-  const size_t num_bricks = std::accumulate(brick_grid_extent_with_gz.begin(), brick_grid_extent_with_gz.end(), 1, std::multiplies<size_t>());
-  unsigned *grid_ptr = (unsigned *) malloc(sizeof(unsigned) * num_bricks);
+  const size_t num_bricks_with_gz = std::accumulate(brick_grid_extent_with_gz.begin(), brick_grid_extent_with_gz.end(), 1, std::multiplies<size_t>());
+  unsigned *grid_ptr = (unsigned *) malloc(sizeof(unsigned) * num_bricks_with_gz);
   auto grid = (unsigned (*)[brick_grid_extent_with_gz[4]]
                            [brick_grid_extent_with_gz[3]]
                            [brick_grid_extent_with_gz[2]]
@@ -517,6 +604,9 @@ void semi_arakawa_distributed_brick(bComplexElem *out_ptr,
                    in_ptr,
                    grid_ptr,
                    b_in);
+
+  // copy brick grid extent to constant memory
+  cudaCheck(cudaMemcpyToSymbol(brick_grid_extent_with_gz_dev, brick_grid_extent_with_gz.data(), DIM * sizeof(unsigned)));
   
   // move bricks to device
   BrickInfo<DIM, CommIn_kl> *b_info_dev;
@@ -540,7 +630,7 @@ void semi_arakawa_distributed_brick(bComplexElem *out_ptr,
 
   FieldBrick b_in_dev(b_info_dev, b_storage_dev, 0),
              b_out_dev(b_info_dev, b_storage_out_dev, 0);
-  RealCoeffBrick coeff_brick_dev(&coeff_b_info, coeff_b_storage, 0);
+  RealCoeffBrick coeff_brick_dev(coeff_b_info_dev, coeff_b_storage_dev, 0);
   
   // copy grid to device
   unsigned *grid_ptr_dev = nullptr, 
@@ -583,21 +673,22 @@ void semi_arakawa_distributed_brick(bComplexElem *out_ptr,
 #else
   bDecomp.exchange(bStorage_dev);
 #endif
-    std::array<unsigned, DIM> brick_grid_extent;
+    std::array<unsigned, DIM> brick_grid_extent_with_gz;
     for(unsigned i = 0; i < DIM; ++i) {
-      brick_grid_extent[i] = per_process_extent[i] / BRICK_DIM[i];
+      assert(per_process_extent_with_gz[i] % BRICK_DIM[i] == 0);
+      brick_grid_extent_with_gz[i] = per_process_extent_with_gz[i] / BRICK_DIM[i];
     }
-    dim3 cuda_grid_size(brick_grid_extent[2],
-                        brick_grid_extent[3],
-                        num_bricks / brick_grid_extent[2] / brick_grid_extent[3]),
+    dim3 cuda_grid_size(brick_grid_extent_with_gz[2],
+                        brick_grid_extent_with_gz[3],
+                        num_bricks_with_gz / brick_grid_extent_with_gz[2] / brick_grid_extent_with_gz[3]),
          cuda_block_size(BRICK_DIM[0], BRICK_DIM[1], FieldBrick::BRICKLEN / BRICK_DIM[0] / BRICK_DIM[1]);
     cudaEventRecord(c_0);
     for (int i = 0; i < NUM_GHOST_ZONES; ++i) {
-      semi_arakawa_brick_kernel << < cuda_grid_size, cuda_block_size>> >(grid_ptr_dev,
-                                                                         coeff_grid_ptr_dev,
-                                                                         b_out_dev,
-                                                                         b_in_dev,
-                                                                         coeff_brick_dev);
+      semi_arakawa_brick_kernel<< < cuda_grid_size, cuda_block_size>> >(grid_ptr_dev,
+                                                                        coeff_grid_ptr_dev,
+                                                                        b_out_dev,
+                                                                        b_in_dev,
+                                                                        coeff_brick_dev);
       if(i + 1 < NUM_GHOST_ZONES) { 
         std::swap(b_out_dev, b_in_dev);
         std::swap(b_storage, b_storage_out);
