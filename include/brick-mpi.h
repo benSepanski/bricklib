@@ -447,7 +447,7 @@ public:
       i.neighbor = in;
       // Following the order of the skinlist
       // Record contiguousness
-      for (int l = 0; l < skinlist.size(); ++l)
+      for (int l = 0; l < skinlist.size(); ++l) {
         if (in <= skinlist[l]) {
           if (last < 0) {
             last = l;
@@ -456,8 +456,9 @@ public:
             g.pos = pos;
             i.pos = st_pos[last];
           }
-          if (pad_first[l])
+          if (pad_first[l]) {
             pos += calc_pad(skinlist[l]);
+          }
           mypop(n, skinlist[l]);
         } else if (last >= 0) {
           last = l;
@@ -470,6 +471,7 @@ public:
           skin.emplace_back(i);
           last = -1;
         }
+      }
       if (last >= 0) {
         last = skinlist.size();
         i.last_pad = g.last_pad = pad_first[last - 1] ? 0 : calc_pad(skinlist[last - 1]);
@@ -593,20 +595,24 @@ public:
           len += l;
         }
       }
-      recv.push_back(std::make_pair(rank_map[n.set], memfd->packed_pointer(packing)));
-      len -= first_pad_v;
-      len -= last_pad;
-      first_pad.emplace_back(first_pad_v);
-      seclen.push_back(len);
-      packing.clear();
-      // Send buffer
-      BitSet in = !n;
-      for (auto s: skin)
-        if (s.neighbor.set == in.set && s.len) {
-          packing.push_back(s.pos * bStorage.step * sizeof(bElem));
-          packing.push_back(s.len * bStorage.step * sizeof(bElem));
-        }
-      send.push_back(std::make_pair(rank_map[in.set], memfd->packed_pointer(packing)));
+      // if an exchange will be occurring, record the necessary info
+      if(len > 0)
+      {
+        recv.push_back(std::make_pair(rank_map[n.set], memfd->packed_pointer(packing)));
+        len -= first_pad_v;
+        len -= last_pad;
+        first_pad.emplace_back(first_pad_v);
+        seclen.push_back(len);
+        packing.clear();
+        // Send buffer
+        BitSet in = !n;
+        for (auto s: skin)
+          if (s.neighbor.set == in.set && s.len) {
+            packing.push_back(s.pos * bStorage.step * sizeof(bElem));
+            packing.push_back(s.len * bStorage.step * sizeof(bElem));
+          }
+        send.push_back(std::make_pair(rank_map[in.set], memfd->packed_pointer(packing)));
+      }
     }
 
     return ExchangeView(comm, seclen, first_pad, send, recv);
