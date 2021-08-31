@@ -273,43 +273,46 @@ private:
     return ret;
   }
 
-  void _adj_populate(long ref, unsigned d, unsigned idx, unsigned *adj) {
+  void _adj_populate(long ref, unsigned d, unsigned idx, unsigned *adj, size_t grid_size) {
     long cur = ref;
     if (cur >= 0) {
       cur = ref / stride[d];
       cur = cur % (t_dims[d]);
     }
     // CommDims uses dimension starting at 0
+    unsigned num_neighbors_in_dim = 1;
     if(CommunicatingDims::communicatesInDim(d)) {
+      num_neighbors_in_dim = 3;
       idx *= 3;
     }
     if (d == 0) {
-      for (int i = 0; i < 3; ++i) {
+      for (int i = 0; i < num_neighbors_in_dim; ++i) {
         constexpr size_t num_neighbors = static_power<3, CommunicatingDims::numCommunicatingDims(sizeof...(BDims))>::value;
         assert(idx + i < num_neighbors);
         if (i + cur < 1 || i + cur > t_dims[d] || ref < 0) {
           adj[idx + i] = 0;
         }
         else {
+          assert(ref + i - 1 < grid_size);
           adj[idx + i] = grid[ref + i - 1];
         }
       }
     } else {
-      for (int i = 0; i < 3; ++i) {
+      for (int i = 0; i < num_neighbors_in_dim; ++i) {
         unsigned next_idx = idx;
         if(CommunicatingDims::communicatesInDim(d)) { ///< CommDims uses dimension starting at 0
-          next_idx++;
+          next_idx = idx + i;
         }
         if (i + cur < 1 || i + cur > t_dims[d] || ref < 0)
-          _adj_populate(-1, d - 1, next_idx, adj);
+          _adj_populate(-1, d - 1, next_idx, adj, grid_size);
         else
-          _adj_populate(ref + (i - 1) * (long) stride[d], d - 1, next_idx, adj);
+          _adj_populate(ref + (i - 1) * (long) stride[d], d - 1, next_idx, adj, grid_size);
       }
     }
   }
 
-  void adj_populate(unsigned i, unsigned *adj) {
-    _adj_populate(i, dim - 1, 0, adj);
+  void adj_populate(unsigned i, unsigned *adj, size_t grid_size) {
+    _adj_populate(i, dim - 1, 0, adj, grid_size);
   }
 
 public:
@@ -490,7 +493,15 @@ public:
     if (bInfo == nullptr)
       bInfo = new BrickInfo<dim, CommunicatingDims>(size);
     for (unsigned i = 0; i < grid_size; ++i) {
-      adj_populate(i, bInfo->adj[grid[i]]);
+      assert(grid[i] < size);
+      adj_populate(i, bInfo->adj[grid[i]], grid_size);
+      // Debug checking
+#ifndef NDEBUG
+      constexpr unsigned num_neighbors = static_power<3, CommunicatingDims::numCommunicatingDims(6)>::value;
+      for(unsigned j = 0; j < num_neighbors; ++j) {
+        assert(bInfo->adj[grid[i]][j] < size);
+      }
+#endif
     }
   }
 
