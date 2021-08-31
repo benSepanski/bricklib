@@ -488,7 +488,7 @@ void semi_arakawa_distributed_brick(bComplexElem *out_ptr,
     coeff_extent_with_gz[i] = per_process_extent_with_gz[i];
   }
   std::vector<long> coeff_brick_grid_extent_with_gz;
-  coeff_brick_grid_extent_with_gz.reserve(DIM);
+  coeff_brick_grid_extent_with_gz.resize(DIM);
   for(unsigned i = 0; i < DIM; ++i) {
     coeff_brick_grid_extent_with_gz[i] = coeff_extent_with_gz[i] / COEFF_BRICK_DIM[i];
   }
@@ -820,7 +820,7 @@ int main(int argc, char **argv) {
 
   // build cartesian communicator and setup MEMFD
   MPI_Comm cartesian_comm = build_cartesian_comm(num_procs_per_dim, per_process_extent);
-  MEMFD::setup_prefix("weak/gene-6d-main", rank);
+  MEMFD::setup_prefix("weak-gene-6d-main", rank);
   // get array/brick extents set up for my MPI process (all include ghost-zones)
   std::array<int, DIM> per_process_extent_with_gz,
                        per_process_extent_with_padding;
@@ -924,9 +924,9 @@ int main(int argc, char **argv) {
                    coeff_ghost_zone);
 #endif
 
-  std::cout << "Coefficient exchange complete. Beginning array computation" << std::endl;
-  // run array computation
-  semi_arakawa_distributed_array(array_out_ptr, in_ptr, coeffs, b_decomp, num_procs_per_dim, per_process_extent);
+  // std::cout << "Coefficient exchange complete. Beginning array computation" << std::endl;
+  // // run array computation
+  // semi_arakawa_distributed_array(array_out_ptr, in_ptr, coeffs, b_decomp, num_procs_per_dim, per_process_extent);
   std::cout << "Array computation complete. Beginning bricks computation" << std::endl;
   semi_arakawa_distributed_brick(brick_out_ptr, in_ptr, coeffs, b_decomp, num_procs_per_dim, per_process_extent);
 
