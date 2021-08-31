@@ -499,12 +499,6 @@ void semi_arakawa_brick_kernel(unsigned * grid_ptr,
       assert(stencil_idx < ARAKAWA_STENCIL_SIZE);
       const unsigned delta_l = l_offset[stencil_idx];
       const unsigned delta_k = k_offset[stencil_idx];
-      auto t0 = b_coeff[n];
-      auto t1 = t0[m];
-      auto t2 = t1[l];
-      auto t3 = t2[k];
-      auto t4 = t3[i];
-      auto t5 = t4[coeff_idx_in_brick];
       const bElem coeff = b_coeff[n][m][l][k][i][coeff_idx_in_brick];
       result += coeff * b_in[n][m][l + delta_l][k + delta_k][j][i];
       stencil_idx++;
@@ -713,7 +707,7 @@ void semi_arakawa_distributed_brick(bComplexElem *out_ptr,
   // Copy back
   cudaCheck(cudaMemcpy(b_storage_out.dat.get(),
                        b_storage_out_dev.dat.get(),
-                       b_storage.step * b_info.nbricks * sizeof(bElem),
+                       b_storage_out.step * b_info.nbricks * sizeof(bElem),
                        cudaMemcpyDeviceToHost));
 
   std::vector<long> per_process_extent_as_vector(per_process_extent.begin(), per_process_extent.end()),
@@ -721,9 +715,9 @@ void semi_arakawa_distributed_brick(bComplexElem *out_ptr,
   copyFromBrick<DIM>(per_process_extent_as_vector,
                      padding_as_vector,
                      ghost_zone_as_vector,
-                     in_ptr,
+                     out_ptr,
                      grid_ptr,
-                     b_in);
+                     b_out);
 
   // free memory
   cudaCheck(cudaFree(coeff_grid_ptr_dev));
@@ -1015,30 +1009,31 @@ int main(int argc, char **argv) {
                    coeff_ghost_zone);
 #endif
 
-  // std::cout << "Coefficient exchange complete. Beginning array computation" << std::endl;
-  // // run array computation
-  // semi_arakawa_distributed_array(array_out_ptr, in_ptr, coeffs, b_decomp, num_procs_per_dim, per_process_extent);
+  std::cout << "Coefficient exchange complete. Beginning array computation" << std::endl;
+  // run array computation
+  semi_arakawa_distributed_array(array_out_ptr, in_ptr, coeffs, b_decomp, num_procs_per_dim, per_process_extent);
   std::cout << "Array computation complete. Beginning bricks computation" << std::endl;
   semi_arakawa_distributed_brick(brick_out_ptr, in_ptr, coeffs, b_decomp, num_procs_per_dim, per_process_extent);
 
   // check for correctness
-  auto array_result = (unsigned (*) [per_process_extent_with_padding[4]]
-                                    [per_process_extent_with_padding[3]]
-                                    [per_process_extent_with_padding[2]]
-                                    [per_process_extent_with_padding[1]]
-                                    [per_process_extent_with_padding[0]]) array_out_ptr;
-  auto brick_result = (unsigned (*) [per_process_extent_with_padding[4]]
-                                    [per_process_extent_with_padding[3]]
-                                    [per_process_extent_with_padding[2]]
-                                    [per_process_extent_with_padding[1]]
-                                    [per_process_extent_with_padding[0]]) brick_out_ptr;
-  #pragma omp parallel for collapse(5)
+  auto array_result = (bComplexElem (*) [per_process_extent_with_padding[4]]
+                                        [per_process_extent_with_padding[3]]
+                                        [per_process_extent_with_padding[2]]
+                                        [per_process_extent_with_padding[1]]
+                                        [per_process_extent_with_padding[0]]) array_out_ptr;
+  auto brick_result = (bComplexElem (*) [per_process_extent_with_padding[4]]
+                                        [per_process_extent_with_padding[3]]
+                                        [per_process_extent_with_padding[2]]
+                                        [per_process_extent_with_padding[1]]
+                                        [per_process_extent_with_padding[0]]) brick_out_ptr;
+
+  // #pragma omp parallel for collapse(5)
   for(unsigned n = PADDING[5] + GHOST_ZONE[5]; n < PADDING[5] + GHOST_ZONE[5] + per_process_extent[5]; ++n)
   for(unsigned m = PADDING[4] + GHOST_ZONE[4]; m < PADDING[4] + GHOST_ZONE[4] + per_process_extent[4]; ++m)
   for(unsigned l = PADDING[3] + GHOST_ZONE[3]; l < PADDING[3] + GHOST_ZONE[3] + per_process_extent[3]; ++l)
   for(unsigned k = PADDING[2] + GHOST_ZONE[2]; k < PADDING[2] + GHOST_ZONE[2] + per_process_extent[2]; ++k)
   for(unsigned j = PADDING[1] + GHOST_ZONE[1]; j < PADDING[1] + GHOST_ZONE[1] + per_process_extent[1]; ++j)
-  #pragma omp simd 
+  // #pragma omp simd 
   for(unsigned i = PADDING[0] + GHOST_ZONE[0]; i < PADDING[0] + GHOST_ZONE[0] + per_process_extent[0]; ++i) {
     std::complex<bElem> arr = array_result[n][m][l][k][j][i];
     std::complex<bElem> bri = brick_result[n][m][l][k][j][i];
