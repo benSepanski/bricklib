@@ -57,9 +57,9 @@ void testConsistency3D(std::array<unsigned, 3> extent) {
     ASSERT_TRUE(k < extentWithPadding[2] || index >= numElements - 1);
   }
   Array3D arr(extent, data);
-  for(int k = 0; k < extent[2]; ++k) {
-    for(int j = 0; j < extent[1]; ++j) {
-      for(int i = 0; i < extent[0]; ++i) {
+  for(k = 0; k < extent[2]; ++k) {
+    for(j = 0; j < extent[1]; ++j) {
+      for(i = 0; i < extent[0]; ++i) {
         EXPECT_EQ(arr(i, j, k), i + 10 * j + 100 * k);
       }
     }
@@ -98,8 +98,8 @@ void testConsistency2D(std::array<unsigned, 2> extent) {
     ASSERT_TRUE(j < extentWithPadding[1] || index >= numElements - 1);
   }
   Array2D arr(extent, data);
-  for(int j = 0; j < extent[1]; ++j) {
-    for(int i = 0; i < extent[0]; ++i) {
+  for(j = 0; j < extent[1]; ++j) {
+    for(i = 0; i < extent[0]; ++i) {
       EXPECT_EQ(arr(i, j), i + 10 * j);
     }
   }
