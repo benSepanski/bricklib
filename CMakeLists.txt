@@ -156,6 +156,28 @@ install(DIRECTORY include/ DESTINATION include/${CMAKE_PROJECT_NAME}
 install(DIRECTORY codegen/ DESTINATION lib/${CMAKE_PROJECT_NAME}
         PATTERN "__pycache__" EXCLUDE)
 
+# testing copied and modified from
+# https://github.com/google/googletest/tree/master/googletest#incorporating-into-an-existing-cmake-project
+# and
+# https://github.com/wdmapp/gtensor/blob/main/CMakeLists.txt#L249-L274
+include(CTest)
+if ((BUILD_TESTING))
+    message(STATUS "${PROJECT_NAME}: build testing is ON")
+
+    include(FetchContent)
+    FetchContent_Declare(
+            googletest
+            # Specify the commit you depend on and update it regularly.
+            URL https://github.com/google/googletest/archive/16f637fbf4ffc3f7a01fa4eceb7906634565242f.zip
+    )
+    # For Windows: Prevent overriding the parent project's compiler/linker settings
+    set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(googletest)
+    add_subdirectory(tests)
+else()
+    message(STATUS "${PROJECT_NAME}: build testing is OFF")
+endif()
+
 # Generating html doc from doxygen output
 set(PROJECT_INC_DIRS "${PROJECT_SOURCE_DIR}/include")
 
