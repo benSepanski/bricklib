@@ -7,6 +7,11 @@
 
 #include "array.h"
 
+
+
+/**
+ * Test suite for consistency with multiple dimensions/paddings
+ */
 template<typename T>
 class BasicArrayConsistencyTests : public testing::Test {
 };
@@ -35,7 +40,7 @@ void testConsistency3D(std::array<unsigned, 3> extent) {
                                          extentWithPadding.end(),
                                          1,
                                          std::multiplies<unsigned>());
-  int *data = new int[numElements];
+  std::shared_ptr<int> data((int*)malloc(numElements * sizeof(int)), free);
   unsigned i = 0, j = 0, k = 0;
   int paddingIndex = -1;
   for(unsigned index = 0; index < numElements; ++index) {
@@ -43,9 +48,9 @@ void testConsistency3D(std::array<unsigned, 3> extent) {
         || i >= extent[0] + Array3D::PADDING[0]
         || j >= extent[1] + Array3D::PADDING[1]
         || k >= extent[2] + Array3D::PADDING[2]) {
-      data[index] = paddingIndex--;
+      data.get()[index] = paddingIndex--;
     } else {
-      data[index] = (i - Array3D::PADDING[0])
+      data.get()[index] = (i - Array3D::PADDING[0])
                     + 10 * (j - Array3D::PADDING[1])
                     + 100 * (k - Array3D::PADDING[2]);
     }
@@ -64,7 +69,6 @@ void testConsistency3D(std::array<unsigned, 3> extent) {
       }
     }
   }
-  delete []data;
 }
 
 template<typename Padding>
@@ -80,16 +84,16 @@ void testConsistency2D(std::array<unsigned, 2> extent) {
                                          extentWithPadding.end(),
                                          1,
                                          std::multiplies<unsigned>());
-  int *data = new int[numElements];
+  std::shared_ptr<int> data((int*)malloc(numElements * sizeof(int)), free);
   unsigned i = 0, j = 0;
   int paddingIndex = -1;
   for(unsigned index = 0; index < numElements; ++index) {
     if(i < Array2D::PADDING[0] || j < Array2D::PADDING[1]
         || i >= extent[0] + Array2D::PADDING[0]
         || j >= extent[1] + Array2D::PADDING[1]) {
-      data[index] = paddingIndex--;
+      data.get()[index] = paddingIndex--;
     } else {
-      data[index] = (i - Array2D::PADDING[0])
+      data.get()[index] = (i - Array2D::PADDING[0])
                     + 10 * (j - Array2D::PADDING[1]);
     }
     i += 1;
@@ -103,7 +107,6 @@ void testConsistency2D(std::array<unsigned, 2> extent) {
       EXPECT_EQ(arr(i, j), i + 10 * j);
     }
   }
-  delete []data;
 }
 
 template<typename Padding>
@@ -112,20 +115,19 @@ void testConsistency1D(unsigned extent) {
   // Build up array
   using Array1D = brick::Array<int, RANK, Padding>;
   unsigned extentWithPadding = extent + 2 * Array1D::PADDING[0];
-  int *data = new int[extentWithPadding];
+  std::shared_ptr<int> data((int*)malloc(extentWithPadding * sizeof(int)), free);
   int paddingIndex = -1;
   for(unsigned index = 0; index < extentWithPadding; ++index) {
     if(index < Array1D::PADDING[0] || index >= extent + Array1D::PADDING[0]) {
-      data[index] = paddingIndex--;
+      data.get()[index] = paddingIndex--;
     } else {
-      data[index] = (index - Array1D::PADDING[0]);
+      data.get()[index] = (index - Array1D::PADDING[0]);
     }
   }
   Array1D arr({extent}, data);
   for(int i = 0; i < extent; ++i) {
     EXPECT_EQ(arr(i), i);
   }
-  delete []data;
 }
 
 TYPED_TEST(BasicArrayConsistencyTests, CheckDataLayout) {
@@ -142,3 +144,53 @@ TYPED_TEST(BasicArrayConsistencyTests, CheckDataLayout) {
     testConsistency1D<PADDING1>(k);
   }
 }
+
+TYPED_TEST(BasicArrayConsistencyTests, IteratorTest) {
+  typedef brick::Padding<TypeParam::PADDING[2], TypeParam::PADDING[1], TypeParam::PADDING[0]> Padding;
+  constexpr unsigned RANK = 3;
+  // Build up array
+  using Array3D = brick::Array<int, RANK, Padding>;
+  std::array<unsigned, RANK> extent = {3, 3, 3};
+  unsigned numElements = std::accumulate(extent.begin(),
+                                         extent.end(),
+                                         1,
+                                         std::multiplies<unsigned>());
+
+  // Check forwards
+  Array3D arr(extent);
+  int index = 0;
+  typename Array3D::Iterator it = arr.begin();
+  while(it != arr.end()) {
+    assert(index < numElements);
+    *it = index++;
+    it++;
+  }
+
+  for(unsigned k = 0; k < extent[2]; ++k) {
+    for(unsigned j = 0; j < extent[1]; ++j) {
+      for(unsigned i = 0; i < extent[0]; ++i) {
+        EXPECT_EQ(arr(i, j, k), i + extent[0] * (j + extent[1] * k));
+      }
+    }
+  }
+
+  // Now check reverse
+  index = 0;
+  it = arr.end();
+  while(it != arr.begin()) {
+    assert(index < numElements);
+    *(--it) = index++;
+  }
+
+  for(unsigned k = 0; k < extent[2]; ++k) {
+    for(unsigned j = 0; j < extent[1]; ++j) {
+      for(unsigned i = 0; i < extent[0]; ++i) {
+        EXPECT_EQ(arr(i, j, k), (extent[0] - 1 - i)
+                                + extent[0] * ((extent[1] - 1 - j)
+                                + extent[1] *  (extent[2] - 1 - k)));
+      }
+    }
+  }
+}
+
+

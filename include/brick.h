@@ -190,6 +190,8 @@ struct Dim {
     static constexpr unsigned dims[sizeof...(Ds)] = { Ds... };
 
   public:
+    static constexpr unsigned NUM_DIMS = sizeof...(Ds);
+
   // get *d*th entry (from right), e.g. Dim<1,2,3>::template get<0>() == 3
   template<unsigned d>
   static constexpr FORCUDA unsigned get()
