@@ -24,10 +24,9 @@ namespace brick {
      * @tparam Rank the rank of the BrickInfo
      */
     template <unsigned Rank> struct BrickInfoWrapperBase {
-      typedef BrickInfo<Rank> MyBrickInfoType;
-      /**
-               * @return a representation of the communicating dims
-       */
+    /**
+     * @return a representation of the communicating dims
+     */
       virtual std::vector<bool> getCommunicatingDims() const {
         return {};
       }
@@ -54,12 +53,14 @@ namespace brick {
       /**
        * Virtual destructor for proper deletion
        */
-      virtual ~BrickInfoWrapperBase() { }
+      virtual ~BrickInfoWrapperBase() = default;
     };
   } // End anonymous namespace
 }
 
 namespace std { // std namespace
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCUnusedStructInspection" // Ignore some clang-tidy stuff
   /**
    * Implement hashing for pointer to BrickInfoWrapperBase
    * @tparam Rank the rank of the BrickInfoWrapper
@@ -76,6 +77,7 @@ namespace std { // std namespace
       return result;
     }
   };
+#pragma clang diagnostic pop
 } // End std namespace
 
 
@@ -116,7 +118,7 @@ namespace brick {
       /**
        * Destructor
        */
-      virtual ~BrickInfoWrapper() override { }
+      ~BrickInfoWrapper() override = default;
 
       /**
        * @return a representation of the communicating dims
@@ -175,6 +177,8 @@ namespace brick {
 
     public:
       // public methods
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCUnusedGlobalDeclarationInspection" // ignore some clang-tidy stuff
       /**
        * Build a layout from the provided array
        * @param indexInStorage Each entry holds the index of the brick
@@ -184,6 +188,7 @@ namespace brick {
       : indexInStorage{indexInStorage}
       , numBricks{computeNumBricks()}
       { }
+#pragma clang diagnostic pop
 
       explicit BrickLayout(const std::array<unsigned, RANK> extent)
       : indexInStorage{buildColumnMajorGrid(extent)}
@@ -365,7 +370,6 @@ namespace brick {
       
       // public typedefs
       typedef CommDims<allFalse[Range0ToRank]...> NoCommunication;
-      typedef BrickedArray<DataType, Dim<BDim...>, Dim<VFold...> > MyType;
       template<typename CommunicatingDims = CommDims<>>
       using BrickType = Brick<Dim<BDim...>, Dim<VFold...>, isComplex, CommunicatingDims>;
 
@@ -379,7 +383,7 @@ namespace brick {
       std::shared_ptr<BrickStorage>
           brickStorage_devPtr{
               (BrickStorage*) malloc(sizeof(BrickStorage)),
-              free}; //< Where data on device is stored
+              [](BrickStorage *p) {free(p);}}; //< Where data on device is stored
 #endif
       // location of first brick in storage (in units of real elements)
       const unsigned offsetIntoBrickStorage;
@@ -438,19 +442,15 @@ namespace brick {
         return storage;
       }
 
-      /**
-       * Used to distinguish an unsigned value at the ind
-       */
-      struct UnsignedWrapper {
-        unsigned value;
-      };
-
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCUnusedGlobalDeclarationInspection" // ignore some clang-tidy stuff
       /**
        * Base case for brick access
        */
       static inline DataType& accessBrick(DataType &value) {
         return value;
       }
+#pragma clang diagnostic pop
 
       /**
        * Used to translate (idx0,idx1,...,idxD) to [idx0][idx1][...][idxD-1]
@@ -461,6 +461,18 @@ namespace brick {
       }
 
     public:
+      /**
+       * @tparam CommunicatingDims the dimensions in which communication is
+       *                           required
+       * @return the array represented as a list of bricks
+       */
+      template<typename CommunicatingDims = CommDims<>>
+      BrickType<CommunicatingDims> viewBricks() {
+        std::shared_ptr<BrickInfo<RANK, CommunicatingDims> > brickInfoPtr =
+            layout.template getBrickInfoPtr<CommunicatingDims>();
+        return BrickType<CommunicatingDims>(brickInfoPtr.get(), brickStorage, offsetIntoBrickStorage);
+      }
+
       /// Constructor methods
 
       /**
@@ -476,6 +488,8 @@ namespace brick {
       , bricks{viewBricks<NoCommunication>()}
       { }
 
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCUnusedGlobalDeclarationInspection" // Ignore some clang-tidy stuff
       /**
        * Allocate a BrickedArray using mmap.
        *
@@ -494,18 +508,7 @@ namespace brick {
       , brickStorage{buildStorage({extent[Range0ToRank]...}, true, mmap_fd, offset)}
       , bricks{viewBricks<NoCommunication>()}
       { }
-      
-      /**
-       * @tparam CommunicatingDims the dimensions in which communication is
-       *                           required
-       * @return the array represented as a list of bricks 
-       */
-      template<typename CommunicatingDims = CommDims<>>
-      BrickType<CommunicatingDims> viewBricks() {
-        std::shared_ptr<BrickInfo<RANK, CommunicatingDims> > brickInfoPtr =
-            layout.template getBrickInfoPtr<CommunicatingDims>();
-        return BrickType<CommunicatingDims>(brickInfoPtr.get(), brickStorage, offsetIntoBrickStorage);
-      }
+#pragma clang diagnostic pop
 
 #ifdef __CUDACC__
       /**
@@ -518,7 +521,6 @@ namespace brick {
        */
       template<typename CommunicatingDims = CommDims<>>
       BrickType<CommunicatingDims> viewBricksOnDevice() {
-        BrickType<CommunicatingDims> bricks = viewBricks<CommunicatingDims>();
         std::shared_ptr<BrickInfo<RANK, CommunicatingDims>> brickInfo_dev =
             layout.template getBrickInfoDevicePtr<CommunicatingDims>();
         return BrickType<CommunicatingDims>(brickInfo_dev.get(), *brickStorage_devPtr,
@@ -531,6 +533,7 @@ namespace brick {
        *
        * Copy data to the device
        */
+       // TODO: IMPLEMENT ZERO-COPY ALLOCATION
       void copyToDevice() {
         *brickStorage_devPtr = movBrickStorage(brickStorage, cudaMemcpyHostToDevice);
       }

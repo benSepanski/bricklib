@@ -80,10 +80,6 @@ namespace brick {
       template<unsigned ... PackValues>
       using UnsignedPack = UnsignedPackManip::Pack<PackValues...>;
     public:
-      // public typedefs
-      typedef Array<DataType, Rank, Padding<PadInEachDim...>, SizeType, IndexType,
-                    brick::templateutils::ParameterPackManipulator<unsigned>::Pack<Range0ToRank...>>
-          MyType;
       // public constexprs
       static constexpr unsigned RANK = Rank;
       /**
@@ -310,6 +306,7 @@ namespace brick {
        *
        * @return The array object
        */
+      // TODO: IMPLEMENT ZERO-COPY ALLOCATION
       Array copyToDevice() const {
         size_t dataSize = numElementsWithPadding * sizeof(DataType);
         DataType *dataPtr_dev;
@@ -417,7 +414,7 @@ namespace brick {
 
           // Postfix Increment
           FORCUDA INLINE
-          Iterator operator++(int) {
+          Iterator operator++(int) { // NOLINT(cert-dcl21-cpp)
             const Iterator tmp = *this;
             ++(*this);
             return tmp;
@@ -445,7 +442,7 @@ namespace brick {
 
           // Postfix Decrement
           FORCUDA INLINE
-          Iterator operator--(int) {
+          Iterator operator--(int) { // NOLINT(cert-dcl21-cpp)
             Iterator tmp = *this;
             --(*this);
             return tmp;
