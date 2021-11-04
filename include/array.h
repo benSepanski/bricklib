@@ -163,7 +163,7 @@ namespace brick {
       * @return the number of padding elements on the edges of this array
     */
     FORCUDA INLINE
-    SizeType computePaddingOnBoundary() {
+    SizeType computePaddingOnBoundary() const {
       SizeType pad = 0;
       for(unsigned d = 0; d < Rank; ++d) {
         pad += PADDING[d] * stride[d];
@@ -212,11 +212,11 @@ namespace brick {
      * @return the new Array object
      */
     explicit Array(const std::array<IndexType, RANK> arrExtent)
-    : extent {arrExtent[Range0ToRank]...}
+    : data{(DataType *)aligned_alloc(ALIGN, computeNumElementsWithPadding(arrExtent) * sizeof(DataType)), free}
     , stride {computeStride(arrExtent)[Range0ToRank]..., computeNumElementsWithPadding(arrExtent)}
+    , extent {arrExtent[Range0ToRank]...}
     , numElements{computeNumElements(arrExtent)}
     , numElementsWithPadding{computeNumElementsWithPadding(arrExtent)}
-    , data{(DataType *)aligned_alloc(ALIGN, computeNumElementsWithPadding(arrExtent) * sizeof(DataType)), free}
     { }
 
     /**
@@ -225,22 +225,31 @@ namespace brick {
      * @param data the data to use
      */
     explicit Array(const std::array<IndexType, RANK> arrExtent, std::shared_ptr<DataType> data)
-    : extent {arrExtent[Range0ToRank]...}
+    : data{data}
     , stride {computeStride(arrExtent)[Range0ToRank]..., computeNumElementsWithPadding(arrExtent)}
-    , data{data}
+    , extent {arrExtent[Range0ToRank]...}
     , numElements{computeNumElements(arrExtent)}
     , numElementsWithPadding{computeNumElementsWithPadding(arrExtent)}
     { }
 
     /**
-     * @param axis The axis (0 <= axis < Rank)
-     * @return the extent in the provided axis
+     * Copy constructor
+     * @param that the array to make a shallow copy of
+     */
+    Array(const Array &that)
+    : data{that.data}
+    , stride {that.stride[Range0ToRank]...}
+    , extent {that.extent[Range0ToRank]...}
+    , numElements{that.numElements}
+    , numElementsWithPadding{that.numElementsWithPadding}
+    { }
+
+    /**
+     * @return A pointer to the start of the array
      */
     FORCUDA INLINE
-    IndexType getExtent(unsigned axis) const {
-      assert(axis >= 0);
-      assert(axis < Rank);
-      return extent[axis];
+    DataType* getData() const {
+      return data IF_CUDA_ELSE( , .get());
     }
 
     /**
@@ -252,7 +261,7 @@ namespace brick {
     FORCUDA INLINE
     DataType& operator()(I ... indices) {
       SizeType flatIndex = this->getIndex(indices...);
-      return this->data.get()[flatIndex];
+      return this->data IF_CUDA_ELSE( , .get())[flatIndex];
     }
 
     /**
@@ -264,33 +273,40 @@ namespace brick {
     FORCUDA INLINE
     DataType get(I ... indices) const {
       SizeType flatIndex = this->getIndex(indices...);
-      return this->data.get()[flatIndex];
+      return this->data IF_CUDA_ELSE( , .get())[flatIndex];
     }
 
     /**
      * Iterator
      * https://internalpointers.com/post/writing-custom-iterators-modern-cpp
      */
+    template<typename T>
     class Iterator{
+      /// public typedefs
+      public:
+        typedef typename std::conditional<std::is_const<T>::value,
+                                          const Array,
+                                          Array>::type ArrayType;
+      /// Attributes and methods
       private:
         SizeType flatIndex;
-        MyType *array;
+        ArrayType *array;
 
       public:
-        using iterator_category = std::bidirectional_iterator_tag;
-        using difference_type = void;
-        using value_type = DataType;
-        using pointer = DataType*;
-        using reference = DataType&;
+        using iterator_category __attribute__((unused)) = std::bidirectional_iterator_tag;
+        using difference_type __attribute__((unused)) = void;
+        using value_type = T;
+        using pointer = T*;
+        using reference = T&;
 
         FORCUDA INLINE
-        explicit Iterator(MyType *arr)
+        explicit Iterator(ArrayType *arr)
         : array{arr}
         , flatIndex{arr->computePaddingOnBoundary()}
         { }
 
         FORCUDA INLINE
-        explicit Iterator(MyType *arr, SizeType flatIndex)
+        explicit Iterator(ArrayType *arr, SizeType flatIndex)
         : array{arr}
         , flatIndex{flatIndex}
         { }
@@ -331,9 +347,9 @@ namespace brick {
             for(unsigned d = 0; d < Rank; ++d) {
               if(PADDING[d] != 0) {
                 IndexType idxInDim = (flatIndex / array->stride[d])
-                                   % (array->getExtent(d) + 2 * PADDING[d]);
-                assert(PADDING[d] <= idxInDim && idxInDim <= PADDING[d] + array->getExtent(d));
-                if(idxInDim - PADDING[d] == array->getExtent(d)) {
+                                   % (array->extent[d] + 2 * PADDING[d]);
+                assert(PADDING[d] <= idxInDim && idxInDim <= PADDING[d] + array->extent[d]);
+                if(idxInDim - PADDING[d] == array->extent[d]) {
                   flatIndex += 2 * PADDING[d] * array->stride[d];
                 }
               }
@@ -345,7 +361,7 @@ namespace brick {
         // Postfix Increment
         FORCUDA INLINE
         Iterator operator++(int) {
-          Iterator tmp = *this;
+          const Iterator tmp = *this;
           ++(*this);
           return tmp;
         }
@@ -359,8 +375,8 @@ namespace brick {
             for(unsigned d = 0; d < Rank; ++d) {
               if(PADDING[d] != 0) {
                 IndexType idxInDim = (flatIndex / array->stride[d])
-                                     % (array->getExtent(d) + 2 * PADDING[d]);
-                assert(PADDING[d] - 1 <= idxInDim && idxInDim < PADDING[d] + array->getExtent(d));
+                                     % (array->extent[d] + 2 * PADDING[d]);
+                assert(PADDING[d] - 1 <= idxInDim && idxInDim < PADDING[d] + array->extent[d]);
                 if(idxInDim == PADDING[d] - 1) {
                   flatIndex -= 2 * PADDING[d] * array->stride[d];
                 }
@@ -389,20 +405,103 @@ namespace brick {
         }
     };
 
+    typedef Iterator<DataType> iterator_type;
+    typedef Iterator<const DataType> const_iterator_type;
+
     /**
      * @return iterator to first element
      */
     FORCUDA INLINE
-    Iterator begin() {return Iterator(this); }
+    iterator_type begin() {return iterator_type(this); }
 
     /**
      * @return iterator from element after-last
      */
     FORCUDA INLINE
-    Iterator end() {
+    iterator_type end() {
       // B/c the iterator++ skips all padding, the element "after" the last
       // element is the one after the padding after the last element
-      return Iterator(this, numElementsWithPadding + computePaddingOnBoundary());
+      return iterator_type(this, numElementsWithPadding + computePaddingOnBoundary());
+    }
+
+    /**
+     * @return const iterator to first element
+     */
+    FORCUDA INLINE
+    const_iterator_type cbegin() {return const_iterator_type(this); }
+
+    /**
+     * @return const iterator from element after-last
+     */
+    FORCUDA INLINE
+    const_iterator_type cend() {
+      // B/c the iterator++ skips all padding, the element "after" the last
+      // element is the one after the padding after the last element
+      return const_iterator_type(this, numElementsWithPadding + computePaddingOnBoundary());
+    }
+
+    /**
+     * Deep copy that array into this one
+     * @tparam ThatSizeType size-type of that array
+     * @tparam ThatIndexType index-type of that array
+     * @tparam ThatArrayPadding padding of that array
+     * @param that the array to load from
+     */
+    template<typename ThatSizeType, typename ThatIndexType, unsigned ... ThatArrayPadding>
+    void loadFrom(const Array<DataType, Rank, Padding<ThatArrayPadding...>, ThatSizeType, ThatIndexType> &that) {
+      // Ensure extents match
+      for(unsigned d = 0; d < RANK; ++d) {
+        if(that.extent[d] != this->extent[d]) {
+          throw std::runtime_error("Array extent does not match this object");
+        }
+      }
+      auto *thatPtr = &that; // Avoid omp synchronization
+      const unsigned boundaryPadding = computePaddingOnBoundary();
+      // Perform load
+      #pragma omp parallel for firstprivate(thatPtr, boundaryPadding) default(none)
+      for(unsigned outerIndex = 0; outerIndex < this->extent[RANK - 1]; ++outerIndex) {
+        unsigned thisFlatIndex = boundaryPadding + outerIndex * stride[RANK - 1];
+        unsigned thatFlatIndex = boundaryPadding + outerIndex * thatPtr->stride[RANK - 1];
+        iterator_type this_iterator(this, thisFlatIndex);
+        const_iterator_type that_iterator(thatPtr, thatFlatIndex);
+        for(unsigned i = 0; i < numElements / this->extent[RANK - 1]; ++i) {
+          *this_iterator = *that_iterator;
+          this_iterator++;
+          that_iterator++;
+        }
+      }
+    }
+
+    /**
+     * Deep copy this array into that one
+     * @tparam ThatSizeType size-type of that array
+     * @tparam ThatIndexType index-type of that array
+     * @tparam ThatArrayPadding padding of that array
+     * @param that the array to load from
+     */
+    template<typename ThatSizeType, typename ThatIndexType, unsigned ... ThatArrayPadding>
+    void storeTo(Array<DataType, Rank, Padding<ThatArrayPadding...>, ThatSizeType, ThatIndexType> &that) const {
+      // Ensure extents match
+      for(unsigned d = 0; d < RANK; ++d) {
+        if(that.extent[d] != this->extent[d]) {
+          throw std::runtime_error("Array extent does not match this object");
+        }
+      }
+      auto *thatPtr = &that; // Avoid omp synchronization
+      const unsigned boundaryPadding = computePaddingOnBoundary();
+  // Perform load
+#pragma omp parallel for firstprivate(thatPtr, boundaryPadding) default(none)
+      for(unsigned outerIndex = 0; outerIndex < this->extent[RANK - 1]; ++outerIndex) {
+        unsigned thisFlatIndex = boundaryPadding + outerIndex * stride[RANK - 1];
+        unsigned thatFlatIndex = boundaryPadding + outerIndex * thatPtr->stride[RANK - 1];
+        const_iterator_type this_iterator(this, thisFlatIndex);
+        iterator_type that_iterator(thatPtr, thatFlatIndex);
+        for(unsigned i = 0; i < numElements / this->extent[RANK - 1]; ++i) {
+          *that_iterator = *this_iterator;
+          this_iterator++;
+          that_iterator++;
+        }
+      }
     }
   };
 

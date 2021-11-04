@@ -239,7 +239,7 @@ namespace brick {
        * @see reduce
      */
     template<typename AggregatorFunction, typename OutputType>
-    constexpr OutputType reduce(AggregatorFunction f, OutputType identity) {
+    constexpr inline OutputType reduce(AggregatorFunction f, OutputType identity) {
       return identity;
     }
 
@@ -248,7 +248,7 @@ namespace brick {
        * @see reduce
      */
     template<typename AggregatorFunction, typename OutputType, typename T>
-    constexpr OutputType reduce(AggregatorFunction f, OutputType identity, T singleton) {
+    constexpr inline OutputType reduce(AggregatorFunction f, OutputType identity, T singleton) {
       return f(identity, singleton);
     }
 
@@ -267,7 +267,7 @@ namespace brick {
        * @return the reduced value
      */
     template<typename AggregatorFunction, typename OutputType, typename T1, typename ... T>
-    constexpr OutputType reduce(AggregatorFunction f, OutputType identity, T1 first, T1 second, T ... tail) {
+    constexpr inline OutputType reduce(AggregatorFunction f, OutputType identity, T1 first, T1 second, T ... tail) {
       return reduce(f, identity, f(first, second), tail...);
     }
 

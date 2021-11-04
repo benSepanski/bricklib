@@ -130,6 +130,9 @@ void testConsistency1D(unsigned extent) {
   }
 }
 
+/**
+ * Check data ordering
+ */
 TYPED_TEST(BasicArrayConsistencyTests, CheckDataLayout) {
   typedef brick::Padding<TypeParam::PADDING[2], TypeParam::PADDING[1], TypeParam::PADDING[0]> PADDING3;
   typedef brick::Padding<TypeParam::PADDING[1], TypeParam::PADDING[0]> PADDING2;
@@ -145,6 +148,9 @@ TYPED_TEST(BasicArrayConsistencyTests, CheckDataLayout) {
   }
 }
 
+/**
+ * Check iterators
+ */
 TYPED_TEST(BasicArrayConsistencyTests, IteratorTest) {
   typedef brick::Padding<TypeParam::PADDING[2], TypeParam::PADDING[1], TypeParam::PADDING[0]> Padding;
   constexpr unsigned RANK = 3;
@@ -159,7 +165,7 @@ TYPED_TEST(BasicArrayConsistencyTests, IteratorTest) {
   // Check forwards
   Array3D arr(extent);
   int index = 0;
-  typename Array3D::Iterator it = arr.begin();
+  typename Array3D::iterator_type it = arr.begin();
   while(it != arr.end()) {
     assert(index < numElements);
     *it = index++;
@@ -190,6 +196,43 @@ TYPED_TEST(BasicArrayConsistencyTests, IteratorTest) {
                                 + extent[1] *  (extent[2] - 1 - k)));
       }
     }
+  }
+}
+
+/**
+ * Check array load/stores
+ */
+TYPED_TEST(BasicArrayConsistencyTests, loadStoreTest) {
+  typedef brick::Padding<TypeParam::PADDING[2], TypeParam::PADDING[1], TypeParam::PADDING[0]> Padding;
+  constexpr unsigned RANK = 3;
+  // Build up array
+  using Array3D = brick::Array<int, RANK, Padding>;
+  std::array<unsigned, RANK> extent = {3, 3, 3};
+  Array3D arr(extent), arrCopy(extent);
+  for(unsigned k = 0; k < extent[2]; ++k)
+  for(unsigned j = 0; j < extent[1]; ++j)
+  for(unsigned i = 0; i < extent[0]; ++i) {
+    arr(i, j, k) = i + extent[0] * (j + extent[1] * k);
+    arrCopy(i, j, k) = 0;
+  }
+
+  // Test copy
+  arrCopy.loadFrom(arr);
+
+  for(unsigned k = 0; k < extent[2]; ++k)
+  for(unsigned j = 0; j < extent[1]; ++j)
+  for(unsigned i = 0; i < extent[0]; ++i) {
+    EXPECT_EQ(arrCopy(i, j, k), i + extent[0] * (j + extent[1] * k));
+    arr(i, j, k) = 0;
+  }
+
+  // Test store
+  arrCopy.storeTo(arr);
+
+  for(unsigned k = 0; k < extent[2]; ++k)
+  for(unsigned j = 0; j < extent[1]; ++j)
+  for(unsigned i = 0; i < extent[0]; ++i) {
+    EXPECT_EQ(arr(i, j, k), i + extent[0] * (j + extent[1] * k));
   }
 }
 
