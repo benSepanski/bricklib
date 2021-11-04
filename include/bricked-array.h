@@ -356,29 +356,25 @@ namespace brick {
       }
 
       /**
-       * Used to translate {idx0,idx1,...,idxD} to [idxD][...][idx1][idx0]
+       * Used to distinguish an unsigned value at the ind
        */
-      template<unsigned I, typename BrickAccessorType>
-      inline typename std::enable_if<I != 0, DataType&>::type
-      accessBrickImpl(BrickAccessorType b, const unsigned * const &indices) {
-          return accessBrickImpl<I - 1>(b[indices[I]], indices);
+      struct UnsignedWrapper {
+        unsigned value;
+      };
+
+      /**
+       * Base case for brick access
+       */
+      static inline DataType& accessBrick(DataType &value) {
+        return value;
       }
 
       /**
-       * Used to translate {idx0,idx1,...,idxD} to [idxD][...][idx1][idx0]
+       * Used to translate (idx0,idx1,...,idxD) to [idx0][idx1][...][idxD-1]
        */
-      template<unsigned I, typename BrickAccessorType>
-      inline typename std::enable_if<I == 0, DataType&>::type
-      accessBrickImpl(BrickAccessorType b, const unsigned * const &indices) {
-        return b[indices[0]];
-      }
-
-      /**
-       * Used to translate {idx0,idx1,...,idxD} to [idxD][...][idx1][idx0]
-       */
-      template<typename BrickAccessorType, typename ... IndexType>
-      inline DataType& accessBrick(BrickAccessorType b, const unsigned (&indices)[RANK]) {
-        return accessBrickImpl<RANK - 1>(b, indices);
+      template<typename BrickAccessorType, typename I, typename ... IndexType>
+      static inline DataType& accessBrick(BrickAccessorType b, I lastIndex, IndexType ... earlierIndices) {
+        return accessBrick(b[lastIndex], earlierIndices...);
       }
 
     public:
@@ -502,22 +498,9 @@ namespace brick {
         static_assert(sizeof...(IndexType) == RANK, "Mismatch in number of indices");
         unsigned brickIndex = layout.indexInStorage.get(indices / BRICK_DIMS[Range0ToRank] ...);
         auto b = bricks[brickIndex];
-        return accessBrick(b, {indices % BRICK_DIMS[Range0ToRank]...});
-      }
-
-      /**
-       * Inefficient const access into the bricks array
-       *
-       * @tparam IndexType type of variadic parameter pack
-       * @param indices the indices into the array
-       * @return a reference to the element at the provided index
-       */
-      template<typename ... IndexType>
-      const DataType& get(IndexType ... indices) const {
-        static_assert(sizeof...(IndexType) == RANK, "Mismatch in number of indices");
-        unsigned brickIndex = layout.indexInStorage.get(indices / BRICK_DIMS[Range0ToRank] ...);
-        auto b = bricks[brickIndex];
-        return accessBrick(b, {indices % BRICK_DIMS[Range0ToRank]...});
+        return templateutils::callOnReversedArgs<DataType&>(
+            accessBrick<decltype(b), IndexType...>, indices % BRICK_DIMS[Range0ToRank]..., b
+        );
       }
 
       // Some validity checks

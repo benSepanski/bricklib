@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <array>
+#include <tuple>
 
 // Some common utilities based on CUDA
 #ifdef __CUDACC__
@@ -31,7 +32,7 @@ namespace brick {
        * @tparam Elements elements of the parameter pack
        */
       template<T ... Elements>
-      struct Pack;
+      struct Pack{};
 
       /**
        * Generic template for specialization
@@ -270,6 +271,34 @@ namespace brick {
     constexpr inline OutputType reduce(AggregatorFunction f, OutputType identity, T1 first, T1 second, T ... tail) {
       return reduce(f, identity, f(first, second), tail...);
     }
+
+    namespace { // Begin anonymous namespace
+      /**
+       * Implementation of calling f with reversed arguments based on
+       * https://gist.github.com/SephDB/a084c2a8cce378b3cdea502c233d2f4a
+       */
+      template<typename R, typename F, typename Tuple, unsigned ... Range0ToNumArgs>
+      inline R callOnReversedArgs(F &&f, Tuple && args, ParameterPackManipulator<unsigned>::Pack<Range0ToNumArgs...>) {
+        constexpr size_t N = std::tuple_size<Tuple>::value;
+        return f(std::get<N - 1 - Range0ToNumArgs>(args)...);
+      }
+    } // end anonymous namespace
+
+    /**
+     *
+     * @tparam R the return type of f
+     * @tparam F the function type of f
+     * @tparam ArgTypes the types of the function arguments
+     * @param f the function to apply
+     * @param args the arguments to reverse, and then apply f to
+     * @return f(argN-1,argN-2,...,arg1,arg0)
+     */
+    template<typename R, typename F, typename ... ArgTypes>
+    inline R callOnReversedArgs(F &&f, ArgTypes&& ... args) {
+      return callOnReversedArgs<R>(f, std::forward_as_tuple(args...),
+                                   typename UnsignedIndexSequence<(unsigned) sizeof...(ArgTypes)>::type());
+    }
+
 
     /// Tools to deal with boolean types
 

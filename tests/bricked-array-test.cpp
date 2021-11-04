@@ -29,8 +29,6 @@ TEST(BrickedArrayTests, AssignmentTest) {
   for(unsigned i = 0; i < extent[0]; ++i) {
     arr(i, j, k) = i + extent[0] * (j + extent[1] * k);
   }
-  Array arrCopy(extent);
-  arrCopy.loadFrom(arr);
 
   // Test the copy from array into the brick
   brickedArray.loadFrom(arr);
@@ -41,5 +39,15 @@ TEST(BrickedArrayTests, AssignmentTest) {
     EXPECT_EQ(value, i + extent[0] * (j + extent[1] * k));
   }
 
+  // test store-to
+  Array arrCopy(extent);
+  brickedArray.storeTo(arrCopy);
+  for(unsigned k = 0; k < extent[2]; ++k)
+  for(unsigned j = 0; j < extent[1]; ++j)
+  for(unsigned i = 0; i < extent[0]; ++i) {
+    EXPECT_EQ(arr(i, j, k), arrCopy(i, j, k));
+  }
+
+  // Just to test compilation
   auto brick = brickedArray.getBricks();
 }
