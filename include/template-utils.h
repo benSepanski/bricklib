@@ -12,10 +12,8 @@
 // Some common utilities based on CUDA
 #ifdef __CUDACC__
 #define IF_CUDA_ELSE(CudaCase, NoCudaCase) CudaCase
-#define ARRAY_TYPE(Type, Size) Type[Size]
 #else
 #define IF_CUDA_ELSE(CudaCase, NoCudaCase) NoCudaCase
-#define ARRAY_TYPE(Type, Size) std::array<Type, Size>
 #endif
 
 namespace brick {
@@ -32,23 +30,8 @@ namespace brick {
        * @tparam Elements elements of the parameter pack
        */
       template<T ... Elements>
-      struct Pack{};
-
-      /**
-       * Generic template for specialization
-       */
-      template<typename Pack>
-      struct PackToArray;
-
-      /**
-       * @tparam Elements the elements of the pack
-       */
-      template<T ... Elements>
-      struct PackToArray<Pack<Elements...> > {
-        /**
-         * Elements of the pack as an array
-         */
-        static constexpr std::array<T, sizeof...(Elements)> value = { Elements... };
+      struct Pack{
+        static constexpr size_t size = sizeof...(Elements);
       };
 
       /**
@@ -92,110 +75,84 @@ namespace brick {
       };
 
       /**
-       * Reverses values in the pack. Empty pack case
-       * (non-empty handled via partial template specialization)
-       * @tparam EmptyPack the empty pack
+       * Used to pop the head off of a pack
+       * @tparam Pack the pack
+       * @see PackPopper
        */
-      template<typename EmptyPack>
-      struct PackReverser {
-        /** The reversed pack */
-        typedef Pack<> type;
-      };
+      template<typename Pack>
+      struct PackPopper;
 
       /**
-       * Non-empty pack case
-       * @tparam FirstValue the first value in the pack
-       * @tparam TailValues the remaining values in the pack
+       * @tparam Head head of the pack
+       * @tparam Tail tail of the pack
+       * @see PackPopper
        */
-      template<T FirstValue, T ... TailValues>
-      struct PackReverser<Pack<FirstValue, TailValues...> > {
-        typedef typename PackReverser<Pack<TailValues...> >::type reversedTail;
-        /** The reversed pack */
-        typedef typename PackAppender<reversedTail, Pack<FirstValue> >::type type;
-      };
-
-      /**
-       * General template for specialization
-       * Repeat Pack NumRepeats number of time
-       */
-      template<typename Pack, unsigned NumRepeats>
-      struct PackRepeater;
-
-      /**
-       * NumRepeats > 0 case
-       * @tparam NumRepeats number of times to repeat
-       * @tparam PackValues values of the pack
-       */
-      template<unsigned NumRepeats, T ... PackValues>
-      struct PackRepeater<Pack<PackValues...>, NumRepeats> {
-        /** Pack repeated NumRepeats times */
-        typedef typename PackAppender<
-            typename PackRepeater<Pack<PackValues...>, NumRepeats - 1>::type,
-            Pack<PackValues...>
-                >::type type;
-      };
-
-      /**
-       * NumRepeats == 0 case
-       * @tparam PackValues the values in the pack
-       */
-      template<T ... PackValues>
-      struct PackRepeater<Pack<PackValues...>, 0> {
-        /** Empty pack representing repeating the pack 0 times */
-        typedef Pack<> type;
-      };
-
-      /**
-       * Generic template for specialization
-       * @tparam N the length to pad up to
-       * @tparam PaddingValue the value to pad with
-       * @tparam PackToPad the pack to pad
-       */
-      template<size_t N, T PaddingValue, typename PackToPad>
-      struct PackPadder;
-
-      /**
-       * @tparam PackValues the values in the pack
-       */
-      template<size_t N, T PaddingValue, T ... PackValues>
-      struct PackPadder<N, PaddingValue, Pack<PackValues...> > {
-        static constexpr unsigned NumPaddedElements = sizeof...(PackValues) <= N
-                                                    ? N - sizeof...(PackValues)
-                                                    : 0;
-        static constexpr unsigned NumTotalElements = sizeof...(PackValues) + NumPaddedElements;
-        typedef typename PackAppender<
-            Pack<PackValues...>,
-            typename PackRepeater<Pack<PaddingValue>, NumPaddedElements>::type
-            >::type type;
+      template<T Head, T ... Tail>
+      struct PackPopper<Pack<Head, Tail...> > {
+        typedef Pack<Tail...> type;
+        static constexpr T value = Head;
       };
 
       /// Functions to encapsulate common operations so that users can
       /// avoid dealing with ugly types
 
       /**
-       * @return An array of the pack values in reverse
+       * @note this implementation is the Pack::size >= 2 case
+       * @tparam Pack the parameter pack
+       * @param index the index
+       * @return the index th value in Pack
+       * @see get
        */
-      template<T ... PackValues>
-      static constexpr std::array<T, sizeof...(PackValues)> reverse() {
-        return PackToArray<
-            typename PackReverser<Pack<PackValues...>>::type
-            >::value;
+      template<typename Pack>
+      static constexpr
+      typename std::enable_if<1 < Pack::size, T>::type get(size_t index) {
+        typedef PackPopper<Pack> PoppedPack;
+        return index == 0
+               ? PoppedPack::value
+               : get<typename PoppedPack::type>(index - 1);
       }
 
       /**
-       * @return an array of the pack values in reverse, after being
-       *         right-padded with PaddingValue up to length N
+       * @note this implementation is the Pack::size < 2 case
+       * @see get
        */
-      template<size_t N, T PaddingValue, T ... PackValues>
-      static constexpr std::array<T, PackPadder<N, PaddingValue, Pack<PackValues...> >::NumTotalElements >
-      padAndReverse() {
-        return PackToArray<
-            typename PackReverser<
-                typename PackPadder<N,
-                                    PaddingValue,
-                                    Pack<PackValues...>>::type
-                >::type
-            >::value;
+      template<typename Pack>
+      static constexpr
+      typename std::enable_if<Pack::size <= 1, T>::type get(size_t index) {
+        static_assert(Pack::size > 0, "Index out of bounds");
+        typedef PackPopper<Pack> PoppedPack;
+        return PoppedPack::value;
+      }
+
+      /**
+       * @note The empty pack case is implemented separately to avoid a compiler
+       *       warning
+       * @tparam P the parameter pack
+       * @tparam DefaultValue the default value
+       * @param index the index to get
+       * @return the defaultValue if index is out-of-bounds, otherwise the
+       *         index th value in P
+       * @see getOrDefault
+       */
+      template<typename P, T DefaultValue>
+      static constexpr
+      typename std::enable_if<P::size != 0, T>::type getOrDefault(size_t index) {
+        // Pad pack with default value to avoid out-of-bounds access in
+        // the case where P is the empty pack.
+        typedef typename PackAppender<P, Pack<DefaultValue> >::type PaddedPack;
+        return (index < P::size)
+            ? get<PaddedPack>(index >= P::size ? 0 : index)
+            : DefaultValue;
+      }
+
+      /**
+       * @note implementation for empty pack case
+       * @see getOrDefault
+       */
+      template<typename P, T DefaultValue>
+      static constexpr
+      typename std::enable_if<P::size == 0, T>::type getOrDefault(size_t index) {
+        return DefaultValue;
       }
     };
 

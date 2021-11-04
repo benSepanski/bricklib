@@ -7,8 +7,6 @@
 
 #include "array.h"
 
-
-
 /**
  * Test suite for consistency with multiple dimensions/paddings
  */
@@ -33,8 +31,9 @@ void testConsistency3D(std::array<unsigned, 3> extent) {
   // Build up array
   using Array3D = brick::Array<int, RANK, Padding>;
   std::array<unsigned, RANK> extentWithPadding{};
+  #pragma unroll
   for(unsigned i = 0; i < RANK; ++i) {
-    extentWithPadding[i] = extent[i] + 2 * Array3D::PADDING[i];
+    extentWithPadding[i] = extent[i] + 2 * Array3D::PADDING(i);
   }
   unsigned numElements = std::accumulate(extentWithPadding.begin(),
                                          extentWithPadding.end(),
@@ -44,15 +43,15 @@ void testConsistency3D(std::array<unsigned, 3> extent) {
   unsigned i = 0, j = 0, k = 0;
   int paddingIndex = -1;
   for(unsigned index = 0; index < numElements; ++index) {
-    if(i < Array3D::PADDING[0] || j < Array3D::PADDING[1] || k < Array3D::PADDING[2]
-        || i >= extent[0] + Array3D::PADDING[0]
-        || j >= extent[1] + Array3D::PADDING[1]
-        || k >= extent[2] + Array3D::PADDING[2]) {
+    if(i < Array3D::PADDING(0) || j < Array3D::PADDING(1) || k < Array3D::PADDING(2)
+        || i >= extent[0] + Array3D::PADDING(0)
+        || j >= extent[1] + Array3D::PADDING(1)
+        || k >= extent[2] + Array3D::PADDING(2)) {
       data.get()[index] = paddingIndex--;
     } else {
-      data.get()[index] = (i - Array3D::PADDING[0])
-                    + 10 * (j - Array3D::PADDING[1])
-                    + 100 * (k - Array3D::PADDING[2]);
+      data.get()[index] = (i - Array3D::PADDING(0))
+                    + 10 * (j - Array3D::PADDING(1))
+                    + 100 * (k - Array3D::PADDING(2));
     }
     i += 1;
     j += i / extentWithPadding[0];
@@ -78,7 +77,7 @@ void testConsistency2D(std::array<unsigned, 2> extent) {
   using Array2D = brick::Array<int, RANK, Padding>;
   std::array<unsigned, RANK> extentWithPadding{};
   for(unsigned i = 0; i < RANK; ++i) {
-    extentWithPadding[i] = extent[i] + 2 * Array2D::PADDING[i];
+    extentWithPadding[i] = extent[i] + 2 * Array2D::PADDING(i);
   }
   unsigned numElements = std::accumulate(extentWithPadding.begin(),
                                          extentWithPadding.end(),
@@ -88,13 +87,13 @@ void testConsistency2D(std::array<unsigned, 2> extent) {
   unsigned i = 0, j = 0;
   int paddingIndex = -1;
   for(unsigned index = 0; index < numElements; ++index) {
-    if(i < Array2D::PADDING[0] || j < Array2D::PADDING[1]
-        || i >= extent[0] + Array2D::PADDING[0]
-        || j >= extent[1] + Array2D::PADDING[1]) {
+    if(i < Array2D::PADDING(0) || j < Array2D::PADDING(1)
+        || i >= extent[0] + Array2D::PADDING(0)
+        || j >= extent[1] + Array2D::PADDING(1)) {
       data.get()[index] = paddingIndex--;
     } else {
-      data.get()[index] = (i - Array2D::PADDING[0])
-                    + 10 * (j - Array2D::PADDING[1]);
+      data.get()[index] = (i - Array2D::PADDING(0))
+                    + 10 * (j - Array2D::PADDING(1));
     }
     i += 1;
     j += i / extentWithPadding[0];
@@ -114,14 +113,14 @@ void testConsistency1D(unsigned extent) {
   constexpr unsigned RANK = 1;
   // Build up array
   using Array1D = brick::Array<int, RANK, Padding>;
-  unsigned extentWithPadding = extent + 2 * Array1D::PADDING[0];
+  unsigned extentWithPadding = extent + 2 * Array1D::PADDING(0);
   std::shared_ptr<int> data((int*)malloc(extentWithPadding * sizeof(int)), free);
   int paddingIndex = -1;
   for(unsigned index = 0; index < extentWithPadding; ++index) {
-    if(index < Array1D::PADDING[0] || index >= extent + Array1D::PADDING[0]) {
+    if(index < Array1D::PADDING(0) || index >= extent + Array1D::PADDING(0)) {
       data.get()[index] = paddingIndex--;
     } else {
-      data.get()[index] = (index - Array1D::PADDING[0]);
+      data.get()[index] = (index - Array1D::PADDING(0));
     }
   }
   Array1D arr({extent}, data);

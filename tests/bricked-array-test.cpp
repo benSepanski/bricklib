@@ -49,5 +49,5 @@ TEST(BrickedArrayTests, AssignmentTest) {
   }
 
   // Just to test compilation
-  auto brick = brickedArray.getBricks();
+  auto brick = brickedArray.viewBricks();
 }

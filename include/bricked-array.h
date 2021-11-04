@@ -12,6 +12,10 @@
 
 #include <unordered_set>
 
+#ifdef __CUDACC__
+#include "brick-cuda.h"
+#endif
+
 namespace brick {
   namespace { // Anonymous namespace
     /**
@@ -129,8 +133,27 @@ namespace brick {
 
   template<unsigned Rank>
   struct BrickLayout {
-    static constexpr unsigned RANK = Rank;
+    // constexprs and typedefs
+    public:
+      static constexpr unsigned RANK = Rank;
+      typedef Array<unsigned, RANK, Padding<>, unsigned, unsigned> ArrayType;
+
+    /// Members
     private:
+      // private members
+      std::unordered_set<std::shared_ptr<BrickInfoWrapperBase<Rank> > > cachedBrickInfo;
+#ifdef __CUDACC__
+      std::unordered_set<std::shared_ptr<BrickInfoWrapperBase<Rank> > > cachedBrickInfoOnDev;
+#endif
+    public:
+      // public members
+      // Brick-index to index in storage
+      const ArrayType indexInStorage;
+      const unsigned numBricks; //< number of bricks
+
+    /// Methods
+    private:
+      // private methods
       /**
          * @throw std::runtime_error if the extent of indexInStorage is not valid
          * @return The number of bricks
@@ -150,15 +173,8 @@ namespace brick {
         return nBricks;
       }
 
-      std::unordered_set<std::shared_ptr<BrickInfoWrapperBase<Rank> > > cachedBrickInfo;
-
     public:
-      // Public typedefs
-      typedef Array<unsigned, RANK, Padding<>, unsigned, unsigned> ArrayType;
-      // Brick-index to index in storage
-      const ArrayType indexInStorage;
-      const unsigned numBricks; //< number of bricks
-
+      // public methods
       /**
        * Build a layout from the provided array
        * @param indexInStorage Each entry holds the index of the brick
@@ -213,8 +229,10 @@ namespace brick {
           }
           assert(stride == numBricks);
           init_iter<RANK, RANK>(
-              extentAsVector, strideAsVector, bInfo, indexInStorage.getData(),
-              indexInStorage.getData(), indexInStorage.getData() + numBricks,
+              extentAsVector, strideAsVector, bInfo,
+              indexInStorage.getData().get(),
+              indexInStorage.getData().get(),
+              indexInStorage.getData().get() + numBricks,
               RunningTag());
           // Build a pointer to the BrickInfo
           std::shared_ptr<BrickInfoType>
@@ -231,6 +249,59 @@ namespace brick {
         std::shared_ptr<BrickInfoWrapperBase<Rank> > wrapperPtr = *iterator;
         return reinterpret_cast<BrickInfoWrapperType*>(wrapperPtr.get())->brickInfo;
       }
+
+#ifdef __CUDACC__
+      /**
+       * Build, cache, and return an adjacency list stored on the
+       * device with communication in the given dimensions
+       *
+       * @tparam CommunicatingDims the dimensions communication must occur in
+       * @return the brick info
+       * @see BrickInfo
+       * @see CommDims
+       */
+      template<typename CommunicatingDims = CommDims<>>
+      std::shared_ptr<BrickInfo<RANK, CommunicatingDims> > getBrickInfoDevicePtr() {
+        typedef BrickInfo<RANK, CommunicatingDims> BrickInfoType;
+        typedef BrickInfoWrapper<Rank, CommunicatingDims> BrickInfoWrapperType;
+
+        // look for BrickInfo in cache
+        std::shared_ptr<BrickInfoWrapperBase<Rank> > key(new BrickInfoWrapperType);
+        auto iterator = cachedBrickInfoOnDev.find(key);
+        // compute brick info if not  already cached
+        if(iterator == cachedBrickInfoOnDev.end()) {
+          std::shared_ptr<BrickInfo<RANK, CommunicatingDims>> brickInfoPtr =
+              getBrickInfoPtr<CommunicatingDims>();
+          BrickInfoType _brickInfo_dev = movBrickInfo(*brickInfoPtr,
+                                                      cudaMemcpyHostToDevice),
+                        *brickInfo_dev;
+
+          size_t brickInfoSize = sizeof(BrickInfoType);
+          cudaCheck(cudaMalloc(&brickInfo_dev, brickInfoSize));
+          cudaCheck(cudaMemcpy(brickInfo_dev,
+                                  &_brickInfo_dev,
+                                  brickInfoSize,
+                                  cudaMemcpyHostToDevice)
+                    );
+          auto adj_dev = _brickInfo_dev.adj;  // Need this for lambda capture
+          std::shared_ptr<BrickInfoType> bInfoSharedPtr(
+              brickInfo_dev,
+              [adj_dev](BrickInfoType *p) {
+                cudaCheck(cudaFree(adj_dev));
+                cudaCheck(cudaFree(p));
+              });
+          // insert into the cache
+          *reinterpret_cast<BrickInfoWrapperType *>(key.get()) =
+              BrickInfoWrapperType(bInfoSharedPtr);
+          auto insertHandle = cachedBrickInfoOnDev.insert(key);
+          assert(insertHandle.second);
+          iterator = insertHandle.first;
+          assert(iterator != cachedBrickInfoOnDev.end());
+        }
+        std::shared_ptr<BrickInfoWrapperBase<Rank> > wrapperPtr = *iterator;
+        return reinterpret_cast<BrickInfoWrapperType*>(wrapperPtr.get())->brickInfo;
+      }
+#endif
 
     private:
       static ArrayType buildColumnMajorGrid(const std::array<unsigned, RANK> extent) {
@@ -270,6 +341,8 @@ namespace brick {
     private:
       // used to manipulate unsigned template parameter packs
       using UnsignedPackManip = brick::templateutils::ParameterPackManipulator<unsigned>;
+      template<unsigned ... PackValues>
+      using UnsignedPack = UnsignedPackManip::Pack<PackValues...>;
       // std::multiply<>() is not constexpr until C++14
       static constexpr unsigned multiply(const unsigned x, const unsigned y) {
         return x * y;
@@ -279,10 +352,14 @@ namespace brick {
     public:
       // public static constants
       static constexpr unsigned RANK = sizeof...(BDim);
-      static constexpr ARRAY_TYPE(unsigned, sizeof...(BDim))
-          BRICK_DIMS = UnsignedPackManip::reverse<BDim...>() IF_CUDA_ELSE(.get(), );
-      static constexpr ARRAY_TYPE(unsigned, sizeof...(BDim))
-          VECTOR_FOLDS = UnsignedPackManip::padAndReverse<RANK, 1, VFold...>() IF_CUDA_ELSE(.get(), );
+      static constexpr unsigned BRICK_DIMS[sizeof...(BDim)] = {
+        UnsignedPackManip::get<UnsignedPack<BDim...> >(Range0ToRank)...
+      };
+      static constexpr unsigned VECTOR_FOLDS[sizeof...(BDim)] = {
+        UnsignedPackManip::getOrDefault<UnsignedPack<VFold...>, 1>(
+              sizeof...(VFold) - 1 - Range0ToRank
+        )...
+      };
       static constexpr unsigned NUM_ELEMENTS_PER_BRICK = brick::templateutils::reduce(multiply, 1U, BDim...);
       static constexpr bool isComplex = std::is_same<DataType, bComplexElem>::value;
       
@@ -296,8 +373,14 @@ namespace brick {
     private:
       BrickLayout<RANK> layout;  //< layout of bricks in storage
       // extent of the array being bricked
-      const ARRAY_TYPE(unsigned, RANK) extent;
+      const unsigned extent[RANK];
       BrickStorage brickStorage; //< Where the data is actually stored
+#ifdef __CUDACC__
+      std::shared_ptr<BrickStorage>
+          brickStorage_devPtr{
+              (BrickStorage*) malloc(sizeof(BrickStorage)),
+              free}; //< Where data on device is stored
+#endif
       // location of first brick in storage (in units of real elements)
       const unsigned offsetIntoBrickStorage;
       // bricks without any adjacency list
@@ -386,11 +469,11 @@ namespace brick {
        * @param layout the desired layout of bricks in memory
        */
       explicit BrickedArray(BrickLayout<RANK> layout)
-      : extent {layout.indexInStorage.extent[Range0ToRank] * BRICK_DIMS[Range0ToRank]...}
+      : extent{layout.indexInStorage.extent[Range0ToRank] * BRICK_DIMS[Range0ToRank]...}
       , layout{layout}
       , offsetIntoBrickStorage {0}
-      , brickStorage{buildStorage(extent)}
-      , bricks{getBricks<NoCommunication>()}
+      , brickStorage{buildStorage({extent[Range0ToRank]...})}
+      , bricks{viewBricks<NoCommunication>()}
       { }
 
       /**
@@ -408,8 +491,8 @@ namespace brick {
       : extent {layout.indexInStorage.extent[Range0ToRank] * BRICK_DIMS[Range0ToRank]...}
       , layout{layout}
       , offsetIntoBrickStorage {0}
-      , brickStorage{buildStorage(extent, true, mmap_fd, offset)}
-      , bricks{getBricks<NoCommunication>()}
+      , brickStorage{buildStorage({extent[Range0ToRank]...}, true, mmap_fd, offset)}
+      , bricks{viewBricks<NoCommunication>()}
       { }
       
       /**
@@ -418,11 +501,57 @@ namespace brick {
        * @return the array represented as a list of bricks 
        */
       template<typename CommunicatingDims = CommDims<>>
-      BrickType<CommunicatingDims> getBricks() {
+      BrickType<CommunicatingDims> viewBricks() {
         std::shared_ptr<BrickInfo<RANK, CommunicatingDims> > brickInfoPtr =
             layout.template getBrickInfoPtr<CommunicatingDims>();
         return BrickType<CommunicatingDims>(brickInfoPtr.get(), brickStorage, offsetIntoBrickStorage);
       }
+
+#ifdef __CUDACC__
+      /**
+       * MUST be preceded by a call to copyToDevice()
+       *
+       * @tparam CommunicatingDims the dimensions in which communication is
+       *                           required
+       * @return the array represented as a list of bricks with the data stored
+       *         on the device
+       */
+      template<typename CommunicatingDims = CommDims<>>
+      BrickType<CommunicatingDims> viewBricksOnDevice() {
+        BrickType<CommunicatingDims> bricks = viewBricks<CommunicatingDims>();
+        std::shared_ptr<BrickInfo<RANK, CommunicatingDims>> brickInfo_dev =
+            layout.template getBrickInfoDevicePtr<CommunicatingDims>();
+        return BrickType<CommunicatingDims>(brickInfo_dev.get(), *brickStorage_devPtr,
+                                            offsetIntoBrickStorage);
+      }
+
+      /**
+       * IMPORTANT: As a side effect, this also copies any interleaved
+       *            fields to the device
+       *
+       * Copy data to the device
+       */
+      void copyToDevice() {
+        *brickStorage_devPtr = movBrickStorage(brickStorage, cudaMemcpyHostToDevice);
+      }
+
+      /**
+       * IMPORTANT: As a side effect, this also copies any interleaved
+       *            fields from the device
+       *
+       * @tparam CommunicatingDims the dimensions in which communication is
+       *                           required
+       * @return the array represented as a list of bricks with data stored
+       *         on the device
+       */
+      void copyFromDevice() {
+        size_t dataSize = brickStorage.step * brickStorage.chunks * sizeof(DataType);
+        cudaCheck(cudaMemcpy(brickStorage.dat.get(),
+                               brickStorage_devPtr->dat.get(),
+                               dataSize,
+                               cudaMemcpyDeviceToHost));
+      }
+#endif
 
       /**
        * Deep copy an array into this bricked array
@@ -441,17 +570,17 @@ namespace brick {
         }
         constexpr std::array<long, RANK> allZero{};  //< all zero
         // Get bricks
-        auto brick = getBricks<NoCommunication>();
+        auto brick = viewBricks<NoCommunication>();
         // get arrays stored into vectors
         std::vector<long> extentAsVector = {extent[Range0ToRank]...},
-                          paddingAsVector = {arr.PADDING[Range0ToRank]...},
+                          paddingAsVector = {arr.PADDING(Range0ToRank)...},
                           ghostAsVector = {allZero[Range0ToRank]...};
         // Load into bricks
         copyToBrick<RANK>(extentAsVector,
                           paddingAsVector,
                           ghostAsVector,
-                          arr.getData(),
-                          layout.indexInStorage.getData(),
+                          arr.getData().get(),
+                          layout.indexInStorage.getData().get(),
                           brick) ;
       }
 
@@ -472,17 +601,17 @@ namespace brick {
         }
         constexpr std::array<long, RANK> allZero{};  //< all zero
         // Get bricks
-        auto brick = getBricks<NoCommunication>();
+        auto brick = viewBricks<NoCommunication>();
         // get arrays stored into vectors
         std::vector<long> extentAsVector = {extent[Range0ToRank]...},
-                          paddingAsVector = {arr.PADDING[Range0ToRank]...},
+                          paddingAsVector = {arr.PADDING(Range0ToRank)...},
                           ghostAsVector = {allZero[Range0ToRank]...};
         // Copy from bricks
         copyFromBrick<RANK>(extentAsVector,
                             paddingAsVector,
                             ghostAsVector,
-                            arr.getData(),
-                            layout.indexInStorage.getData(),
+                            arr.getData().get(),
+                            layout.indexInStorage.getData().get(),
                             brick) ;
       }
 
@@ -529,17 +658,19 @@ namespace brick {
                     "User should not supply _Range0ToRank template argument");
   };
 
-  // Define public static constants
+  // Define static constants
   template<typename DataType, unsigned ... BDim, unsigned ... VFold, unsigned ... Range0ToRank>
-  constexpr ARRAY_TYPE(unsigned, sizeof...(BDim))
-  BrickedArray<DataType, Dim<BDim...>, Dim<VFold...>,
-               brick::templateutils::ParameterPackManipulator<unsigned>::Pack<Range0ToRank...>
-               >::BRICK_DIMS;
+  constexpr unsigned BrickedArray<DataType,
+                                  Dim<BDim...>,
+                                  Dim<VFold...>,
+                                  brick::templateutils::ParameterPackManipulator<unsigned>::Pack<Range0ToRank...>
+                                  >::BRICK_DIMS[sizeof...(BDim)];
   template<typename DataType, unsigned ... BDim, unsigned ... VFold, unsigned ... Range0ToRank>
-  constexpr ARRAY_TYPE(unsigned, sizeof...(BDim))
-      BrickedArray<DataType, Dim<BDim...>, Dim<VFold...>,
-                   brick::templateutils::ParameterPackManipulator<unsigned>::Pack<Range0ToRank...>
-                   >::VECTOR_FOLDS;
+  constexpr unsigned BrickedArray<DataType,
+                                  Dim<BDim...>,
+                                  Dim<VFold...>,
+                                  brick::templateutils::ParameterPackManipulator<unsigned>::Pack<Range0ToRank...>
+                                  >::VECTOR_FOLDS[sizeof...(BDim)];
 }
 
 #endif // BRICK_BRICKED_ARRAY_H

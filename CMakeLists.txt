@@ -37,6 +37,7 @@ check_language(CUDA)
 
 if (CMAKE_CUDA_COMPILER)
     enable_language(CUDA)
+    message(STATUS "Found CUDA ${CMAKE_CUDA_COMPILER_VERSION}")
     set(CMAKE_CUDA_STANDARD ${CMAKE_CXX_STANDARD})
     set(CMAKE_CUDA_SEPARABLE_COMPILATION OFF)
     if(BRICKS_ENABLE_FFT)
@@ -48,7 +49,9 @@ if (CMAKE_CUDA_COMPILER)
         set(CMAKE_CUDA_ARCHITECTURES 70)
     endif()
     # allow compile-time evaluation of host constexpr functions in device functions
-    set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} --expt-relaxed-constexpr") 
+    set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} --expt-relaxed-constexpr")
+else()
+    message(STATUS "Could NOT find CUDA")
 endif ()
 
 find_package(OpenMP REQUIRED)
