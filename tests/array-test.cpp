@@ -1,3 +1,5 @@
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "cert-err58-cpp"
 //
 // Created by Ben_Sepanski on 10/15/2021.
 //
@@ -110,9 +112,8 @@ void testConsistency2D(std::array<unsigned, 2> extent) {
 
 template<typename Padding>
 void testConsistency1D(unsigned extent) {
-  constexpr unsigned RANK = 1;
   // Build up array
-  using Array1D = brick::Array<int, RANK, Padding>;
+  using Array1D = brick::Array<int, 1, Padding>;
   unsigned extentWithPadding = extent + 2 * Array1D::PADDING(0);
   std::shared_ptr<int> data((int*)malloc(extentWithPadding * sizeof(int)), free);
   int paddingIndex = -1;
@@ -208,31 +209,35 @@ TYPED_TEST(BasicArrayConsistencyTests, loadStoreTest) {
   using Array3D = brick::Array<int, RANK, Padding>;
   std::array<unsigned, RANK> extent = {3, 3, 3};
   Array3D arr(extent), arrCopy(extent);
-  for(unsigned k = 0; k < extent[2]; ++k)
-  for(unsigned j = 0; j < extent[1]; ++j)
-  for(unsigned i = 0; i < extent[0]; ++i) {
-    arr(i, j, k) = i + extent[0] * (j + extent[1] * k);
-    arrCopy(i, j, k) = 0;
+  for(unsigned k = 0; k < extent[2]; ++k) {
+    for (unsigned j = 0; j < extent[1]; ++j) {
+      for (unsigned i = 0; i < extent[0]; ++i) {
+        arr(i, j, k) = i + extent[0] * (j + extent[1] * k);
+        arrCopy(i, j, k) = 0;
+      }
+    }
   }
 
   // Test copy
   arrCopy.loadFrom(arr);
 
-  for(unsigned k = 0; k < extent[2]; ++k)
-  for(unsigned j = 0; j < extent[1]; ++j)
-  for(unsigned i = 0; i < extent[0]; ++i) {
-    EXPECT_EQ(arrCopy(i, j, k), i + extent[0] * (j + extent[1] * k));
-    arr(i, j, k) = 0;
+  for(unsigned k = 0; k < extent[2]; ++k) {
+    for (unsigned j = 0; j < extent[1]; ++j) {
+      for (unsigned i = 0; i < extent[0]; ++i) {
+        EXPECT_EQ(arrCopy(i, j, k), i + extent[0] * (j + extent[1] * k));
+        arr(i, j, k) = 0;
+      }
+    }
   }
 
   // Test store
   arrCopy.storeTo(arr);
 
-  for(unsigned k = 0; k < extent[2]; ++k)
-  for(unsigned j = 0; j < extent[1]; ++j)
-  for(unsigned i = 0; i < extent[0]; ++i) {
-    EXPECT_EQ(arr(i, j, k), i + extent[0] * (j + extent[1] * k));
+  for(unsigned k = 0; k < extent[2]; ++k) {
+    for (unsigned j = 0; j < extent[1]; ++j) {
+      for (unsigned i = 0; i < extent[0]; ++i) {
+        EXPECT_EQ(arr(i, j, k), i + extent[0] * (j + extent[1] * k));
+      }
+    }
   }
 }
-
-

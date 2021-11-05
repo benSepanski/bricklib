@@ -118,7 +118,7 @@ namespace brick {
        */
       template<typename Pack>
       static constexpr
-      typename std::enable_if<Pack::size <= 1, T>::type get(size_t index) {
+      typename std::enable_if<Pack::size <= 1, T>::type get(size_t) {
         static_assert(Pack::size > 0, "Index out of bounds");
         typedef PackPopper<Pack> PoppedPack;
         return PoppedPack::value;
@@ -151,7 +151,7 @@ namespace brick {
        */
       template<typename P, T DefaultValue>
       static constexpr
-      typename std::enable_if<P::size == 0, T>::type getOrDefault(size_t index) {
+      typename std::enable_if<P::size == 0, T>::type getOrDefault(size_t) {
         return DefaultValue;
       }
     };
@@ -190,14 +190,14 @@ namespace brick {
       typedef typename ParameterPackManipulator<unsigned>::Pack<> type;
     };
 
-    /// Reduction
+    /// Some function utils
 
     /**
        * Reduce a list (empty list case)
        * @see reduce
      */
     template<typename AggregatorFunction, typename OutputType>
-    constexpr inline OutputType reduce(AggregatorFunction f, OutputType identity) {
+    constexpr inline OutputType reduce(AggregatorFunction, OutputType identity) {
       return identity;
     }
 
@@ -229,6 +229,14 @@ namespace brick {
       return reduce(f, identity, f(first, second), tail...);
     }
 
+    /**
+     * Constexpr multiply (std::multiplies() isn't constexpr until C++14)
+     */
+    template<typename T>
+    constexpr inline T multiply(T x, T y) {
+      return x * y;
+    }
+
     namespace { // Begin anonymous namespace
       /**
        * Implementation of calling f with reversed arguments based on
@@ -255,7 +263,6 @@ namespace brick {
       return callOnReversedArgs<R>(f, std::forward_as_tuple(args...),
                                    typename UnsignedIndexSequence<(unsigned) sizeof...(ArgTypes)>::type());
     }
-
 
     /// Tools to deal with boolean types
 

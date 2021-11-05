@@ -10,7 +10,9 @@
 #include "bricksetup.h"
 #include "template-utils.h"
 
+#include <tuple>
 #include <unordered_set>
+#include <utility>
 
 #ifdef __CUDACC__
 #include "brick-cuda.h"
@@ -348,10 +350,6 @@ namespace brick {
       using UnsignedPackManip = brick::templateutils::ParameterPackManipulator<unsigned>;
       template<unsigned ... PackValues>
       using UnsignedPack = UnsignedPackManip::Pack<PackValues...>;
-      // std::multiply<>() is not constexpr until C++14
-      static constexpr unsigned multiply(const unsigned x, const unsigned y) {
-        return x * y;
-      }
       static constexpr std::array<bool, sizeof...(BDim)> allFalse{}; //< all false
 
     public:
@@ -365,7 +363,7 @@ namespace brick {
               sizeof...(VFold) - 1 - Range0ToRank
         )...
       };
-      static constexpr unsigned NUM_ELEMENTS_PER_BRICK = brick::templateutils::reduce(multiply, 1U, BDim...);
+      static constexpr unsigned NUM_ELEMENTS_PER_BRICK = brick::templateutils::reduce(templateutils::multiply<unsigned>, 1U, BDim...);
       static constexpr bool isComplex = std::is_same<DataType, bComplexElem>::value;
       
       // public typedefs
@@ -373,11 +371,37 @@ namespace brick {
       template<typename CommunicatingDims = CommDims<>>
       using BrickType = Brick<Dim<BDim...>, Dim<VFold...>, isComplex, CommunicatingDims>;
 
-    /// Members
+    /// Static functions
     private:
-      BrickLayout<RANK> layout;  //< layout of bricks in storage
+      // private static functions
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCUnusedGlobalDeclarationInspection" // ignore some clang-tidy stuff
+      /**
+       * Base case for brick access
+       */
+      static inline DataType& accessBrick(DataType &value) {
+        return value;
+      }
+#pragma clang diagnostic pop
+
+      /**
+       * Used to translate (idx0,idx1,...,idxD) to [idx0][idx1][...][idxD-1]
+       */
+      template<typename BrickAccessorType, typename I, typename ... IndexType>
+      static inline DataType& accessBrick(BrickAccessorType b, I lastIndex, IndexType ... earlierIndices) {
+        return accessBrick(b[lastIndex], earlierIndices...);
+      }
+    public:
+      // public static functions
+
+    /// Members
+    public:
+      // public members
       // extent of the array being bricked
       const unsigned extent[RANK];
+    private:
+      // private members
+      BrickLayout<RANK> layout;  //< layout of bricks in storage
       BrickStorage brickStorage; //< Where the data is actually stored
 #ifdef __CUDACC__
       std::shared_ptr<BrickStorage>
@@ -392,6 +416,7 @@ namespace brick {
 
     /// Methods
     private:
+      // private methods
       /**
        * Builds BrickStorage
        *
@@ -442,24 +467,6 @@ namespace brick {
         return storage;
       }
 
-#pragma clang diagnostic push
-#pragma ide diagnostic ignored "OCUnusedGlobalDeclarationInspection" // ignore some clang-tidy stuff
-      /**
-       * Base case for brick access
-       */
-      static inline DataType& accessBrick(DataType &value) {
-        return value;
-      }
-#pragma clang diagnostic pop
-
-      /**
-       * Used to translate (idx0,idx1,...,idxD) to [idx0][idx1][...][idxD-1]
-       */
-      template<typename BrickAccessorType, typename I, typename ... IndexType>
-      static inline DataType& accessBrick(BrickAccessorType b, I lastIndex, IndexType ... earlierIndices) {
-        return accessBrick(b[lastIndex], earlierIndices...);
-      }
-
     public:
       /**
        * @tparam CommunicatingDims the dimensions in which communication is
@@ -486,6 +493,25 @@ namespace brick {
       , offsetIntoBrickStorage {0}
       , brickStorage{buildStorage({extent[Range0ToRank]...})}
       , bricks{viewBricks<NoCommunication>()}
+      { }
+
+      /**
+       * Build a BrickedArray from an existing BrickStorage.
+       *
+       * Users should avoid calling this directly unless they
+       * are familiar with the bricks library.
+       *
+       * @param layout the desired layout of bricks in memory
+       * @see InterleavedBrickArrays
+       */
+      explicit BrickedArray(BrickLayout<RANK> layout,
+                            BrickStorage storage,
+                            unsigned offsetIntoStorage)
+          : extent{layout.indexInStorage.extent[Range0ToRank] * BRICK_DIMS[Range0ToRank]...}
+            , layout{layout}
+            , offsetIntoBrickStorage {offsetIntoStorage}
+            , brickStorage{std::move(storage)}
+            , bricks{viewBricks<NoCommunication>()}
       { }
 
 #pragma clang diagnostic push
@@ -674,6 +700,125 @@ namespace brick {
                                   Dim<VFold...>,
                                   brick::templateutils::ParameterPackManipulator<unsigned>::Pack<Range0ToRank...>
                                   >::VECTOR_FOLDS[sizeof...(BDim)];
+
+
+  template<typename BrickDims,
+           typename ... >
+  struct InterleavedBrickedArrays;
+
+  template<typename DataType, typename VectorFold = Dim<1> >
+  struct DataTypeVectorFoldPair {
+    typedef DataType dataType;
+    typedef VectorFold vectorFold;
+  };
+
+  template<unsigned ... BDims,
+           typename ... VectorFolds,
+           typename ... DataTypes>
+  struct InterleavedBrickedArrays<Dim<BDims...>,
+                                  DataTypeVectorFoldPair<DataTypes, VectorFolds>...>
+  {
+    /// constexpr/typedefs
+    private:
+      // private constexprs
+      static constexpr unsigned NUM_ELEMENTS_PER_BRICK =
+          templateutils::reduce(templateutils::multiply<unsigned>, 1, BDims...);
+    public:
+      // public constexpr
+      static constexpr unsigned Rank = sizeof...(BDims);
+    /// Members
+    public:
+      std::tuple<
+          std::vector<BrickedArray<DataTypes, Dim<BDims...>, VectorFolds> >...
+          > fields;
+    /// static methods
+    private:
+      // private static methods
+      /**
+       * Base case for get offsets
+       */
+      template<typename ...>
+      static void computeOffsets(std::vector<size_t> &offsets) {  }
+
+      /**
+       * Compute the offsets into brick storage for the provided number
+       * of interleaved fields of each data type.
+       */
+      template<typename HeadDataType, typename ... TailDataTypes, typename ... T>
+      static void computeOffsets(std::vector<size_t> &offsets, unsigned headCount, T ... tailCounts) {
+        static_assert(sizeof...(T) == sizeof...(TailDataTypes),
+                      "Mismatch in number of arguments");
+        static_assert(sizeof(HeadDataType) % sizeof(bElem) == 0,
+                      "sizeof(bElem) must divide sizeof(DataType)");
+        assert(!offsets.empty());
+        size_t lastOffset = offsets.back();
+        for(unsigned i = 0; i < headCount; ++i) {
+          lastOffset += NUM_ELEMENTS_PER_BRICK * sizeof(HeadDataType) / sizeof(bElem);
+          offsets.push_back(lastOffset);
+        }
+        computeOffsets<TailDataTypes...>(offsets, tailCounts...);
+      }
+
+    /// Methods
+    private:
+      // private methods
+      /**
+       * Base case
+       * @see initializeBrickedArrays
+       */
+      template<typename ...>
+      void initializeBrickedArrays(const BrickLayout<Rank> &,
+                                   const BrickStorage &,
+                                   std::vector<size_t>::const_iterator ) { }
+
+      /**
+       * initialize the bricked arrays
+       * @tparam HeadDataTypeVectorFoldPair data type/vector fold pair of current array type
+       * @tparam Tail remaining data type/vector fold pairs
+       * @tparam T parameter pack of counts
+       * @param layout the brick layout
+       * @param storage the storage to use
+       * @param offset the iterator over offsets
+       * @param headCount number of fields of the head type to make
+       * @param tailCounts number of fields of the tail types to make
+       */
+      template<typename HeadDataTypeVectorFoldPair, typename ... Tail, typename ... T>
+      void initializeBrickedArrays(const BrickLayout<Rank> &layout,
+                                   const BrickStorage &storage,
+                                   std::vector<size_t>::const_iterator offset,
+                                   unsigned headCount, T ... tailCounts) {
+        typedef typename HeadDataTypeVectorFoldPair::dataType d;
+        typedef typename HeadDataTypeVectorFoldPair::vectorFold vf;
+        typedef BrickedArray<d, Dim<BDims...>, vf> BrickedArrayType;
+        for(unsigned i = 0; i < headCount; ++i) {
+          std::get<sizeof...(DataTypes) - 1 - sizeof...(Tail)>(fields).push_back(BrickedArrayType(layout, storage, *(offset++)));
+        }
+        initializeBrickedArrays<Tail...>(layout, storage, offset, tailCounts...);
+      }
+
+    public:
+      // public methods
+      /**
+       *
+       * @tparam T the types of the count arguments
+       * @param layout the layout to use
+       * @param fieldCount the number of fields of each data type/vector fold
+       *                   pair to build
+       */
+      template<typename ... T>
+      explicit InterleavedBrickedArrays(BrickLayout<Rank> layout, T ... fieldCount) {
+        static_assert(sizeof...(T) == sizeof...(DataTypes),
+                      "Must provide field counts for each DataType");
+        std::vector<size_t> offsets = {0};
+        computeOffsets<DataTypes...>(offsets, fieldCount...);
+        size_t step = offsets.back();
+        offsets.pop_back();
+        BrickStorage storage = BrickStorage::allocate(layout.size(), step);
+        initializeBrickedArrays<DataTypeVectorFoldPair<DataTypes, VectorFolds>...>(layout, storage, offsets.cbegin(), fieldCount...);
+      }
+
+      // TODO: Write MMAP version of constructor
+  };
 }
 
 #endif // BRICK_BRICKED_ARRAY_H
