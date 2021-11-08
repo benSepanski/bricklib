@@ -81,7 +81,7 @@ int main(int argc, char **argv) {
     cudaCheck((cudaError_t) cudaSetDevice(device));
     cudaCheck((cudaError_t) cuCtxCreate(&pctx, CU_CTX_SCHED_AUTO | CU_CTX_MAP_HOST, device));
 
-    BrickDecomp<3, BDIM> bDecomp(dom_size, GZ);
+    BrickDecomp<Dim<BDIM> > bDecomp(dom_size, GZ);
     bDecomp.comm = cart;
     populate(cart, bDecomp, 0, 1, coo);
 

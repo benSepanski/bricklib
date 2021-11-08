@@ -340,6 +340,9 @@ struct _BrickAccessor<T, Dim<D>, Dim<F>, bool> {
 
   FORCUDA
   inline elemType &operator[](unsigned i) {
+    assert(commInDim || i < D);
+    assert(i < D || i + D < D || i - D < D);
+
     // change pos
     unsigned dir = i + D;
     unsigned d = commInDim ? pos * 3 + dir / D
@@ -350,7 +353,18 @@ struct _BrickAccessor<T, Dim<D>, Dim<F>, bool> {
     unsigned n = nvec * (D / F) + l / F;
     unsigned offset = n * par->VECLEN + w;
 
-    return par->dat[par->bInfo->adj[b][d] * par->step + offset];
+    // OOB checks for debugging
+    assert(offset < T::BRICKLEN);
+
+    constexpr unsigned num_communicating_dims = T::myBrickInfo::numDimsWithRecordedNeighbors;
+    constexpr unsigned num_neighbors = static_power<3, num_communicating_dims>::value;
+    assert(d < num_neighbors);
+    assert(b < par->bStorage.chunks);
+
+    unsigned brick_index = par->bInfo->adj[b][d];
+    assert(brick_index < par->bStorage.chunks);
+
+    return par->dat[brick_index * par->step + offset];
   }
 };
 
@@ -385,6 +399,9 @@ struct _BrickAccessor<T, Dim<D, BDims...>, Dim<F, Folds...>, bool> {
 
   FORCUDA
   inline _BrickAccessor<T, Dim<BDims...>, Dim<Folds...>, bool> operator[](unsigned i) {
+    assert(commInDim || i < D);
+    assert(i < D || i + D < D || i - D < D);
+
     // change pos
     unsigned dir = i + D;
     unsigned d = commInDim ? pos * 3 + dir / D
@@ -429,6 +446,9 @@ struct _BrickAccessor<T, Dim<D, BDims...>, Dim<Folds...>, void> {
   inline _BrickAccessor<T, Dim<BDims...>, Dim<Folds...>,
       typename std::conditional<sizeof...(BDims) == sizeof...(Folds), bool, void>::type>
   operator[](unsigned i) {
+    assert(commInDim || i < D);
+    assert(i < D || i + D < D || i - D < D);
+
     // change pos
     unsigned dir = i + D;
     unsigned d = commInDim ? pos * 3 + dir / D
@@ -562,6 +582,7 @@ struct Brick<Dim<BDims...>, Dim<Folds...>, isComplex, CommDims<CommInDim...> > {
   FORCUDA
   inline _BrickAccessor<mytype, Dim<BDims...>, Dim<Folds...>,
       typename std::conditional<sizeof...(BDims) == sizeof...(Folds), bool, void>::type> operator[](unsigned b) {
+    assert(b < bStorage.chunks);
     return _BrickAccessor<mytype, Dim<BDims...>, Dim<Folds...>,
         typename std::conditional<sizeof...(BDims) == sizeof...(Folds), bool, void>::type>(this, b, 0, 0, 0);
   }
@@ -570,6 +591,7 @@ struct Brick<Dim<BDims...>, Dim<Folds...>, isComplex, CommDims<CommInDim...> > {
   template<unsigned ... Offsets>
   FORCUDA
   inline elemType *neighbor(unsigned b) {
+    assert(b < bStorage.chunks);
     constexpr unsigned numCommDims = CommDims<CommInDim...>::numCommunicatingDims(sizeof...(BDims));
     unsigned off = cal_offs<numCommDims, Offsets...>::value;
     return &dat[bInfo->adj[b][off] * step];

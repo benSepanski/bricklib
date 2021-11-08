@@ -165,9 +165,16 @@ struct MultiStageExchangeView {
 };
 
 /**
+ * @brief Generic template for partial template specialization
+ * @see BrickDecomp
+ */
+template<typename BDims, typename CommunicatingDims = CommDims<> >
+class BrickDecomp;
+
+/**
  * @brief Decomposition for MPI communication
- * @tparam dim number of dimensions
  * @tparam BDims Brick dimensions
+ * @tparam CommunicatingDims which dimensions to include in BrickInfo's adjacency list
  *
  * Decomposition is setup in steps:
  * 1. Reserve space of the inner-inner region
@@ -175,9 +182,8 @@ struct MultiStageExchangeView {
  * 3. Setup ghost region
  * 4. All extra ghost link to the end brick
  */
-template<unsigned dim,
-    unsigned ... BDims>
-class BrickDecomp {
+template<unsigned ... BDims, typename CommunicatingDims>
+class BrickDecomp<Dim<BDims...>, CommunicatingDims> {
 public:
   /**
    * @brief Record start and end of each region
@@ -197,15 +203,17 @@ public:
   std::vector<BitSet> skinlist;     ///< the order of skin
   std::vector<long> skin_size;      ///< the size of skin
 private:
-  typedef BrickDecomp<dim, BDims...> mytype;    ///< shorthand for type of this instance
+  typedef BrickDecomp<Dim<BDims...>, CommunicatingDims> mytype;    ///< shorthand for type of this instance
 
-  std::vector<unsigned> dims;       ///< dimension of internal in bricks
-  std::vector<unsigned> t_dims;     ///< dimension including ghosts in bricks
-  std::vector<unsigned> g_depth;    ///< The depth of ghostzone in bricks
-  std::vector<unsigned> stride;     ///< stride in bricks
-  unsigned *grid;                   ///< Grid indices
-  unsigned numfield;                ///< Number of fields that are interleaved
-  BrickInfo<dim> *bInfo;            ///< Associated BrickInfo
+  static constexpr unsigned dim = sizeof...(BDims); ///< number of dimensions
+  std::vector<unsigned> dims;                ///< dimension of internal in bricks
+  std::vector<unsigned> t_dims;              ///< dimension including ghosts in bricks
+  long num_bricks = -1;                      ///< total number of bricks (including ghost-zones)
+  std::vector<unsigned> g_depth;             ///< The depth of ghostzone in bricks
+  std::vector<unsigned> stride;              ///< stride in bricks
+  unsigned *grid = nullptr;                  ///< Grid indices
+  unsigned numfield;                         ///< Number of fields that are interleaved
+  BrickInfo<dim, CommunicatingDims> *bInfo = nullptr; ///< Associated BrickInfo
 
   template<typename T, unsigned di, unsigned d>
   friend
@@ -217,6 +225,8 @@ private:
    */
   void _populate(BitSet region, long ref, int d, unsigned &pos) {
     if (d == -1) {
+      assert(ref >= 0);
+      assert(ref < num_bricks);
       grid[ref] = pos++;
       return;
     }
@@ -263,31 +273,46 @@ private:
     return ret;
   }
 
-  void _adj_populate(long ref, unsigned d, unsigned idx, unsigned *adj) {
+  void _adj_populate(long ref, unsigned d, unsigned idx, unsigned *adj, size_t grid_size) {
     long cur = ref;
     if (cur >= 0) {
       cur = ref / stride[d];
       cur = cur % (t_dims[d]);
     }
-    idx *= 3;
+    // CommDims uses dimension starting at 0
+    unsigned num_neighbors_in_dim = 1;
+    if(CommunicatingDims::communicatesInDim(d)) {
+      num_neighbors_in_dim = 3;
+      idx *= 3;
+    }
     if (d == 0) {
-      for (int i = 0; i < 3; ++i) {
-        if (i + cur < 1 || i + cur > t_dims[d] || ref < 0)
+      for (int i = 0; i < num_neighbors_in_dim; ++i) {
+        constexpr size_t num_neighbors = static_power<3, CommunicatingDims::numCommunicatingDims(sizeof...(BDims))>::value;
+        assert(idx + i < num_neighbors);
+        if (i + cur < 1 || i + cur > t_dims[d] || ref < 0) {
           adj[idx + i] = 0;
-        else
+        }
+        else {
+          assert(ref + i - 1 < grid_size);
           adj[idx + i] = grid[ref + i - 1];
+        }
       }
     } else {
-      for (int i = 0; i < 3; ++i)
+      for (int i = 0; i < num_neighbors_in_dim; ++i) {
+        unsigned next_idx = idx;
+        if(CommunicatingDims::communicatesInDim(d)) { ///< CommDims uses dimension starting at 0
+          next_idx = idx + i;
+        }
         if (i + cur < 1 || i + cur > t_dims[d] || ref < 0)
-          _adj_populate(-1, d - 1, idx + i, adj);
+          _adj_populate(-1, d - 1, next_idx, adj, grid_size);
         else
-          _adj_populate(ref + (i - 1) * (long) stride[d], d - 1, idx + i, adj);
+          _adj_populate(ref + (i - 1) * (long) stride[d], d - 1, next_idx, adj, grid_size);
+      }
     }
   }
 
-  void adj_populate(unsigned i, unsigned *adj) {
-    _adj_populate(i, dim - 1, 0, adj);
+  void adj_populate(unsigned i, unsigned *adj, size_t grid_size) {
+    _adj_populate(i, dim - 1, 0, adj, grid_size);
   }
 
 public:
@@ -296,12 +321,20 @@ public:
   std::unordered_map<uint64_t, int> rank_map;        ///< Mapping from neighbor to each neighbor's rank
 
   /**
+   * @param ghost_depth the depths of ghost in all dimensions (in elements)
+   * @see BrickDecomp
+   */
+  BrickDecomp(const std::vector<unsigned> &dims, const unsigned ghost_depth, unsigned numfield = 1)
+      : BrickDecomp(dims, std::vector<unsigned>(dims.size(), ghost_depth), numfield)
+      { }
+
+  /**
    * @brief MPI decomposition for bricks
    * @param dims the size of each dimension excluding the ghost (in elements)
    * @param depth the depths of ghost (in elements)
    * @param numfield number of interleaved fields
    */
-  BrickDecomp(const std::vector<unsigned> &dims, const unsigned depth, unsigned numfield = 1)
+  BrickDecomp(const std::vector<unsigned> &dims, const std::vector<unsigned> ghost_depth, unsigned numfield = 1)
       : dims(dims), numfield(numfield), bInfo(nullptr), grid(nullptr) {
     assert(dims.size() == dim);
     std::vector<unsigned> bdims = {BDims ...};
@@ -309,8 +342,8 @@ public:
     std::reverse(bdims.begin(), bdims.end());
 
     for (int i = 0; i < dim; ++i) {
-      assert(depth % bdims[i] == 0);
-      g_depth.emplace_back(depth / bdims[i]);
+      assert(ghost_depth[i] % bdims[i] == 0);
+      g_depth.emplace_back(ghost_depth[i] / bdims[i]);
       this->dims[i] /= bdims[i];
     }
   };
@@ -335,6 +368,7 @@ public:
       t_dims[i] = dims[i] + 2 * g_depth[i];
       grid_size *= t_dims[i];
     }
+    num_bricks = grid_size;
 
     // Global reference to grid Index
     grid = new unsigned[grid_size];
@@ -391,8 +425,9 @@ public:
       long ppos = pos;
       if (pad_first[i])
         pos += calc_pad(skinlist[i]);
-      if (skinlist[i].set != 0)
+      if (skinlist[i].set != 0) {
         mypop(0, skinlist[i]);
+      }
       st_pos.emplace_back(pos);
       skin_size.emplace_back(pos - ppos);
     }
@@ -415,7 +450,7 @@ public:
       i.neighbor = in;
       // Following the order of the skinlist
       // Record contiguousness
-      for (int l = 0; l < skinlist.size(); ++l)
+      for (int l = 0; l < skinlist.size(); ++l) {
         if (in <= skinlist[l]) {
           if (last < 0) {
             last = l;
@@ -424,8 +459,9 @@ public:
             g.pos = pos;
             i.pos = st_pos[last];
           }
-          if (pad_first[l])
+          if (pad_first[l]) {
             pos += calc_pad(skinlist[l]);
+          }
           mypop(n, skinlist[l]);
         } else if (last >= 0) {
           last = l;
@@ -438,6 +474,7 @@ public:
           skin.emplace_back(i);
           last = -1;
         }
+      }
       if (last >= 0) {
         last = skinlist.size();
         i.last_pad = g.last_pad = pad_first[last - 1] ? 0 : calc_pad(skinlist[last - 1]);
@@ -454,9 +491,18 @@ public:
     // Convert grid to adjlist
     int size = pos;
     if (bInfo == nullptr)
-      bInfo = new BrickInfo<dim>(size);
-    for (unsigned i = 0; i < grid_size; ++i)
-      adj_populate(i, bInfo->adj[grid[i]]);
+      bInfo = new BrickInfo<dim, CommunicatingDims>(size);
+    for (unsigned i = 0; i < grid_size; ++i) {
+      assert(grid[i] < size);
+      adj_populate(i, bInfo->adj[grid[i]], grid_size);
+      // Debug checking
+#ifndef NDEBUG
+      constexpr unsigned num_neighbors = static_power<3, CommunicatingDims::numCommunicatingDims(dim)>::value;
+      for(unsigned j = 0; j < num_neighbors; ++j) {
+        assert(bInfo->adj[grid[i]][j] < size);
+      }
+#endif
+    }
   }
 
   /**
@@ -508,7 +554,7 @@ public:
    * @brief Access the associated metadata
    * @return
    */
-  BrickInfo<dim> getBrickInfo() {
+  BrickInfo<dim, CommunicatingDims> getBrickInfo() {
     return *bInfo;
   }
 
@@ -560,20 +606,24 @@ public:
           len += l;
         }
       }
-      recv.push_back(std::make_pair(rank_map[n.set], memfd->packed_pointer(packing)));
-      len -= first_pad_v;
-      len -= last_pad;
-      first_pad.emplace_back(first_pad_v);
-      seclen.push_back(len);
-      packing.clear();
-      // Send buffer
-      BitSet in = !n;
-      for (auto s: skin)
-        if (s.neighbor.set == in.set && s.len) {
-          packing.push_back(s.pos * bStorage.step * sizeof(bElem));
-          packing.push_back(s.len * bStorage.step * sizeof(bElem));
-        }
-      send.push_back(std::make_pair(rank_map[in.set], memfd->packed_pointer(packing)));
+      // if an exchange will be occurring, record the necessary info
+      if(len > 0)
+      {
+        recv.push_back(std::make_pair(rank_map[n.set], memfd->packed_pointer(packing)));
+        len -= first_pad_v;
+        len -= last_pad;
+        first_pad.emplace_back(first_pad_v);
+        seclen.push_back(len);
+        packing.clear();
+        // Send buffer
+        BitSet in = !n;
+        for (auto s: skin)
+          if (s.neighbor.set == in.set && s.len) {
+            packing.push_back(s.pos * bStorage.step * sizeof(bElem));
+            packing.push_back(s.len * bStorage.step * sizeof(bElem));
+          }
+        send.push_back(std::make_pair(rank_map[in.set], memfd->packed_pointer(packing)));
+      }
     }
 
     return ExchangeView(comm, seclen, first_pad, send, recv);
@@ -714,9 +764,9 @@ public:
 
 /**
  * @brief Populate neighbor-rank map for BrickDecomp using MPI_Comm
- * @tparam dim number of dimensions
  * @tparam BDims Brick dimensions
- * @param comm
+ * @tparam CommunicatingDims the dimensions in the brick-info
+ * @param comm A cartesian communicator. Must be periodic if one of neighbors has boundary
  * @param bDecomp
  * @param neighbor
  * @param d current dimension
@@ -727,8 +777,9 @@ public:
  * populate(cart, brickDecomp, 0, 1, coo);
  * @endcode
  */
-template<unsigned dim, unsigned ...BDims>
-void populate(MPI_Comm &comm, BrickDecomp<dim, BDims...> &bDecomp, BitSet neighbor, int d, int *coo) {
+template<unsigned ...BDims, typename CommunicatingDims>
+void populate(MPI_Comm &comm, BrickDecomp<Dim<BDims...>, CommunicatingDims> &bDecomp, BitSet neighbor, int d, int *coo) {
+  constexpr unsigned dim = sizeof...(BDims); ///< number of dimensions
   if (d > dim) {
     int rank;
     MPI_Cart_rank(comm, coo, &rank);

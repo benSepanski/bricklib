@@ -38,6 +38,11 @@ MEMFD::MEMFD(size_t length) : offset(0), len(length) {
   shm_name = shm_prefix + std::to_string(shm_cnt++);
   ring_fd = shm_open(shm_name.c_str(), O_RDWR | O_CREAT | O_TRUNC, S_IRWXU);
 #endif
+  if(ring_fd == -1)
+  {
+    perror("Failed to create file descriptor for ring_fd");
+    exit(-1);
+  }
 
   ftruncate(ring_fd, length);
   pagesize = sysconf(_SC_PAGESIZE);
