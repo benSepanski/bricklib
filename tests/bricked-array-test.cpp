@@ -71,8 +71,9 @@ TEST(BrickedArrayTests, InterleavedFieldTest) {
   InterleavedBrickedArrays interleavedBrickedArrays(layout, 1, 2);
   brick::BrickedArray<bElem, BDims, Dim<2>> realArr =
       std::get<0>(interleavedBrickedArrays.fields).front();
-  brick::BrickedArray<bComplexElem, BDims> complexArr =
-      std::get<1>(interleavedBrickedArrays.fields).back();
+  brick::BrickedArray<bComplexElem, BDims> complexArr1 =
+      std::get<1>(interleavedBrickedArrays.fields).front(),
+     complexArr2 = std::get<1>(interleavedBrickedArrays.fields).back();
 
   for(unsigned k = 0; k < realArr.extent[2]; ++k) {
     for(unsigned j = 0; j < realArr.extent[1]; ++j) {
@@ -80,19 +81,22 @@ TEST(BrickedArrayTests, InterleavedFieldTest) {
         realArr(i, j, k) = i % brick::BrickedArray<double, BDims, Dim<2>>::BRICK_DIMS[0]
                          + 10 * (j % brick::BrickedArray<double, BDims, Dim<2>>::BRICK_DIMS[1])
                          + 100 * (k % brick::BrickedArray<double, BDims, Dim<2>>::BRICK_DIMS[2]);
-        complexArr(i, j, k) = std::complex<bElem>(0, -realArr(i, j, k));
+        complexArr1(i, j, k) = std::complex<bElem>(0, -realArr(i, j, k));
+        complexArr2(i, j, k) = std::complex<bElem>(-realArr(i, j, k), 0);
       }
     }
   }
 
   Brick<BDims,Dim<2> > realBricks = realArr.viewBricks();
-  Brick<BDims,Dim<1>,true>  complexBricks = complexArr.viewBricks();
+  Brick<BDims,Dim<1>,true>  complexBricks1 = complexArr1.viewBricks(),
+                            complexBricks2 = complexArr2.viewBricks();
   for(unsigned b = 0; b < layout.size(); ++b) {
     for (unsigned k = 0; k < brick::BrickedArray<double, BDims, Dim<2>>::BRICK_DIMS[2]; ++k) {
       for (unsigned j = 0; j < brick::BrickedArray<double, BDims, Dim<2>>::BRICK_DIMS[1]; ++j) {
         for (unsigned i = 0; i < brick::BrickedArray<double, BDims, Dim<2>>::BRICK_DIMS[0]; ++i) {
           EXPECT_EQ(realBricks[b][k][j][i], i + 10 * j + 100 * k);
-          EXPECT_EQ(complexBricks[b][k][j][i], bComplexElem(0, -realBricks[b][k][j][i]));
+          EXPECT_EQ(complexBricks1[b][k][j][i], bComplexElem(0, -realBricks[b][k][j][i]));
+          EXPECT_EQ(complexBricks2[b][k][j][i], bComplexElem(-realBricks[b][k][j][i], 0));
         }
       }
     }

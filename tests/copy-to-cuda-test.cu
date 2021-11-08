@@ -111,3 +111,46 @@ TEST(CudaCopyTests, BrickToCudaTest) {
     }
   }
 }
+
+TEST(CudaCopyTests, InterleavedBrickToCudaTest) {
+  std::array<unsigned, 3> brickGridExtent = {2, 2, 2};
+  brick::BrickLayout<3> layout(brickGridExtent);
+  brick::InterleavedBrickedArrays<Dim<2,2,2>,
+                                  brick::DataTypeVectorFoldPair<bElem>
+                                  > srcAndDst(layout, 2);
+  BrickedArray3D src = std::get<0>(srcAndDst.fields).front(),
+                 dst = std::get<0>(srcAndDst.fields).back();
+  // make sure arrays start out unequal
+  std::array<unsigned, 3> extent{};
+  for(unsigned d = 0; d < brickGridExtent.size(); ++d) {
+    extent[d] = brickGridExtent[d] * BrickedArray3D::BRICK_DIMS[d];
+  }
+  int index = 0;
+  for(unsigned k = 0; k < extent[2]; ++k) {
+    for(unsigned j = 0; j < extent[1]; ++j) {
+      for(unsigned i = 0; i < extent[0]; ++i) {
+        src(i, j, k) = index++;
+        dst(i, j, k) = -1;
+        EXPECT_NE(src(i, j, k), dst(i, j, k));
+      }
+    }
+  }
+
+  // Copy to device
+  src.copyToDevice();
+  Brick3D bricksSrc_dev = src.viewBricksOnDevice(),
+          bricksDst_dev = dst.viewBricksOnDevice();
+  dim3 blockSize{BrickedArray3D::BRICK_DIMS[0],
+                 BrickedArray3D::BRICK_DIMS[1],
+                 BrickedArray3D::BRICK_DIMS[2]} ;
+  brickedArrayCopy<< <layout.size(), blockSize>> >(bricksDst_dev, bricksSrc_dev);
+  dst.copyFromDevice();
+
+  for(unsigned k = 0; k < extent[2]; ++k) {
+    for(unsigned j = 0; j < extent[1]; ++j) {
+      for(unsigned i = 0; i < extent[0]; ++i) {
+        EXPECT_EQ(src(i, j, k), dst(i, j, k));
+      }
+    }
+  }
+}

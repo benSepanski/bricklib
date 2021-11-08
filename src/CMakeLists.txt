@@ -1,4 +1,4 @@
-add_library(brick STATIC memfd.cpp)
+add_library(brick STATIC memfd.cpp ManagedBrickStorage.cpp)
 install(TARGETS brick
         ARCHIVE DESTINATION lib)
 

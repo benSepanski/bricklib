@@ -7,11 +7,12 @@
 
 #include "array.h"
 #include "brick.h"
+#include "bricklayout.h"
 #include "bricksetup.h"
+#include "ManagedBrickStorage.h"
 #include "template-utils.h"
 
 #include <tuple>
-#include <unordered_set>
 #include <utility>
 
 #ifdef __CUDACC__
@@ -19,309 +20,6 @@
 #endif
 
 namespace brick {
-  namespace { // Anonymous namespace
-    /**
-     * Base class so that we can handle multiple BrickInfo types
-     * with differing CommunicatingDims in a single object
-     * @tparam Rank the rank of the BrickInfo
-     */
-    template <unsigned Rank> struct BrickInfoWrapperBase {
-    /**
-     * @return a representation of the communicating dims
-     */
-      virtual std::vector<bool> getCommunicatingDims() const {
-        return {};
-      }
-
-      /**
-       * Consider two wrappers equal if they wrap the same type
-       * @param b the other wrapper
-       * @return true if the wrappers wrap the same type
-       */
-      bool operator==(const BrickInfoWrapperBase &b) const {
-        std::vector<bool> otherCommDims = b.getCommunicatingDims(),
-                              myCommDims = getCommunicatingDims();
-        if(otherCommDims.size() != myCommDims.size()) {
-          return false;
-        }
-        for(unsigned i = 0; i < otherCommDims.size(); ++i) {
-          if(myCommDims[i] != otherCommDims[i]) {
-            return false;
-          }
-        }
-        return true;
-      }
-
-      /**
-       * Virtual destructor for proper deletion
-       */
-      virtual ~BrickInfoWrapperBase() = default;
-    };
-  } // End anonymous namespace
-}
-
-namespace std { // std namespace
-#pragma clang diagnostic push
-#pragma ide diagnostic ignored "OCUnusedStructInspection" // Ignore some clang-tidy stuff
-  /**
-   * Implement hashing for pointer to BrickInfoWrapperBase
-   * @tparam Rank the rank of the BrickInfoWrapper
-   */
-  template <unsigned Rank>
-  struct hash<std::shared_ptr<brick::BrickInfoWrapperBase<Rank> > > {
-    size_t operator()(const std::shared_ptr<brick::BrickInfoWrapperBase<Rank> > &bPtr) const {
-      size_t result = 0;
-      size_t base = 1;
-      for (bool comm : bPtr->getCommunicatingDims()) {
-        result += (comm ? 2 : 1) * base;
-        base *= 3;
-      }
-      return result;
-    }
-  };
-#pragma clang diagnostic pop
-} // End std namespace
-
-
-namespace brick {
-  namespace {  // Anonymous namespace
-    /**
-     * Generic template for partial specialization
-     * @see BrickInfoWrapper
-     */
-    template<unsigned Rank, typename CommunicatesInDim>
-    struct BrickInfoWrapper;
-
-    /**
-     * A wrapper around a BrickInfo
-     * @tparam Rank the rank of the brick info
-     * @tparam CommInDim the dimensions the brick info is communicating in
-     */
-    template<unsigned Rank, bool ... CommInDim>
-    struct BrickInfoWrapper<Rank, CommDims<CommInDim...> > : public BrickInfoWrapperBase<Rank> {
-      typedef BrickInfo<Rank, CommDims<CommInDim...> > MyBrickInfoType;
-      std::shared_ptr<MyBrickInfoType> brickInfo;
-
-      /**
-       * Default constructor
-       */
-      explicit BrickInfoWrapper()
-      : brickInfo{nullptr}
-      { }
-
-      /**
-       * Take a copy of bInfo
-       * @param bInfo the BrickInfo to copy
-       */
-      explicit BrickInfoWrapper(std::shared_ptr<MyBrickInfoType> bInfo)
-      : brickInfo{bInfo}
-      { }
-
-      /**
-       * Destructor
-       */
-      ~BrickInfoWrapper() override = default;
-
-      /**
-       * @return a representation of the communicating dims
-       */
-      static std::vector<bool> communicatingDims() {
-        return {CommInDim...};
-      }
-
-      std::vector<bool> getCommunicatingDims() const override {
-        return communicatingDims();
-      }
-    };
-  } // End anonymous namespace
-
-  template<unsigned Rank>
-  struct BrickLayout {
-    // constexprs and typedefs
-    public:
-      static constexpr unsigned RANK = Rank;
-      typedef Array<unsigned, RANK, Padding<>, unsigned, unsigned> ArrayType;
-
-    /// Members
-    private:
-      // private members
-      std::unordered_set<std::shared_ptr<BrickInfoWrapperBase<Rank> > > cachedBrickInfo;
-#ifdef __CUDACC__
-      std::unordered_set<std::shared_ptr<BrickInfoWrapperBase<Rank> > > cachedBrickInfoOnDev;
-#endif
-    public:
-      // public members
-      // Brick-index to index in storage
-      const ArrayType indexInStorage;
-      const unsigned numBricks; //< number of bricks
-
-    /// Methods
-    private:
-      // private methods
-      /**
-         * @throw std::runtime_error if the extent of indexInStorage is not valid
-         * @return The number of bricks
-       */
-      unsigned computeNumBricks() const {
-        // check for possible overflow in number of elements
-        unsigned nBricks = 1;
-        for (unsigned d = 0; d < RANK; ++d) {
-          unsigned extent = indexInStorage.extent[d];
-          assert(extent != 0);
-          size_t newNumBricks = extent * nBricks;
-          if (newNumBricks / extent != nBricks) {
-            throw std::runtime_error("Brick grid does not fit inside of unsigned type");
-          }
-          nBricks = newNumBricks;
-        }
-        return nBricks;
-      }
-
-    public:
-      // public methods
-#pragma clang diagnostic push
-#pragma ide diagnostic ignored "OCUnusedGlobalDeclarationInspection" // ignore some clang-tidy stuff
-      /**
-       * Build a layout from the provided array
-       * @param indexInStorage Each entry holds the index of the brick
-       *                       at the given logical index
-       */
-      explicit BrickLayout(const ArrayType indexInStorage)
-      : indexInStorage{indexInStorage}
-      , numBricks{computeNumBricks()}
-      { }
-#pragma clang diagnostic pop
-
-      explicit BrickLayout(const std::array<unsigned, RANK> extent)
-      : indexInStorage{buildColumnMajorGrid(extent)}
-      , numBricks{computeNumBricks()}
-      { }
-
-      /**
-       * @return the number of bricks in this layout
-       */
-      FORCUDA INLINE
-      unsigned size() const {
-        return numBricks;
-      }
-
-      /**
-       * Build, cache, and return
-       * an adjacency list with communication in the given dimensions
-       *
-       * @tparam CommunicatingDims the dimensions communication must occur in
-       * @return the brick info
-       * @see BrickInfo
-       * @see CommDims
-       */
-      template<typename CommunicatingDims = CommDims<>>
-      std::shared_ptr<BrickInfo<RANK, CommunicatingDims> > getBrickInfoPtr() {
-        typedef BrickInfo<RANK, CommunicatingDims> BrickInfoType;
-        typedef BrickInfoWrapper<Rank, CommunicatingDims> BrickInfoWrapperType;
-
-        // look for BrickInfo in cache
-        std::shared_ptr<BrickInfoWrapperBase<Rank> > key(new BrickInfoWrapperType);
-        auto iterator = cachedBrickInfo.find(key);
-        // compute brick info if not  already cached
-        if(iterator == cachedBrickInfo.end()) {
-          BrickInfoType bInfo(numBricks);
-          std::vector<long> extentAsVector, strideAsVector;
-          extentAsVector.reserve(RANK);
-          strideAsVector.reserve(RANK);
-          long stride = 1;
-          for (unsigned d = 0; d < RANK; ++d) {
-            extentAsVector.push_back(indexInStorage.extent[d]);
-            strideAsVector.push_back(stride);
-            stride *= indexInStorage.extent[d];
-          }
-          assert(stride == numBricks);
-          init_iter<RANK, RANK>(
-              extentAsVector, strideAsVector, bInfo,
-              indexInStorage.getData().get(),
-              indexInStorage.getData().get(),
-              indexInStorage.getData().get() + numBricks,
-              RunningTag());
-          // Build a pointer to the BrickInfo
-          std::shared_ptr<BrickInfoType>
-              bInfoPtr((BrickInfoType*)malloc(sizeof(BrickInfoType)),
-                       [](BrickInfoType * p) {free(p->adj); free(p);});
-          *bInfoPtr.get() = bInfo;
-          // insert into the cache
-          *reinterpret_cast<BrickInfoWrapperType *>(key.get()) = BrickInfoWrapperType(bInfoPtr);
-          auto insertHandle = cachedBrickInfo.insert(key);
-          assert(insertHandle.second);
-          iterator = insertHandle.first;
-          assert(iterator != cachedBrickInfo.end());
-        }
-        std::shared_ptr<BrickInfoWrapperBase<Rank> > wrapperPtr = *iterator;
-        return reinterpret_cast<BrickInfoWrapperType*>(wrapperPtr.get())->brickInfo;
-      }
-
-#ifdef __CUDACC__
-      /**
-       * Build, cache, and return an adjacency list stored on the
-       * device with communication in the given dimensions
-       *
-       * @tparam CommunicatingDims the dimensions communication must occur in
-       * @return the brick info
-       * @see BrickInfo
-       * @see CommDims
-       */
-      template<typename CommunicatingDims = CommDims<>>
-      std::shared_ptr<BrickInfo<RANK, CommunicatingDims> > getBrickInfoDevicePtr() {
-        typedef BrickInfo<RANK, CommunicatingDims> BrickInfoType;
-        typedef BrickInfoWrapper<Rank, CommunicatingDims> BrickInfoWrapperType;
-
-        // look for BrickInfo in cache
-        std::shared_ptr<BrickInfoWrapperBase<Rank> > key(new BrickInfoWrapperType);
-        auto iterator = cachedBrickInfoOnDev.find(key);
-        // compute brick info if not  already cached
-        if(iterator == cachedBrickInfoOnDev.end()) {
-          std::shared_ptr<BrickInfo<RANK, CommunicatingDims>> brickInfoPtr =
-              getBrickInfoPtr<CommunicatingDims>();
-          BrickInfoType _brickInfo_dev = movBrickInfo(*brickInfoPtr,
-                                                      cudaMemcpyHostToDevice),
-                        *brickInfo_dev;
-
-          size_t brickInfoSize = sizeof(BrickInfoType);
-          cudaCheck(cudaMalloc(&brickInfo_dev, brickInfoSize));
-          cudaCheck(cudaMemcpy(brickInfo_dev,
-                                  &_brickInfo_dev,
-                                  brickInfoSize,
-                                  cudaMemcpyHostToDevice)
-                    );
-          auto adj_dev = _brickInfo_dev.adj;  // Need this for lambda capture
-          std::shared_ptr<BrickInfoType> bInfoSharedPtr(
-              brickInfo_dev,
-              [adj_dev](BrickInfoType *p) {
-                cudaCheck(cudaFree(adj_dev));
-                cudaCheck(cudaFree(p));
-              });
-          // insert into the cache
-          *reinterpret_cast<BrickInfoWrapperType *>(key.get()) =
-              BrickInfoWrapperType(bInfoSharedPtr);
-          auto insertHandle = cachedBrickInfoOnDev.insert(key);
-          assert(insertHandle.second);
-          iterator = insertHandle.first;
-          assert(iterator != cachedBrickInfoOnDev.end());
-        }
-        std::shared_ptr<BrickInfoWrapperBase<Rank> > wrapperPtr = *iterator;
-        return reinterpret_cast<BrickInfoWrapperType*>(wrapperPtr.get())->brickInfo;
-      }
-#endif
-
-    private:
-      static ArrayType buildColumnMajorGrid(const std::array<unsigned, RANK> extent) {
-        ArrayType arr(extent);
-
-        unsigned index = 0;
-        for(unsigned &element : arr) {
-          element = index++;
-        }
-        return arr;
-      }
-  };
-
   /**
    * Generic template for specialization
    * @tparam DataType the data-type of the brick (currently must be bElem or bComplexElem)
@@ -356,7 +54,7 @@ namespace brick {
       // public static constants
       static constexpr unsigned RANK = sizeof...(BDim);
       static constexpr unsigned BRICK_DIMS[sizeof...(BDim)] = {
-        UnsignedPackManip::get<UnsignedPack<BDim...> >(Range0ToRank)...
+        UnsignedPackManip::get<UnsignedPack<BDim...> >(RANK - 1 - Range0ToRank)...
       };
       static constexpr unsigned VECTOR_FOLDS[sizeof...(BDim)] = {
         UnsignedPackManip::getOrDefault<UnsignedPack<VFold...>, 1>(
@@ -402,13 +100,7 @@ namespace brick {
     private:
       // private members
       BrickLayout<RANK> layout;  //< layout of bricks in storage
-      BrickStorage brickStorage; //< Where the data is actually stored
-#ifdef __CUDACC__
-      std::shared_ptr<BrickStorage>
-          brickStorage_devPtr{
-              (BrickStorage*) malloc(sizeof(BrickStorage)),
-              [](BrickStorage *p) {free(p);}}; //< Where data on device is stored
-#endif
+      ManagedBrickStorage brickStorage; //< Where the data is actually stored
       // location of first brick in storage (in units of real elements)
       const unsigned offsetIntoBrickStorage;
       // bricks without any adjacency list
@@ -428,10 +120,10 @@ namespace brick {
        * @throw std::runtime_error if the arrayExtent is not valid
        * @return the storage
        */
-      BrickStorage buildStorage(std::array<unsigned, RANK> arrayExtent,
-                                bool use_mmap = false,
-                                void *mmap_fd = nullptr,
-                                size_t offset = 0) const {
+      brick::ManagedBrickStorage buildStorage(std::array<unsigned, RANK> arrayExtent,
+                                              bool use_mmap = false,
+                                              void *mmap_fd = nullptr,
+                                              size_t offset = 0) const {
         // ensure array extent is non-zero and divisible by brick extent
         for (unsigned d = 0; d < RANK; ++d) {
           if (arrayExtent[d] == 0) {
@@ -455,16 +147,10 @@ namespace brick {
         long step = NUM_ELEMENTS_PER_BRICK * (isComplex ? 2 : 1);
         BrickStorage storage;
         if(use_mmap) {
-          if (mmap_fd == nullptr) {
-            storage = BrickStorage::mmap_alloc(layout.size(), step);
-          } else {
-            storage =
-                BrickStorage::mmap_alloc(layout.size(), step, mmap_fd, offset);
-          }
+          return brick::ManagedBrickStorage(layout.size(), step, mmap_fd, offset);
         } else {
-          storage = BrickStorage::allocate(layout.size(), step);
+          return brick::ManagedBrickStorage(layout.size(), step);
         }
-        return storage;
       }
 
     public:
@@ -477,7 +163,9 @@ namespace brick {
       BrickType<CommunicatingDims> viewBricks() {
         std::shared_ptr<BrickInfo<RANK, CommunicatingDims> > brickInfoPtr =
             layout.template getBrickInfoPtr<CommunicatingDims>();
-        return BrickType<CommunicatingDims>(brickInfoPtr.get(), brickStorage, offsetIntoBrickStorage);
+        return BrickType<CommunicatingDims>(brickInfoPtr.get(),
+                                            brickStorage.getHostStorage(),
+                                            offsetIntoBrickStorage);
       }
 
       /// Constructor methods
@@ -505,13 +193,13 @@ namespace brick {
        * @see InterleavedBrickArrays
        */
       explicit BrickedArray(BrickLayout<RANK> layout,
-                            BrickStorage storage,
+                            ManagedBrickStorage storage,
                             unsigned offsetIntoStorage)
           : extent{layout.indexInStorage.extent[Range0ToRank] * BRICK_DIMS[Range0ToRank]...}
-            , layout{layout}
-            , offsetIntoBrickStorage {offsetIntoStorage}
-            , brickStorage{std::move(storage)}
-            , bricks{viewBricks<NoCommunication>()}
+          , layout{layout}
+          , offsetIntoBrickStorage {offsetIntoStorage}
+          , brickStorage{std::move(storage)}
+          , bricks{viewBricks<NoCommunication>()}
       { }
 
 #pragma clang diagnostic push
@@ -538,7 +226,7 @@ namespace brick {
 
 #ifdef __CUDACC__
       /**
-       * MUST be preceded by a call to copyToDevice()
+       * @note This does not copy data, just malloc it (if not already done)
        *
        * @tparam CommunicatingDims the dimensions in which communication is
        *                           required
@@ -549,7 +237,8 @@ namespace brick {
       BrickType<CommunicatingDims> viewBricksOnDevice() {
         std::shared_ptr<BrickInfo<RANK, CommunicatingDims>> brickInfo_dev =
             layout.template getBrickInfoDevicePtr<CommunicatingDims>();
-        return BrickType<CommunicatingDims>(brickInfo_dev.get(), *brickStorage_devPtr,
+        return BrickType<CommunicatingDims>(brickInfo_dev.get(),
+                                            brickStorage.getCudaStorage(),
                                             offsetIntoBrickStorage);
       }
 
@@ -559,9 +248,12 @@ namespace brick {
        *
        * Copy data to the device
        */
-       // TODO: IMPLEMENT ZERO-COPY ALLOCATION
       void copyToDevice() {
-        *brickStorage_devPtr = movBrickStorage(brickStorage, cudaMemcpyHostToDevice);
+        size_t dataSize = brickStorage.step * brickStorage.chunks * sizeof(bElem);
+        cudaCheck(cudaMemcpy(brickStorage.getCudaStorage().dat.get(),
+                                brickStorage.getHostStorage().dat.get(),
+                                dataSize,
+                                cudaMemcpyHostToDevice));
       }
 
       /**
@@ -574,11 +266,11 @@ namespace brick {
        *         on the device
        */
       void copyFromDevice() {
-        size_t dataSize = brickStorage.step * brickStorage.chunks * sizeof(DataType);
-        cudaCheck(cudaMemcpy(brickStorage.dat.get(),
-                               brickStorage_devPtr->dat.get(),
-                               dataSize,
-                               cudaMemcpyDeviceToHost));
+        size_t dataSize = brickStorage.step * brickStorage.chunks * sizeof(bElem);
+        cudaCheck(cudaMemcpy(brickStorage.getHostStorage().dat.get(),
+                                brickStorage.getCudaStorage().dat.get(),
+                                dataSize,
+                                cudaMemcpyDeviceToHost));
       }
 #endif
 
@@ -768,7 +460,7 @@ namespace brick {
        */
       template<typename ...>
       void initializeBrickedArrays(const BrickLayout<Rank> &,
-                                   const BrickStorage &,
+                                   const brick::ManagedBrickStorage &,
                                    std::vector<size_t>::const_iterator ) { }
 
       /**
@@ -784,7 +476,7 @@ namespace brick {
        */
       template<typename HeadDataTypeVectorFoldPair, typename ... Tail, typename ... T>
       void initializeBrickedArrays(const BrickLayout<Rank> &layout,
-                                   const BrickStorage &storage,
+                                   const brick::ManagedBrickStorage &storage,
                                    std::vector<size_t>::const_iterator offset,
                                    unsigned headCount, T ... tailCounts) {
         typedef typename HeadDataTypeVectorFoldPair::dataType d;
@@ -813,7 +505,7 @@ namespace brick {
         computeOffsets<DataTypes...>(offsets, fieldCount...);
         size_t step = offsets.back();
         offsets.pop_back();
-        BrickStorage storage = BrickStorage::allocate(layout.size(), step);
+        brick::ManagedBrickStorage storage(layout.size(), step);
         initializeBrickedArrays<DataTypeVectorFoldPair<DataTypes, VectorFolds>...>(layout, storage, offsets.cbegin(), fieldCount...);
       }
 

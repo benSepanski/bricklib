@@ -11,6 +11,7 @@
 #include <memory> // std::shared_ptr
 #include <numeric> // std::plus
 
+#include "multiarray.h"
 #include "template-utils.h"
 
 /// Overloaded attributes for potentially GPU-usable functions (in place of __host__ __device__ etc.)
@@ -112,7 +113,7 @@ namespace brick {
         return stride;
       }
     public:
-      // public static functions
+      // public non-constructor static functions
       /**
      * @param arrExtent the arrExtent of the array
      * @return the number of elements (excluding padding)
@@ -147,7 +148,7 @@ namespace brick {
 
     /// Member methods
     private:
-      // private member methods
+      // private methods
       /**
        * Computes index. Use getIndex instead since it does extra checks
        * when in debug mode.
@@ -244,6 +245,19 @@ namespace brick {
       { }
 
       /**
+       * Create an array with the given extent
+       * @param arrExtent the extent in each dimension (0th entry is most contiguous)
+       * @return the new Array object
+       */
+      explicit Array(const std::array<IndexType, RANK> arrExtent, DataType defaultValue)
+      : sharedDataPtr{(DataType *)aligned_alloc(ALIGN, computeNumElementsWithPadding(arrExtent) * sizeof(DataType)), free}
+      , stride {computeStride(arrExtent)[Range0ToRank]..., computeNumElementsWithPadding(arrExtent)}
+      , extent {arrExtent[Range0ToRank]...}
+      {
+        this->set(defaultValue);
+      }
+
+      /**
        * Create an array using the provided data
        * @param arrExtent the extent of the array
        * @param data the data to use
@@ -267,11 +281,41 @@ namespace brick {
       , numElementsWithPadding{that.numElementsWithPadding}
       { }
 
+      // static constructors
+      /**
+       * @param arrExtent the extent
+       * @return An array with randomly initialized values
+       */
+      static Array random(const std::array<IndexType, RANK> arrExtent) {
+        auto randomArrayGenerators = std::make_tuple<>(randomArray, randomComplexArray);
+        auto r = std::get<std::is_same<bElem, DataType>::value ? 0 : 1>(randomArrayGenerators);
+        std::shared_ptr<DataType> randomData(
+            r({(arrExtent[Range0ToRank] + 2 * PADDING(Range0ToRank))...}),
+            free);
+        return Array(arrExtent, randomData);
+      }
+
+      /**
+       * set all entries of this array to value
+       * @param value the value to set
+       */
+      void set(const DataType &value) {
+#pragma omp parallel for shared(value) default(none)
+        for(unsigned i = 0; i < numElementsWithPadding; ++i) {
+          this->dataPtr[i] = value;
+        }
+      }
+
       /**
        * @return A pointer to the start of the array
        */
       std::shared_ptr<DataType> getData() const {
         return sharedDataPtr;
+      }
+
+      FORCUDA INLINE
+      DataType & atFlatIndex(SizeType flatIndex) {
+        return dataPtr[flatIndex];
       }
 
       /**
