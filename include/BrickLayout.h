@@ -5,8 +5,8 @@
 #ifndef BRICK_BRICKLAYOUT_H
 #define BRICK_BRICKLAYOUT_H
 
+#include "array.h"
 #include "bricksetup.h"
-
 #include <unordered_set>
 
 namespace brick {

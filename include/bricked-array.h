@@ -5,11 +5,11 @@
 #ifndef BRICK_BRICKED_ARRAY_H
 #define BRICK_BRICKED_ARRAY_H
 
+#include "BrickLayout.h"
+#include "ManagedBrickStorage.h"
 #include "array.h"
 #include "brick.h"
-#include "bricklayout.h"
 #include "bricksetup.h"
-#include "ManagedBrickStorage.h"
 #include "template-utils.h"
 
 #include <tuple>
