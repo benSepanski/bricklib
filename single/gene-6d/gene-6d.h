@@ -25,8 +25,8 @@ constexpr unsigned BDIM[RANK] = {2, 32, 2, 2, 1, 1};
 constexpr unsigned NUM_ELEMENTS_PER_BRICK = BDIM[5] * BDIM[4] * BDIM[3]
                                           * BDIM[2] * BDIM[1] * BDIM[0];
 // num elements in each direction
-//constexpr unsigned EXTENT[RANK] = {72, 32, 24, 24, 32, 2};
-constexpr unsigned EXTENT[RANK] = {2, 32, 2, 2, 1, 1};
+constexpr unsigned EXTENT[RANK] = {72, 32, 24, 24, 32, 2};
+//constexpr unsigned EXTENT[RANK] = {2, 32, 2, 2, 1, 1};
 constexpr unsigned NUM_ELEMENTS = EXTENT[5] * EXTENT[4] * EXTENT[3]
                                 * EXTENT[2] * EXTENT[1] * EXTENT[0];
 // padding (for arrays only)

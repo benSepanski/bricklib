@@ -266,7 +266,6 @@ void semi_arakawa_bricks(complexArray6D out,
   bCoeffs[0].copyToDevice(); // Copies all interleaved bricks (TODO: Better notation?)
   for(unsigned s = 0; s < ARAKAWA_STENCIL_SIZE; ++s)
   {
-    std::cout << s << ": " << bCoeffs[s](0, 0, 0, 0, 0) << std::endl;
     RealCoeffBrick brickToCopy = bCoeffs[s].viewBricksOnDevice<NoComm>();
     cudaCheck(cudaMemcpy(bCoeffs_dev + s,
                             &brickToCopy,
