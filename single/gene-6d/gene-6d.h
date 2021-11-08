@@ -9,6 +9,7 @@
 #include <iostream>
 #include <random>
 #include "bricked-array.h"
+#include "InterleavedBrickedArrays.h"
 #include "../../stencils/stencils.h"
 #include "../../stencils/stencils_cu.h"
 #undef TILE

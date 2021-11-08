@@ -9,6 +9,7 @@
 
 #include "Array.h"
 #include "bricked-array.h"
+#include "InterleavedBrickedArrays.h"
 
 TEST(BrickedArrayTests, AssignmentTest) {
   constexpr unsigned RANK = 3;

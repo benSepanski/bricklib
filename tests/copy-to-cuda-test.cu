@@ -4,6 +4,7 @@
 
 #include "Array.h"
 #include "bricked-array.h"
+#include "InterleavedBrickedArrays.h"
 #include <gtest/gtest.h>
 
 typedef brick::Array<int, 3> Array3D;
