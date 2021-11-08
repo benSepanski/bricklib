@@ -3,7 +3,7 @@
 //
 
 #include "Array.h"
-#include "bricked-array.h"
+#include "BrickedArray.h"
 #include "InterleavedBrickedArrays.h"
 #include <gtest/gtest.h>
 

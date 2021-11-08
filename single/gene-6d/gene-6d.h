@@ -3,19 +3,19 @@
 
 #define GTENSOR_DEFAULT_DEVICE_ALLOCATOR(T) gt::device_allocator<T>
 
+#include "../../stencils/stencils.h"
+#undef TILE
+#undef BDIM
+#undef PADDING
+#undef N
+#include "../../stencils/stencils_cu.h"
+#include "BrickedArray.h"
+#include "InterleavedBrickedArrays.h"
 #include <algorithm>
 #include <cuComplex.h>
 #include <gtensor/gtensor.h>
 #include <iostream>
 #include <random>
-#include "bricked-array.h"
-#include "InterleavedBrickedArrays.h"
-#include "../../stencils/stencils.h"
-#include "../../stencils/stencils_cu.h"
-#undef TILE
-#undef BDIM
-#undef PADDING
-#undef N
 
 // blocking dimensions
 constexpr unsigned RANK = 6;

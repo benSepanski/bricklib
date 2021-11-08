@@ -8,7 +8,7 @@
 #include <gtest/gtest.h>
 
 #include "Array.h"
-#include "bricked-array.h"
+#include "BrickedArray.h"
 #include "InterleavedBrickedArrays.h"
 
 TEST(BrickedArrayTests, AssignmentTest) {

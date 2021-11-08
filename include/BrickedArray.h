@@ -2,8 +2,8 @@
 // Created by Ben_Sepanski on 10/27/2021.
 //
 
-#ifndef BRICK_BRICKED_ARRAY_H
-#define BRICK_BRICKED_ARRAY_H
+#ifndef BRICK_BRICKEDARRAY_H
+#define BRICK_BRICKEDARRAY_H
 
 #include "Array.h"
 #include "BrickLayout.h"
@@ -394,4 +394,4 @@ namespace brick {
                                   >::VECTOR_FOLDS[sizeof...(BDim)];
 }
 
-#endif // BRICK_BRICKED_ARRAY_H
+#endif // BRICK_BRICKEDARRAY_H

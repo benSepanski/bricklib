@@ -5,7 +5,7 @@
 #ifndef BRICK_INTERLEAVEDBRICKEDARRAYS_H
 #define BRICK_INTERLEAVEDBRICKEDARRAYS_H
 
-#include "bricked-array.h"
+#include "BrickedArray.h"
 
 namespace brick {
 
