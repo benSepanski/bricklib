@@ -356,9 +356,7 @@ struct _BrickAccessor<T, Dim<D>, Dim<F>, bool> {
     // OOB checks for debugging
     assert(offset < T::BRICKLEN);
 
-    constexpr unsigned num_communicating_dims = T::myBrickInfo::numDimsWithRecordedNeighbors;
-    constexpr unsigned num_neighbors = static_power<3, num_communicating_dims>::value;
-    assert(d < num_neighbors);
+    assert(d < (static_power<3, T::myBrickInfo::numDimsWithRecordedNeighbors>::value));
     assert(b < par->bStorage.chunks);
 
     unsigned brick_index = par->bInfo->adj[b][d];

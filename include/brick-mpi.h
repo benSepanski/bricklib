@@ -287,8 +287,7 @@ private:
     }
     if (d == 0) {
       for (int i = 0; i < num_neighbors_in_dim; ++i) {
-        constexpr size_t num_neighbors = static_power<3, CommunicatingDims::numCommunicatingDims(sizeof...(BDims))>::value;
-        assert(idx + i < num_neighbors);
+        assert(idx + i < (static_power<3, CommunicatingDims::numCommunicatingDims(sizeof...(BDims))>::value));
         if (i + cur < 1 || i + cur > t_dims[d] || ref < 0) {
           adj[idx + i] = 0;
         }

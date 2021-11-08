@@ -238,6 +238,7 @@ void semi_arakawa_arr_kernel(bComplexElem * __restrict__ out_ptr,
                         ))));
   size_t coeff_base_index = ARAKAWA_STENCIL_SIZE * unpadded_iklmn;
   // check for OOB coeff access
+#ifndef NDEBUG
   size_t COEFF_ARR_SIZE = ARAKAWA_STENCIL_SIZE * extent_with_gz[0] * extent_with_gz[2]
                         * extent_with_gz[3] * extent_with_gz[4] * extent_with_gz[5];
   for(unsigned stencil_idx = 0; stencil_idx < ARAKAWA_STENCIL_SIZE; ++stencil_idx) {
@@ -246,6 +247,7 @@ void semi_arakawa_arr_kernel(bComplexElem * __restrict__ out_ptr,
   // used check for OOB coeff access
   size_t ARR_SIZE = extent_with_padding[0] * extent_with_padding[1] * extent_with_padding[2]
                   * extent_with_padding[3] * extent_with_padding[4] * extent_with_padding[5];
+#endif
 
   const size_t k_stride = extent_with_padding[1] * extent_with_padding[0];
   const size_t l_stride = extent_with_padding[2] * k_stride;

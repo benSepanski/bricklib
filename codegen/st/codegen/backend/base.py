@@ -130,7 +130,7 @@ class Brick:
             toplevel.append("auto *binfo = {}.bInfo;".format(codegen.grids[0].name))
             while True:
                 toplevel.append(
-                    "long {} = {};".format(self.neighbor(neighbor), self.neighbor_idx("binfo", self.BRICK_IDX, neighbor)))
+                    "long {} __attribute__((unused)) = {};".format(self.neighbor(neighbor), self.neighbor_idx("binfo", self.BRICK_IDX, neighbor)))
                 cur = 0
                 while cur < dims and neighbor[cur] == 1:
                     neighbor[cur] = -1
