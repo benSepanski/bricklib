@@ -7,7 +7,7 @@
 #include <array>
 #include <gtest/gtest.h>
 
-#include "array.h"
+#include "Array.h"
 
 /**
  * Test suite for consistency with multiple dimensions/paddings

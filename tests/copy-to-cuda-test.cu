@@ -2,7 +2,7 @@
 // Created by Ben_Sepanski on 11/4/2021.
 //
 
-#include "array.h"
+#include "Array.h"
 #include "bricked-array.h"
 #include <gtest/gtest.h>
 

@@ -5,9 +5,9 @@
 #ifndef BRICK_BRICKED_ARRAY_H
 #define BRICK_BRICKED_ARRAY_H
 
+#include "Array.h"
 #include "BrickLayout.h"
 #include "ManagedBrickStorage.h"
-#include "array.h"
 #include "brick.h"
 #include "bricksetup.h"
 #include "template-utils.h"

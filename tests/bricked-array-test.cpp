@@ -7,7 +7,7 @@
 #include <array>
 #include <gtest/gtest.h>
 
-#include "array.h"
+#include "Array.h"
 #include "bricked-array.h"
 
 TEST(BrickedArrayTests, AssignmentTest) {
