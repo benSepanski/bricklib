@@ -202,8 +202,6 @@ namespace brick {
           , bricks{viewBricks<NoCommunication>()}
       { }
 
-#pragma clang diagnostic push
-#pragma ide diagnostic ignored "OCUnusedGlobalDeclarationInspection" // Ignore some clang-tidy stuff
       /**
        * Allocate a BrickedArray using mmap.
        *
@@ -215,14 +213,13 @@ namespace brick {
        */
       explicit BrickedArray(BrickLayout<RANK> layout,
                             void *mmap_fd,
-                            size_t offset)
+                            size_t offset = 0)
       : extent {layout.indexInStorage.extent[Range0ToRank] * BRICK_DIMS[Range0ToRank]...}
       , layout{layout}
       , offsetIntoBrickStorage {0}
       , brickStorage{buildStorage({extent[Range0ToRank]...}, true, mmap_fd, offset)}
       , bricks{viewBricks<NoCommunication>()}
       { }
-#pragma clang diagnostic pop
 
 #ifdef __CUDACC__
       /**
@@ -335,6 +332,23 @@ namespace brick {
                             layout.indexInStorage.getData().get(),
                             brick) ;
       }
+
+      /**
+       * @return the BrickStorage being used (on host)
+       */
+      BrickStorage getStorage() const {
+        return brickStorage.getHostStorage();
+      }
+
+#ifdef __CUDACC__
+      /**
+       * (non-const b/c the first call may allocate storage on the cuda device)
+       * @return the BrickStorage being used on CUDA
+       */
+      BrickStorage getCudaStorage() {
+        return brickStorage.getCudaStorage();
+      }
+#endif
 
       /**
        * Inefficient access into the bricks array

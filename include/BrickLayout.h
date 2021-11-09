@@ -120,11 +120,30 @@ struct BrickInfoWrapper<Rank, CommDims<CommInDim...>>
 };
 } // End anonymous namespace
 
+/**
+ * A layout of bricks in memory
+ *
+ * @tparam Rank the rank of the layout
+ */
 template <unsigned Rank> struct BrickLayout {
   // constexprs and typedefs
 public:
   static constexpr unsigned RANK = Rank;
   typedef Array<unsigned, RANK, Padding<>, unsigned, unsigned> ArrayType;
+
+ /// static methods
+private:
+  // private static methods
+  static ArrayType
+  buildColumnMajorGrid(const std::array<unsigned, RANK> extent) {
+    ArrayType arr(extent);
+
+    unsigned index = 0;
+    for (unsigned &element : arr) {
+      element = index++;
+    }
+    return arr;
+  }
 
   /// Members
 private:
@@ -164,22 +183,44 @@ private:
     return nBricks;
   }
 
+  template<typename CommunicatingDims>
+  std::pair<typename decltype(cachedBrickInfo)::iterator, bool>
+  insertIntoCache(BrickInfo<Rank, CommunicatingDims> brickInfo) {
+    typedef BrickInfo<Rank, CommunicatingDims> BrickInfoType;
+    typedef BrickInfoWrapper<Rank, CommunicatingDims> BrickInfoWrapperType;
+    // Build a pointer to the BrickInfo
+    std::shared_ptr<BrickInfoType> bInfoPtr(
+        (BrickInfoType *)malloc(sizeof(BrickInfoType)), [](BrickInfoType *p) {
+          free(p->adj);
+          free(p);
+        });
+    *bInfoPtr.get() = brickInfo;
+    // build and insert the wrapper
+    std::shared_ptr<BrickInfoWrapperBase<Rank>> key(new BrickInfoWrapperType);
+    *reinterpret_cast<BrickInfoWrapperType *>(key.get()) =
+        BrickInfoWrapperType(bInfoPtr);
+    auto insertHandle = cachedBrickInfo.insert(key);
+    return insertHandle;
+  }
+
 public:
   // public methods
-#pragma clang diagnostic push
-#pragma ide diagnostic ignored "OCUnusedGlobalDeclarationInspection" // ignore some clang-tidy stuff
   /**
-       * Build a layout from the provided array
-       * @param indexInStorage Each entry holds the index of the brick
-       *                       at the given logical index
+   * Build a layout from the provided array
+   * @param indexInStorage Each entry holds the index of the brick
+   *                       at the given logical index
    */
   explicit BrickLayout(const ArrayType indexInStorage)
       : indexInStorage{indexInStorage}, numBricks{computeNumBricks()} {}
-#pragma clang diagnostic pop
 
+  /**
+   * Build a column-major brick layout
+   * @param extent the extent (in units of bricks)
+   */
   explicit BrickLayout(const std::array<unsigned, RANK> extent)
-      : indexInStorage{buildColumnMajorGrid(extent)}, numBricks{
-                                                          computeNumBricks()} {}
+      : indexInStorage{buildColumnMajorGrid(extent)}
+      , numBricks{computeNumBricks()}
+  {}
 
   /**
        * @return the number of bricks in this layout
@@ -187,13 +228,13 @@ public:
   FORCUDA INLINE unsigned size() const { return numBricks; }
 
   /**
-       * Build, cache, and return
-       * an adjacency list with communication in the given dimensions
-       *
-       * @tparam CommunicatingDims the dimensions communication must occur in
-       * @return the brick info
-       * @see BrickInfo
-       * @see CommDims
+   * Build, cache, and return
+   * an adjacency list with communication in the given dimensions
+   *
+   * @tparam CommunicatingDims the dimensions communication must occur in
+   * @return the brick info
+   * @see BrickInfo
+   * @see CommDims
    */
   template <typename CommunicatingDims = CommDims<>>
   std::shared_ptr<BrickInfo<RANK, CommunicatingDims>> getBrickInfoPtr() {
@@ -220,17 +261,7 @@ public:
           extentAsVector, strideAsVector, bInfo, indexInStorage.getData().get(),
           indexInStorage.getData().get(),
           indexInStorage.getData().get() + numBricks, RunningTag());
-      // Build a pointer to the BrickInfo
-      std::shared_ptr<BrickInfoType> bInfoPtr(
-          (BrickInfoType *)malloc(sizeof(BrickInfoType)), [](BrickInfoType *p) {
-            free(p->adj);
-            free(p);
-          });
-      *bInfoPtr.get() = bInfo;
-      // insert into the cache
-      *reinterpret_cast<BrickInfoWrapperType *>(key.get()) =
-          BrickInfoWrapperType(bInfoPtr);
-      auto insertHandle = cachedBrickInfo.insert(key);
+      auto insertHandle = insertIntoCache(bInfo);;
       assert(insertHandle.second);
       iterator = insertHandle.first;
       assert(iterator != cachedBrickInfo.end());
@@ -242,13 +273,13 @@ public:
 
 #ifdef __CUDACC__
   /**
-       * Build, cache, and return an adjacency list stored on the
-       * device with communication in the given dimensions
-       *
-       * @tparam CommunicatingDims the dimensions communication must occur in
-       * @return the brick info
-       * @see BrickInfo
-       * @see CommDims
+   * Build, cache, and return an adjacency list stored on the
+   * device with communication in the given dimensions
+   *
+   * @tparam CommunicatingDims the dimensions communication must occur in
+   * @return the brick info
+   * @see BrickInfo
+   * @see CommDims
    */
   template <typename CommunicatingDims = CommDims<>>
   std::shared_ptr<BrickInfo<RANK, CommunicatingDims>> getBrickInfoDevicePtr() {
@@ -289,18 +320,6 @@ public:
         ->brickInfo;
   }
 #endif
-
-private:
-  static ArrayType
-  buildColumnMajorGrid(const std::array<unsigned, RANK> extent) {
-    ArrayType arr(extent);
-
-    unsigned index = 0;
-    for (unsigned &element : arr) {
-      element = index++;
-    }
-    return arr;
-  }
 };
 }  // end brick namespace
 

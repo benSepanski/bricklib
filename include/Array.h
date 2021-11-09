@@ -102,13 +102,16 @@ namespace brick {
        * @param arrExtent the extent
        * @return an array holding the stride in each dimension
        */
-      static std::array<SizeType, Rank> computeStride(const std::array<IndexType, Rank> arrExtent) {
+      template<typename ExtentDataType = IndexType>
+      static std::array<SizeType, Rank> computeStride(const std::array<ExtentDataType, Rank> arrExtent) {
+        static_assert(std::is_convertible<ExtentDataType, IndexType>::value,
+                      "arrExtent data type must be convertible to IndexType");
         SizeType strideInDim = 1;
         std::array<SizeType, Rank> stride;
         #pragma unroll
         for(unsigned d = 0; d < Rank; ++d) {
           stride[d] = strideInDim;
-          strideInDim *= arrExtent[d] + 2 * PADDING(d);
+          strideInDim *= ((IndexType) arrExtent[d]) + 2 * PADDING(d);
         }
         return stride;
       }
@@ -118,7 +121,8 @@ namespace brick {
      * @param arrExtent the arrExtent of the array
      * @return the number of elements (excluding padding)
        */
-      static SizeType computeNumElements(const std::array<IndexType, Rank> arrExtent) {
+      template<typename ExtentDataType = IndexType>
+      static SizeType computeNumElements(const std::array<ExtentDataType, Rank> arrExtent) {
         return Array<DataType, Rank>::computeNumElementsWithPadding(arrExtent);
       }
 
@@ -126,10 +130,13 @@ namespace brick {
      * @param arrExtent the arrExtent of the array
      * @return the number of elements (including padding)
        */
-      static SizeType computeNumElementsWithPadding(const std::array<IndexType, Rank> arrExtent) {
+      template<typename ExtentDataType = IndexType>
+      static SizeType computeNumElementsWithPadding(const std::array<ExtentDataType, Rank> arrExtent) {
+        static_assert(std::is_convertible<ExtentDataType, IndexType>::value,
+                      "arrExtent data type must be convertible to IndexType");
         SizeType numElements = 1;
         for(unsigned d = 0; d < RANK; ++d) {
-          numElements *= arrExtent[d] + 2 * PADDING(d);
+          numElements *= ((IndexType) arrExtent[d]) + 2 * PADDING(d);
         }
         return numElements;
       }
@@ -238,22 +245,29 @@ namespace brick {
        * @param arrExtent the extent in each dimension (0th entry is most contiguous)
        * @return the new Array object
        */
-      explicit Array(const std::array<IndexType, RANK> arrExtent)
+      template<typename ExtentDataType = IndexType>
+      explicit Array(const std::array<ExtentDataType, RANK> arrExtent)
       : sharedDataPtr{(DataType *)aligned_alloc(ALIGN, computeNumElementsWithPadding(arrExtent) * sizeof(DataType)), free}
       , stride {computeStride(arrExtent)[Range0ToRank]..., computeNumElementsWithPadding(arrExtent)}
-      , extent {arrExtent[Range0ToRank]...}
-      { }
+      , extent {(IndexType) arrExtent[Range0ToRank]...}
+      {
+        static_assert(std::is_convertible<ExtentDataType, IndexType>::value,
+                      "arrExtent data type must be convertible to IndexType");
+      }
 
       /**
        * Create an array with the given extent
        * @param arrExtent the extent in each dimension (0th entry is most contiguous)
        * @return the new Array object
        */
-      explicit Array(const std::array<IndexType, RANK> arrExtent, DataType defaultValue)
+      template<typename ExtentDataType = IndexType>
+      explicit Array(const std::array<ExtentDataType, RANK> arrExtent, DataType defaultValue)
       : sharedDataPtr{(DataType *)aligned_alloc(ALIGN, computeNumElementsWithPadding(arrExtent) * sizeof(DataType)), free}
       , stride {computeStride(arrExtent)[Range0ToRank]..., computeNumElementsWithPadding(arrExtent)}
-      , extent {arrExtent[Range0ToRank]...}
+      , extent {(IndexType) arrExtent[Range0ToRank]...}
       {
+        static_assert(std::is_convertible<ExtentDataType, IndexType>::value,
+                      "arrExtent data type must be convertible to IndexType");
         this->set(defaultValue);
       }
 
@@ -262,11 +276,15 @@ namespace brick {
        * @param arrExtent the extent of the array
        * @param data the data to use
        */
-      explicit Array(const std::array<IndexType, RANK> arrExtent, std::shared_ptr<DataType> data)
+      template<typename ExtentDataType = IndexType>
+      explicit Array(const std::array<ExtentDataType, RANK> arrExtent, std::shared_ptr<DataType> data)
       : sharedDataPtr{data}
       , stride {computeStride(arrExtent)[Range0ToRank]..., computeNumElementsWithPadding(arrExtent)}
-      , extent {arrExtent[Range0ToRank]...}
-      { }
+      , extent {(IndexType) arrExtent[Range0ToRank]...}
+      {
+        static_assert(std::is_convertible<ExtentDataType, IndexType>::value,
+                      "arrExtent data type must be convertible to IndexType");
+      }
 
       /**
        * Copy constructor
@@ -281,16 +299,19 @@ namespace brick {
       , numElementsWithPadding{that.numElementsWithPadding}
       { }
 
+      Array(Array&&) noexcept = default; // trivial and non-throwing move constructor
+
       // static constructors
       /**
        * @param arrExtent the extent
        * @return An array with randomly initialized values
        */
-      static Array random(const std::array<IndexType, RANK> arrExtent) {
+      template<typename ExtentDataType = IndexType>
+      static Array random(const std::array<ExtentDataType, RANK> arrExtent) {
         auto randomArrayGenerators = std::make_tuple<>(randomArray, randomComplexArray);
         auto r = std::get<std::is_same<bElem, DataType>::value ? 0 : 1>(randomArrayGenerators);
         std::shared_ptr<DataType> randomData(
-            r({(arrExtent[Range0ToRank] + 2 * PADDING(Range0ToRank))...}),
+            r({(((IndexType) arrExtent[Range0ToRank]) + 2 * PADDING(Range0ToRank))...}),
             free);
         return Array(arrExtent, randomData);
       }
