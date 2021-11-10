@@ -143,6 +143,40 @@ TEST_F(MPI_CartesianTest3D, BasicLayoutTest) {
   }
 }
 
+TEST_F(MPI_CartesianTest3D, BasicLayoutMmapTest) {
+  // setup MPI layout
+  typedef Dim<4, 2, 1> BrickDims;
+  std::array<unsigned, 3> extent = {4, 8, 16};
+  std::array<unsigned, 3> ghostDepth = {1, 2, 4};
+  MPI_Comm comm = getCartesianComm();
+  brick::MPILayout<BrickDims> mpiLayout(comm, extent, ghostDepth, skin3d_good);
+
+  // build a brick from the layout using mmap
+  brick::BrickedArray<bElem, BrickDims> bArr(mpiLayout.getBrickLayout(), nullptr);
+
+  for (unsigned k = 0; k < extent[2] + 2 * ghostDepth[2]; ++k) {
+    for (unsigned j = 0; j < extent[1] + 2 * ghostDepth[1]; ++j) {
+      for (unsigned i = 0; i < extent[0] + 2 * ghostDepth[0]; ++i) {
+        Region r = getRegion(extent, ghostDepth, i, j, k);
+        bArr(i, j, k) = r.isGhost ? -r.regionID : r.regionID;
+      }
+    }
+  }
+  // exchange
+  ExchangeView ev = mpiLayout.buildExchangeView(bArr);
+  ev.exchange();
+  // Now make sure that ghosts received the appropriate regionTag
+  // (NOTE: THIS RELIES ON THE CARTESIAN COMM BEING PERIODIC)
+  for (unsigned k = 0; k < extent[2] + 2 * ghostDepth[2]; ++k) {
+    for (unsigned j = 0; j < extent[1] + 2 * ghostDepth[1]; ++j) {
+      for (unsigned i = 0; i < extent[0] + 2 * ghostDepth[0]; ++i) {
+        Region r = getRegion(extent, ghostDepth, i, j, k);
+        EXPECT_EQ(bArr(i, j, k), r.regionID);
+      }
+    }
+  }
+}
+
 int main(int argc, char *argv[]) {
   ::testing::InitGoogleTest(&argc, argv);
   ::testing::AddGlobalTestEnvironment(new MPIEnvironment);

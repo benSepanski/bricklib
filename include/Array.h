@@ -365,18 +365,16 @@ namespace brick {
 
 #ifdef __CUDACC__
       /**
-       * Build an array object with data on the device.
+       * Build an array object with uninitialized data on the device.
        * This array and its members are stored on the host, but
        * the data pointer is a device pointer.
        *
        * @return The array object
        */
-      // TODO: IMPLEMENT ZERO-COPY ALLOCATION
-      Array copyToDevice() const {
+      Array allocateOnDevice() const {
         size_t dataSize = numElementsWithPadding * sizeof(DataType);
         DataType *dataPtr_dev;
         cudaCheck(cudaMalloc(&dataPtr_dev, dataSize));
-        cudaCheck(cudaMemcpy(dataPtr_dev, dataPtr, dataSize, cudaMemcpyHostToDevice));
         std::shared_ptr<DataType> sharedDataPtr_dev(
             dataPtr_dev,
             [](DataType *p) { cudaCheck(cudaFree(p)); }
@@ -385,11 +383,30 @@ namespace brick {
       }
 
       /**
+       * Copy this data into that
+       * @param that_dev the array on device to copy into
+       */
+      void copyToDevice(Array &that_dev) const {
+        for(unsigned d = 0; d < RANK; ++d) {
+          if(this->extent[d] != that_dev.extent[d]) {
+            throw std::runtime_error("Extent mismatch");
+          }
+        }
+        size_t dataSize = numElementsWithPadding * sizeof(DataType);
+        cudaCheck(cudaMemcpy(that_dev.dataPtr, dataPtr, dataSize, cudaMemcpyHostToDevice));
+      }
+
+      /**
        * Copy data from that array into this one
        *
        * @param that_dev the array on the device
        */
       void copyFromDevice(const Array &that_dev) {
+        for(unsigned d = 0; d < RANK; ++d) {
+          if(this->extent[d] != that_dev.extent[d]) {
+            throw std::runtime_error("Extent mismatch");
+          }
+        }
         size_t dataSize = numElementsWithPadding * sizeof(DataType);
         cudaCheck(cudaMemcpy(dataPtr, that_dev.dataPtr, dataSize, cudaMemcpyDeviceToHost));
       }

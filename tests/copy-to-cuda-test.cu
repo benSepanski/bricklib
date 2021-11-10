@@ -42,8 +42,9 @@ TEST(CudaCopyTests, ArrayToCudaTest) {
     }
   }
 
-  Array3D src_dev = src.copyToDevice(),
-          dst_dev = dst.copyToDevice();
+  Array3D src_dev = src.allocateOnDevice(),
+          dst_dev = dst.allocateOnDevice();
+  src.copyToDevice(src_dev);
   dim3 blockSize;
   blockSize.z = extent[2];
   blockSize.y = extent[1];

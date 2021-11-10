@@ -338,7 +338,7 @@ public:
     std::vector<long> padding;
     padding.reserve(RANK);
     for (unsigned d = 0; d < RANK; ++d) {
-      if (arr.extent[d] != extent[d]) {
+      if (arr.extent[d] != extent[d] + 2 * ghost[d]) {
         throw std::runtime_error("Mismatch in extents");
       }
       padding.push_back(arr.PADDING(d));

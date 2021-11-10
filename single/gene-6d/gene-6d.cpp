@@ -274,8 +274,10 @@ void semi_arakawa_bricks(complexArray6D out,
   }
 
   // set up grid pointers on device
-  auto fieldGrid_dev = fieldLayout.indexInStorage.copyToDevice();
-  auto coeffGrid_dev = coeffLayout.indexInStorage.copyToDevice();
+  auto fieldGrid_dev = fieldLayout.indexInStorage.allocateOnDevice();
+  fieldLayout.indexInStorage.copyToDevice(fieldGrid_dev);
+  auto coeffGrid_dev = coeffLayout.indexInStorage.allocateOnDevice();
+  coeffLayout.indexInStorage.copyToDevice(coeffGrid_dev);
 
   // build function to actually run computation
   auto compute_semi_arakawa = [&bIn_dev,
