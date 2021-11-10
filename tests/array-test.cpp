@@ -165,7 +165,7 @@ TYPED_TEST(BasicArrayConsistencyTests, IteratorTest) {
   // Check forwards
   Array3D arr(extent);
   int index = 0;
-  typename Array3D::iterator_type it = arr.begin();
+  typename Array3D::iterator it = arr.begin();
   while(it != arr.end()) {
     assert(index < numElements);
     *it = index++;

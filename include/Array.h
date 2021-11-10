@@ -524,39 +524,39 @@ namespace brick {
           }
       };
 
-      typedef Iterator<DataType> iterator_type;
-      typedef Iterator<const DataType> const_iterator_type;
+      typedef Iterator<DataType> iterator;
+      typedef Iterator<const DataType> const_iterator;
 
       /**
        * @return iterator to first element
        */
       FORCUDA INLINE
-      iterator_type begin() {return iterator_type(this); }
+      iterator begin() {return iterator(this); }
 
       /**
        * @return iterator from element after-last
        */
       FORCUDA INLINE
-      iterator_type end() {
+      iterator end() {
         // B/c the iterator++ skips all padding, the element "after" the last
         // element is the one after the padding after the last element
-        return iterator_type(this, numElementsWithPadding + computePaddingOnBoundary());
+        return iterator(this, numElementsWithPadding + computePaddingOnBoundary());
       }
 
       /**
        * @return const iterator to first element
        */
       FORCUDA INLINE
-      const_iterator_type cbegin() {return const_iterator_type(this); }
+      const_iterator begin() const {return const_iterator(this); }
 
       /**
        * @return const iterator from element after-last
        */
       FORCUDA INLINE
-      const_iterator_type cend() {
+      const_iterator end() const {
         // B/c the iterator++ skips all padding, the element "after" the last
         // element is the one after the padding after the last element
-        return const_iterator_type(this, numElementsWithPadding + computePaddingOnBoundary());
+        return const_iterator(this, numElementsWithPadding + computePaddingOnBoundary());
       }
 
       /**
@@ -581,8 +581,8 @@ namespace brick {
         for(unsigned outerIndex = 0; outerIndex < this->extent[RANK - 1]; ++outerIndex) {
           unsigned thisFlatIndex = boundaryPadding + outerIndex * stride[RANK - 1];
           unsigned thatFlatIndex = boundaryPadding + outerIndex * thatPtr->stride[RANK - 1];
-          iterator_type this_iterator(this, thisFlatIndex);
-          const_iterator_type that_iterator(thatPtr, thatFlatIndex);
+          iterator this_iterator(this, thisFlatIndex);
+          const_iterator that_iterator(thatPtr, thatFlatIndex);
           for(unsigned i = 0; i < numElements / this->extent[RANK - 1]; ++i) {
             *this_iterator = *that_iterator;
             this_iterator++;
@@ -613,8 +613,8 @@ namespace brick {
         for(unsigned outerIndex = 0; outerIndex < this->extent[RANK - 1]; ++outerIndex) {
           unsigned thisFlatIndex = boundaryPadding + outerIndex * stride[RANK - 1];
           unsigned thatFlatIndex = boundaryPadding + outerIndex * thatPtr->stride[RANK - 1];
-          const_iterator_type this_iterator(this, thisFlatIndex);
-          iterator_type that_iterator(thatPtr, thatFlatIndex);
+          const_iterator this_iterator(this, thisFlatIndex);
+          iterator that_iterator(thatPtr, thatFlatIndex);
           for(unsigned i = 0; i < numElements / this->extent[RANK - 1]; ++i) {
             *that_iterator = *this_iterator;
             this_iterator++;

@@ -7,7 +7,7 @@
 
 #include "Array.h"
 #include "bricksetup.h"
-#include <unordered_set>
+#include <unordered_map>
 
 namespace brick {
 namespace { // Anonymous namespace
@@ -48,33 +48,7 @@ template <unsigned Rank> struct BrickInfoWrapperBase {
    */
   virtual ~BrickInfoWrapperBase() = default;
 };
-} // End anonymous namespace
-}
 
-namespace std { // std namespace
-#pragma clang diagnostic push
-#pragma ide diagnostic ignored "OCUnusedStructInspection" // Ignore some clang-tidy stuff
-/**
-   * Implement hashing for pointer to BrickInfoWrapperBase
-   * @tparam Rank the rank of the BrickInfoWrapper
- */
-template <unsigned Rank>
-struct hash<std::shared_ptr<brick::BrickInfoWrapperBase<Rank> > > {
-  size_t operator()(const std::shared_ptr<brick::BrickInfoWrapperBase<Rank> > &bPtr) const {
-    size_t result = 0;
-    size_t base = 1;
-    for (bool comm : bPtr->getCommunicatingDims()) {
-      result += (comm ? 2 : 1) * base;
-      base *= 3;
-    }
-    return result;
-  }
-};
-#pragma clang diagnostic pop
-} // End std namespace
-
-namespace brick {
-namespace { // Anonymous namespace
 /**
      * Generic template for partial specialization
      * @see BrickInfoWrapper
@@ -93,30 +67,42 @@ struct BrickInfoWrapper<Rank, CommDims<CommInDim...>>
   std::shared_ptr<MyBrickInfoType> brickInfo;
 
   /**
-       * Default constructor
-   */
-  explicit BrickInfoWrapper() : brickInfo{nullptr} {}
-
-  /**
-       * Take a copy of bInfo
-       * @param bInfo the BrickInfo to copy
+   * Take a copy of bInfo
+   * @param bInfo the BrickInfo to copy
    */
   explicit BrickInfoWrapper(std::shared_ptr<MyBrickInfoType> bInfo)
       : brickInfo{bInfo} {}
 
   /**
-       * Destructor
+   * Destructor
    */
   ~BrickInfoWrapper() override = default;
 
   /**
-       * @return a representation of the communicating dims
+   * @return a representation of the communicating dims
    */
   static std::vector<bool> communicatingDims() { return {CommInDim...}; }
 
   std::vector<bool> getCommunicatingDims() const override {
     return communicatingDims();
   }
+};
+
+/**
+ * Generic template for partial specialization
+ * @tparam CommunicatingDims the dimensions communication occurs in
+ * @see CommunicatingDimsKeyGenerator
+ */
+template<typename CommunicatingDims>
+struct CommunicatingDimsKeyGenerator;
+
+/**
+ * Used to hash BrickInfo's based on their CommunicatingDims
+ * @tparam CommInDim false if no communication in that dimension
+ */
+template<bool ... CommInDim>
+struct CommunicatingDimsKeyGenerator<CommDims<CommInDim...>> {
+  const std::vector<bool> key = {CommInDim...};
 };
 } // End anonymous namespace
 
@@ -127,7 +113,14 @@ struct BrickInfoWrapper<Rank, CommDims<CommInDim...>>
  */
 template <unsigned Rank> struct BrickLayout {
   // constexprs and typedefs
+private:
+  // private typedefs
+  typedef std::unordered_map<
+      std::vector<bool>,
+      std::shared_ptr<BrickInfoWrapperBase<Rank>>
+      > mapCommDimsToBrickInfoWrapper;
 public:
+  // public constexprs and typedefs
   static constexpr unsigned RANK = Rank;
   typedef Array<unsigned, RANK, Padding<>, unsigned, unsigned> ArrayType;
 
@@ -145,14 +138,49 @@ private:
     return arr;
   }
 
+  /**
+   * Insert brickInfo into the provided cache
+   * @tparam CommunicatingDims the communicating dimensions
+   * @param cache the cache to insert into
+   * @param brickInfoPtr pointer to the adjacency list to insert
+   * @return the iterator returned from the insertion
+   */
+  template<typename CommunicatingDims>
+  std::pair<typename mapCommDimsToBrickInfoWrapper::iterator, bool>
+  static insertIntoCache(mapCommDimsToBrickInfoWrapper &cache,
+                         std::shared_ptr<BrickInfo<Rank, CommunicatingDims> > brickInfoPtr) {
+    typedef BrickInfo<Rank, CommunicatingDims> BrickInfoType;
+    typedef BrickInfoWrapper<Rank, CommunicatingDims> BrickInfoWrapperType;
+    // build and insert the wrapper
+    std::vector<bool> key = CommunicatingDimsKeyGenerator<CommunicatingDims>().key;
+    std::shared_ptr<BrickInfoWrapperBase<Rank>> value(new BrickInfoWrapperType(brickInfoPtr));
+    auto insertHandle = cache.insert(std::make_pair(key, value));
+    return insertHandle;
+  }
+
+  /**
+   *
+   * @tparam CommunicatingDims the communicating dimensions
+   * @param cache the cache to retrieve from
+   * @return the result of find()
+   */
+  template<typename CommunicatingDims>
+  typename mapCommDimsToBrickInfoWrapper::iterator
+  static getFromCache(mapCommDimsToBrickInfoWrapper &cache) {
+    std::vector<bool> key = CommunicatingDimsKeyGenerator<CommunicatingDims>().key;
+    return cache.find(key);
+  }
+
   /// Members
 private:
   // private members
-  std::unordered_set<std::shared_ptr<BrickInfoWrapperBase<Rank>>>
-      cachedBrickInfo;
+
+  // This is a shared pointer so that copies of BrickLayout share a cache.
+  // The entries are pointers so that we can store derived classes in the
+  // cache
+  std::shared_ptr<mapCommDimsToBrickInfoWrapper> brickInfoCachePtr{new mapCommDimsToBrickInfoWrapper};
 #ifdef __CUDACC__
-  std::unordered_set<std::shared_ptr<BrickInfoWrapperBase<Rank>>>
-      cachedBrickInfoOnDev;
+  std::shared_ptr<mapCommDimsToBrickInfoWrapper> brickInfo_devCachePtr{new mapCommDimsToBrickInfoWrapper};
 #endif
 public:
   // public members
@@ -162,45 +190,17 @@ public:
 
   /// Methods
 private:
-  // private methods
   /**
-         * @throw std::runtime_error if the extent of indexInStorage is not valid
-         * @return The number of bricks
+   * Compute number of bricks
+   * @return The number of bricks
    */
   unsigned computeNumBricks() const {
-    // check for possible overflow in number of elements
-    unsigned nBricks = 1;
-    for (unsigned d = 0; d < RANK; ++d) {
-      unsigned extent = indexInStorage.extent[d];
-      assert(extent != 0);
-      size_t newNumBricks = extent * nBricks;
-      if (newNumBricks / extent != nBricks) {
-        throw std::runtime_error(
-            "Brick grid does not fit inside of unsigned type");
-      }
-      nBricks = newNumBricks;
+    // number of bricks is maxIndex + 1
+    unsigned maxIndex = 0;
+    for(const auto &index : indexInStorage) {
+      maxIndex = std::max(index, maxIndex);
     }
-    return nBricks;
-  }
-
-  template<typename CommunicatingDims>
-  std::pair<typename decltype(cachedBrickInfo)::iterator, bool>
-  insertIntoCache(BrickInfo<Rank, CommunicatingDims> brickInfo) {
-    typedef BrickInfo<Rank, CommunicatingDims> BrickInfoType;
-    typedef BrickInfoWrapper<Rank, CommunicatingDims> BrickInfoWrapperType;
-    // Build a pointer to the BrickInfo
-    std::shared_ptr<BrickInfoType> bInfoPtr(
-        (BrickInfoType *)malloc(sizeof(BrickInfoType)), [](BrickInfoType *p) {
-          free(p->adj);
-          free(p);
-        });
-    *bInfoPtr.get() = brickInfo;
-    // build and insert the wrapper
-    std::shared_ptr<BrickInfoWrapperBase<Rank>> key(new BrickInfoWrapperType);
-    *reinterpret_cast<BrickInfoWrapperType *>(key.get()) =
-        BrickInfoWrapperType(bInfoPtr);
-    auto insertHandle = cachedBrickInfo.insert(key);
-    return insertHandle;
+    return maxIndex+1;
   }
 
 public:
@@ -212,6 +212,25 @@ public:
    */
   explicit BrickLayout(const ArrayType indexInStorage)
       : indexInStorage{indexInStorage}, numBricks{computeNumBricks()} {}
+
+  /**
+   * Build a layout from the provided array
+   * @tparam CommunicatingDims as used by BrickInfo
+   * @param indexInStorage Each entry holds the index of the brick
+   *                       at the given logical index
+   * @param brickInfoPtr an adjacency list that has already been computed to be
+   *                  cached on this object
+   * @see BrickInfo
+   */
+  template<typename CommunicatingDims>
+  explicit BrickLayout(const ArrayType indexInStorage,
+                       std::shared_ptr<BrickInfo<RANK, CommunicatingDims> > brickInfoPtr)
+      : indexInStorage{indexInStorage}, numBricks{brickInfoPtr->nbricks} {
+    if(computeNumBricks() > numBricks) {
+      throw std::runtime_error("indexInStorage accesses bricks further than brickInfoPtr->nbricks");
+    }
+    insertIntoCache(*brickInfoCachePtr, brickInfoPtr);
+  }
 
   /**
    * Build a column-major brick layout
@@ -231,21 +250,20 @@ public:
    * Build, cache, and return
    * an adjacency list with communication in the given dimensions
    *
-   * @tparam CommunicatingDims the dimensions communication must occur in
+   * @tparam CommunicatingDims the dimensions communication occurs in
    * @return the brick info
    * @see BrickInfo
    * @see CommDims
    */
-  template <typename CommunicatingDims = CommDims<>>
-  std::shared_ptr<BrickInfo<RANK, CommunicatingDims>> getBrickInfoPtr() {
+  template <typename CommunicatingDims>
+  std::shared_ptr<BrickInfo<RANK, CommunicatingDims >> getBrickInfoPtr() {
     typedef BrickInfo<RANK, CommunicatingDims> BrickInfoType;
     typedef BrickInfoWrapper<Rank, CommunicatingDims> BrickInfoWrapperType;
 
     // look for BrickInfo in cache
-    std::shared_ptr<BrickInfoWrapperBase<Rank>> key(new BrickInfoWrapperType);
-    auto iterator = cachedBrickInfo.find(key);
+    auto iterator = getFromCache<CommunicatingDims>(*brickInfoCachePtr);
     // compute brick info if not  already cached
-    if (iterator == cachedBrickInfo.end()) {
+    if (iterator == brickInfoCachePtr->end()) {
       BrickInfoType bInfo(numBricks);
       std::vector<long> extentAsVector, strideAsVector;
       extentAsVector.reserve(RANK);
@@ -256,17 +274,22 @@ public:
         strideAsVector.push_back(stride);
         stride *= indexInStorage.extent[d];
       }
-      assert(stride == numBricks);
       init_iter<RANK, RANK>(
           extentAsVector, strideAsVector, bInfo, indexInStorage.getData().get(),
           indexInStorage.getData().get(),
           indexInStorage.getData().get() + numBricks, RunningTag());
-      auto insertHandle = insertIntoCache(bInfo);;
+      // Build a pointer to the BrickInfo
+      std::shared_ptr<BrickInfoType> bInfoPtr(
+          new BrickInfoType(bInfo), [](BrickInfoType *p) {
+            free(p->adj);
+            delete p;
+          });
+      auto insertHandle = insertIntoCache(*brickInfoCachePtr, bInfoPtr);
       assert(insertHandle.second);
       iterator = insertHandle.first;
-      assert(iterator != cachedBrickInfo.end());
+      assert(iterator != brickInfoCachePtr->end());
     }
-    std::shared_ptr<BrickInfoWrapperBase<Rank>> wrapperPtr = *iterator;
+    std::shared_ptr<BrickInfoWrapperBase<Rank>> wrapperPtr = iterator->second;
     return reinterpret_cast<BrickInfoWrapperType *>(wrapperPtr.get())
         ->brickInfo;
   }
@@ -287,35 +310,31 @@ public:
     typedef BrickInfoWrapper<Rank, CommunicatingDims> BrickInfoWrapperType;
 
     // look for BrickInfo in cache
-    std::shared_ptr<BrickInfoWrapperBase<Rank>> key(new BrickInfoWrapperType);
-    auto iterator = cachedBrickInfoOnDev.find(key);
+    auto iterator = getFromCache<CommunicatingDims>(*brickInfo_devCachePtr);
     // compute brick info if not  already cached
-    if (iterator == cachedBrickInfoOnDev.end()) {
+    if (iterator == brickInfo_devCachePtr->end()) {
       std::shared_ptr<BrickInfo<RANK, CommunicatingDims>> brickInfoPtr =
           getBrickInfoPtr<CommunicatingDims>();
-      BrickInfoType _brickInfo_dev =
+      BrickInfoType brickInfoWithDataOnDev =
                         movBrickInfo(*brickInfoPtr, cudaMemcpyHostToDevice),
-                    *brickInfo_dev;
-
+                    *brickInfo_devPtr;
       size_t brickInfoSize = sizeof(BrickInfoType);
-      cudaCheck(cudaMalloc(&brickInfo_dev, brickInfoSize));
-      cudaCheck(cudaMemcpy(brickInfo_dev, &_brickInfo_dev, brickInfoSize,
+      cudaCheck(cudaMalloc(&brickInfo_devPtr, brickInfoSize));
+      cudaCheck(cudaMemcpy(brickInfo_devPtr, &brickInfoWithDataOnDev, brickInfoSize,
                            cudaMemcpyHostToDevice));
-      auto adj_dev = _brickInfo_dev.adj; // Need this for lambda capture
-      std::shared_ptr<BrickInfoType> bInfoSharedPtr(
-          brickInfo_dev, [adj_dev](BrickInfoType *p) {
+      // Build a pointer to the BrickInfo
+      auto adj_dev = brickInfoWithDataOnDev.adj; // Need this for lambda capture
+      std::shared_ptr<BrickInfoType> bInfoSharedPtr_dev(brickInfo_devPtr,
+          [adj_dev](BrickInfoType *p) {
             cudaCheck(cudaFree(adj_dev));
             cudaCheck(cudaFree(p));
           });
-      // insert into the cache
-      *reinterpret_cast<BrickInfoWrapperType *>(key.get()) =
-          BrickInfoWrapperType(bInfoSharedPtr);
-      auto insertHandle = cachedBrickInfoOnDev.insert(key);
+      auto insertHandle = insertIntoCache(*brickInfo_devCachePtr, bInfoSharedPtr_dev);
       assert(insertHandle.second);
       iterator = insertHandle.first;
-      assert(iterator != cachedBrickInfoOnDev.end());
+      assert(iterator != brickInfo_devCachePtr->end());
     }
-    std::shared_ptr<BrickInfoWrapperBase<Rank>> wrapperPtr = *iterator;
+    std::shared_ptr<BrickInfoWrapperBase<Rank>> wrapperPtr = iterator->second;
     return reinterpret_cast<BrickInfoWrapperType *>(wrapperPtr.get())
         ->brickInfo;
   }
