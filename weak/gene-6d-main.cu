@@ -278,8 +278,8 @@ void semiArakawaDistributedArray(complexArray6D out,
   auto arrFunc = [&]() -> void {
     float elapsed;
     cudaEvent_t c_0, c_1;
-    cudaEventCreate(&c_0);
-    cudaEventCreate(&c_1);
+    cudaCheck(cudaEventCreate(&c_0));
+    cudaCheck(cudaEventCreate(&c_1));
 #if !defined(CUDA_AWARE) || !defined(USE_TYPES)
     // Copy everything back from device
     double st = omp_get_wtime();
@@ -297,7 +297,7 @@ void semiArakawaDistributedArray(complexArray6D out,
                            stypemap,
                            rtypemap);
 #endif
-    cudaEventRecord(c_0);
+    cudaCheck(cudaEventRecord(c_0));
     dim3 block(TILE_SIZE, TILE_SIZE),
           grid((in.extent[2] + block.x - 1) / block.x,
                (in.extent[3] + block.y - 1) / block.y,
@@ -308,9 +308,9 @@ void semiArakawaDistributedArray(complexArray6D out,
         std::swap(outPtr_dev, inPtr_dev);
       }
     }
-    cudaEventRecord(c_1);
-    cudaEventSynchronize(c_1);
-    cudaEventElapsedTime(&elapsed, c_0, c_1);
+    cudaCheck(cudaEventRecord(c_1));
+    cudaCheck(cudaEventSynchronize(c_1));
+    cudaCheck(cudaEventElapsedTime(&elapsed, c_0, c_1));
     calctime += elapsed / 1000.0;
   };
 
@@ -341,7 +341,7 @@ __device__ __constant__ unsigned brick_grid_extent_with_gz_dev[RANK];
  */
 __global__
 void semiArakawaBrickKernel(brick::Array<unsigned, RANK, brick::Padding<>, unsigned> grid,
-                           brick::Array<unsigned, RANK, brick::Padding<>, unsigned> coeffGrid,
+                            brick::Array<unsigned, RANK, brick::Padding<>, unsigned> coeffGrid,
                             FieldBrick_kl bOut,
                             FieldBrick_kl bIn,
                             RealCoeffBrick bCoeff)
@@ -356,14 +356,6 @@ void semiArakawaBrickKernel(brick::Array<unsigned, RANK, brick::Padding<>, unsig
   unsigned b_mn = b_jmn / grid.extent[1];
   unsigned b_m = b_mn % grid.extent[4];
   unsigned b_n = b_mn / grid.extent[4];
-
-  // check OOB for brick grid
-  assert(b_i < grid.extent[0]);
-  assert(b_j < grid.extent[1]);
-  assert(b_k < grid.extent[2]);
-  assert(b_l < grid.extent[3]);
-  assert(b_m < grid.extent[4]);
-  assert(b_n < grid.extent[5]);
 
   // get field and coeff brick indexes
   unsigned fieldBrickIdx = grid(b_i, b_j, b_k, b_l, b_m, b_n);
@@ -396,11 +388,11 @@ void semiArakawaBrickKernel(brick::Array<unsigned, RANK, brick::Padding<>, unsig
   for(unsigned stencilIdx = 0; stencilIdx < ARAKAWA_STENCIL_SIZE; stencilIdx++)
   {
     static_assert(COEFF_BRICK_DIM[5] == 1, "Coefficient brick must have dimension 1 in stencil index");
-    unsigned coeffBrickIndex = coeffGrid(b_i, b_k, b_l, b_m, b_n, stencilIdx);
+    unsigned coeffBrickIndex = coeffGrid(stencilIdx, b_i, b_k, b_l, b_m, b_n);
     auto coeff = bCoeff[coeffBrickIndex];
     const unsigned deltaL = l_offset[stencilIdx];
     const unsigned deltaK = k_offset[stencilIdx];
-    result += coeff[n][m][l][k][j][i]
+    result += coeff[n][m][l][k][i][0]
                * in[n][m][l + deltaL][k + deltaK][j][i];
   }
   // store result
@@ -441,11 +433,14 @@ void semiArakawaDistributedBrick(complexArray6D out,
 
   // set up on device
   bInArray.copyToDevice();
-  bOutArray.copyToDevice();
   bCoeffArray.copyToDevice();
   FieldBrick_kl bIn_dev = bInArray.viewBricksOnDevice<CommIn_kl>();
   FieldBrick_kl bOut_dev = bOutArray.viewBricksOnDevice<CommIn_kl>();
   RealCoeffBrick bCoeff_dev = bCoeffArray.viewBricksOnDevice<NoComm>();
+  auto fieldIndexInStorage_dev = fieldLayout.indexInStorage.allocateOnDevice();
+  fieldLayout.indexInStorage.copyToDevice(fieldIndexInStorage_dev);
+  auto coeffIndexInStorage_dev = coeffLayout.indexInStorage.allocateOnDevice();
+  coeffLayout.indexInStorage.copyToDevice(coeffIndexInStorage_dev);
 
 #ifndef DECOMP_PAGEUNALIGN
   ExchangeView ev = mpiLayout.buildExchangeView(bInArray);
@@ -456,6 +451,7 @@ void semiArakawaDistributedBrick(complexArray6D out,
     cudaEvent_t c_0, c_1;
     cudaEventCreate(&c_0);
     cudaEventCreate(&c_1);
+    std::cout << "Beginning communication" << std::endl;
 #ifndef CUDA_AWARE
   {
     double t_a = omp_get_wtime();
@@ -469,6 +465,7 @@ void semiArakawaDistributedBrick(complexArray6D out,
   #endif
     t_a = omp_get_wtime();
     mpiLayout.copyGhostToCuda(bInArray);
+    std::cout << "Communication complete" << std::endl;
     t_b = omp_get_wtime();
     movetime += t_b - t_a;
   }
@@ -478,21 +475,22 @@ void semiArakawaDistributedBrick(complexArray6D out,
     const unsigned * const brickExtentWithGZ = fieldLayout.indexInStorage.extent;
     dim3 cuda_grid_size(brickExtentWithGZ[2],
                         brickExtentWithGZ[3],
-                        fieldLayout.numBricks / brickExtentWithGZ[2] / brickExtentWithGZ[3]),
+                        brickExtentWithGZ[0] * brickExtentWithGZ[1] *
+                           brickExtentWithGZ[4] * brickExtentWithGZ[5]),
          cuda_block_size(BRICK_DIM[0], BRICK_DIM[1], FieldBrick_kl::BRICKLEN / BRICK_DIM[0] / BRICK_DIM[1]);
-    cudaEventRecord(c_0);
+    cudaCheck(cudaEventRecord(c_0));
     for (int i = 0; i < NUM_GHOST_ZONES; ++i) {
       semiArakawaBrickKernel<< < cuda_grid_size, cuda_block_size>> >(
-          fieldLayout.indexInStorage, coeffLayout.indexInStorage, bOut_dev,
+          fieldIndexInStorage_dev, coeffIndexInStorage_dev, bOut_dev,
           bIn_dev, bCoeff_dev
           );
-      if(i + 1 < NUM_GHOST_ZONES) { 
+      if(i + 1 < NUM_GHOST_ZONES) {
         std::swap(bOut_dev, bIn_dev);
       }
     }
-    cudaEventRecord(c_1);
-    cudaEventSynchronize(c_1);
-    cudaEventElapsedTime(&elapsed, c_0, c_1);
+    cudaCheck(cudaEventRecord(c_1));
+    cudaCheck(cudaEventSynchronize(c_1));
+    cudaCheck(cudaEventElapsedTime(&elapsed, c_0, c_1));
     calctime += elapsed / 1000.0;
   };
 
@@ -815,5 +813,6 @@ int main(int argc, char **argv) {
     }
   }
 
+  check_MPI(MPI_Finalize());
   return 0;
 }

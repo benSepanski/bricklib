@@ -40,7 +40,10 @@ public:
       cudaCheck(cudaMalloc(&datptr, size));
       bStorage_dev.dat = std::shared_ptr<bElem>(
           datptr,
-          [](bElem *p) { cudaCheck(cudaFree(p));}
+          [](bElem *p) {
+            std::cout << "Freeing brick-storage on cuda" << std::endl;
+            cudaCheck(cudaFree(p));
+          }
           );
       *cudaStoragePtr = bStorage_dev;
     }

@@ -292,12 +292,12 @@ public:
   void copyBoundaryFromCuda(BrickedArray<T...> brickedArray) {
     BrickStorage bStorage = brickedArray.getStorage(),
                  bStorage_dev = brickedArray.getCudaStorage();
-    auto dst = bStorage.dat.get() + bStorage.step + brickDecompPtr->sep_pos[0];
-    auto src =
-        bStorage_dev.dat.get() + bStorage_dev.step + brickDecompPtr->sep_pos[0];
-    size_t size = bStorage.step *
-                  (brickDecompPtr->sep_pos[1] - brickDecompPtr->sep_pos[0]) *
-                  sizeof(bElem);
+    auto bdyStart = brickDecompPtr->sep_pos[0];
+    auto bdyEnd = brickDecompPtr->sep_pos[1];
+    auto dst = bStorage.dat.get() + bStorage.step * bdyStart;
+    auto src = bStorage_dev.dat.get() + bStorage_dev.step * bdyStart;
+    size_t size = bStorage.step * (bdyEnd - bdyStart) * sizeof(bElem);
+    std::cout << "CudaMemcpy(" << dst << ", " << src << ", " << size << ", cudaMemcpyDeviceToHost)" << std::endl;
     cudaCheck(cudaMemcpy(dst, src, size, cudaMemcpyDeviceToHost));
   }
 
@@ -313,13 +313,12 @@ public:
   void copyGhostToCuda(BrickedArray<T...> brickedArray) {
     BrickStorage bStorage = brickedArray.getStorage(),
                  bStorage_dev = brickedArray.getCudaStorage();
-    auto dst =
-        bStorage_dev.dat.get() + bStorage_dev.step + brickDecompPtr->sep_pos[1];
-    auto src = bStorage.dat.get() + bStorage.step + brickDecompPtr->sep_pos[1];
-    size_t size = bStorage.step *
-                  (brickDecompPtr->sep_pos[2] - brickDecompPtr->sep_pos[1]) *
-                  sizeof(bElem);
-    cudaCheck(cudaMemcpy(dst, src, size, cudaMemcpyDeviceToHost));
+    auto ghostStart = brickDecompPtr->sep_pos[1];
+    auto ghostEnd = brickDecompPtr->sep_pos[2];
+    auto dst = bStorage_dev.dat.get() + bStorage_dev.step * ghostStart;
+    auto src = bStorage.dat.get() + bStorage.step * ghostStart;
+    size_t size = bStorage.step * (ghostEnd - ghostStart) * sizeof(bElem);
+    cudaCheck(cudaMemcpy(dst, src, size, cudaMemcpyHostToDevice));
   }
 #endif
 
