@@ -87,6 +87,7 @@ namespace brick {
        */
       template<typename BrickAccessorType, typename I, typename ... IndexType>
       static inline DataType& accessBrick(BrickAccessorType b, I lastIndex, IndexType ... earlierIndices) {
+        assert(lastIndex < BRICK_DIMS[sizeof...(IndexType)]);
         return accessBrick(b[lastIndex], earlierIndices...);
       }
     public:
@@ -133,19 +134,8 @@ namespace brick {
             throw std::runtime_error("Extent in axis is not divisible by brick-dimension");
           }
         }
-        // check for possible overflow in number of elements
-        size_t numElements = 1;
-        for (unsigned d = 0; d < RANK; ++d) {
-          assert(arrayExtent[d] != 0);
-          size_t newNumElements = arrayExtent[d] * numElements;
-          if (newNumElements / arrayExtent[d] != numElements) {
-            throw std::runtime_error("Array does not fit inside of size_t");
-          }
-          numElements = newNumElements;
-        }
         // Build BrickStorage
         long step = NUM_ELEMENTS_PER_BRICK * (isComplex ? 2 : 1);
-        BrickStorage storage;
         if(use_mmap) {
           return brick::ManagedBrickStorage(layout.size(), step, mmap_fd, offset);
         } else {
@@ -287,8 +277,6 @@ namespace brick {
           }
         }
         constexpr std::array<long, RANK> allZero{};  //< all zero
-        // Get bricks
-        auto brick = viewBricks<NoCommunication>();
         // get arrays stored into vectors
         std::vector<long> extentAsVector = {extent[Range0ToRank]...},
                           paddingAsVector = {arr.PADDING(Range0ToRank)...},
@@ -299,7 +287,7 @@ namespace brick {
                           ghostAsVector,
                           arr.getData().get(),
                           layout.indexInStorage.getData().get(),
-                          brick) ;
+                          bricks) ;
       }
 
       /**
@@ -318,8 +306,6 @@ namespace brick {
           }
         }
         constexpr std::array<long, RANK> allZero{};  //< all zero
-        // Get bricks
-        auto brick = viewBricks<NoCommunication>();
         // get arrays stored into vectors
         std::vector<long> extentAsVector = {extent[Range0ToRank]...},
                           paddingAsVector = {arr.PADDING(Range0ToRank)...},
@@ -330,7 +316,7 @@ namespace brick {
                             ghostAsVector,
                             arr.getData().get(),
                             layout.indexInStorage.getData().get(),
-                            brick) ;
+                            bricks) ;
       }
 
       /**

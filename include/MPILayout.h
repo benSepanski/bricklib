@@ -20,8 +20,8 @@
  * @param filename filename of call site
  * @param line line number of call site
  */
-void _check_MPI(int return_value, const char *func, const char *filename,
-                const int line) {
+inline void _check_MPI(int return_value, const char *func, const char *filename,
+                       const int line) {
   if (return_value != MPI_SUCCESS) {
     char error_msg[MPI_MAX_ERROR_STRING + 1];
     int error_length;
@@ -181,6 +181,12 @@ private:
     std::array<unsigned, RANK> brickGridExtent{};
     for (unsigned d = 0; d < RANK; ++d) {
       unsigned brickDim = UnsignedPackManip::get<BrickDimsPack>(RANK - 1 - d);
+      if(arrayExtent[d] % brickDim != 0) {
+        throw std::runtime_error("arrayExtent not divisible by brick-dimension");
+      }
+      if(ghostDepth[d] % brickDim != 0) {
+        throw std::runtime_error("ghost depth not divisible by brick-dimension");
+      }
       brickGridExtent[d] = (arrayExtent[d] + 2 * ghostDepth[d]) / brickDim;
     }
     Array<unsigned, RANK, Padding<>, unsigned, unsigned> indexInStorage(
@@ -228,6 +234,8 @@ public:
                   "ExtentDataType not convertible to unsigned");
     static_assert(std::is_convertible<GZDataType, unsigned>::value,
                   "GZDataType not convertible to unsigned");
+    static_assert(!templateutils::All<!CommInDim...>::value || sizeof...(CommInDim) < RANK,
+                  "Communication must occur in at least one direction");
 
     // record number of ghost elements and extent
     for (unsigned d = 0; d < RANK; ++d) {
@@ -297,7 +305,6 @@ public:
     auto dst = bStorage.dat.get() + bStorage.step * bdyStart;
     auto src = bStorage_dev.dat.get() + bStorage_dev.step * bdyStart;
     size_t size = bStorage.step * (bdyEnd - bdyStart) * sizeof(bElem);
-    std::cout << "CudaMemcpy(" << dst << ", " << src << ", " << size << ", cudaMemcpyDeviceToHost)" << std::endl;
     cudaCheck(cudaMemcpy(dst, src, size, cudaMemcpyDeviceToHost));
   }
 

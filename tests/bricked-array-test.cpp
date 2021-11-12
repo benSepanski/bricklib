@@ -11,6 +11,97 @@
 #include "BrickedArray.h"
 #include "InterleavedBrickedArrays.h"
 
+template<typename C, typename D>
+struct CommunicatingDimsAndDataType {
+  typedef C CommunicatingDims;
+  typedef D DataType;
+};
+
+template<typename T>
+class BrickedArray3DTests : public ::testing::Test {
+protected:
+  typedef typename T::DataType DataType;
+  typedef Dim<4, 2, 1> BrickDims;
+  typedef Dim<2, 1, 1> VectorFold;
+  typedef typename T::CommunicatingDims CommunicatingDims;
+  typedef brick::BrickedArray<DataType, BrickDims, VectorFold> BrickedArray3D;
+};
+
+typedef CommDims<false, false, false> NoComm;
+typedef CommDims<false, false, true> Comm_i;
+typedef CommDims<false, true, false> Comm_j;
+typedef CommDims<false, true, true> Comm_ij;
+typedef CommDims<true, false, false> Comm_k;
+typedef CommDims<true, false, true> Comm_ik;
+typedef CommDims<true, true, false> Comm_jk;
+typedef CommDims<true, true, true> Comm_ijk;
+
+using CommunicatingDimsAndDataTypes = ::testing::Types<
+    CommunicatingDimsAndDataType<NoComm, bElem>,
+    CommunicatingDimsAndDataType<NoComm, bComplexElem>,
+    CommunicatingDimsAndDataType<Comm_i, bElem>,
+    CommunicatingDimsAndDataType<Comm_i, bComplexElem>,
+    CommunicatingDimsAndDataType<Comm_j, bElem>,
+    CommunicatingDimsAndDataType<Comm_j, bComplexElem>,
+    CommunicatingDimsAndDataType<Comm_ij, bElem>,
+    CommunicatingDimsAndDataType<Comm_ij, bComplexElem>,
+    CommunicatingDimsAndDataType<Comm_k, bElem>,
+    CommunicatingDimsAndDataType<Comm_k, bComplexElem>,
+    CommunicatingDimsAndDataType<Comm_ik, bElem>,
+    CommunicatingDimsAndDataType<Comm_ik, bComplexElem>,
+    CommunicatingDimsAndDataType<Comm_jk, bElem>,
+    CommunicatingDimsAndDataType<Comm_jk, bComplexElem>,
+    CommunicatingDimsAndDataType<Comm_ijk, bElem>,
+    CommunicatingDimsAndDataType<Comm_ijk, bComplexElem>
+    >;
+TYPED_TEST_SUITE(BrickedArray3DTests, CommunicatingDimsAndDataTypes);
+
+TYPED_TEST(BrickedArray3DTests, MemoryLayoutTest) {
+  // convenient typedefs
+  typedef typename TestFixture::BrickedArray3D BrickedArray3D;
+  typedef typename TestFixture::BrickDims BrickDims;
+  typedef typename TestFixture::CommunicatingDims CommunicatingDims;
+  typedef typename TestFixture::DataType DataType;
+  // set up bricked array
+  std::array<unsigned, BrickedArray3D::RANK> extent{};
+  for(unsigned d = 0; d < extent.size(); ++d) {
+    extent[d] = 3 * BrickedArray3D::BRICK_DIMS[d];
+  }
+  brick::BrickLayout<3> layout(extent);
+  BrickedArray3D bArr(layout);
+
+  // assign each brickedArray entry to unique value
+  int index = 1;
+  for (unsigned k = 0; k < extent[2]; ++k) {
+    for (unsigned j = 0; j < extent[1]; ++j) {
+      for (unsigned i = 0; i < extent[0]; ++i) {
+        bArr(i, j, k) = index;
+        index++;
+      }
+    }
+  }
+
+  // Get a handle on the actual bricks
+  auto bricks = bArr.template viewBricks<CommunicatingDims>();
+  // make sure the values stored in the bricks are what we expect
+  auto BDIM = BrickedArray3D::BRICK_DIMS;
+  for(unsigned bk = 0; bk < layout.indexInStorage.extent[2]; ++bk) {
+    for(unsigned bj = 0; bj < layout.indexInStorage.extent[1]; ++bj) {
+      for(unsigned bi = 0; bi < layout.indexInStorage.extent[0]; ++bi) {
+        unsigned b = layout.indexInStorage.get(bi, bj, bk);
+        for(unsigned k = 0; k < BDIM[2]; ++k) {
+          for(unsigned j = 0; j < BDIM[1]; ++j) {
+            for(unsigned i = 0; i < BDIM[0]; ++i) {
+              DataType value = bricks[b][k][j][i];
+              EXPECT_EQ(value, bArr(bi * BDIM[0] + i, bj * BDIM[1] + j, bk * BDIM[2] + k));
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
 TEST(BrickedArrayTests, AssignmentTest) {
   constexpr unsigned RANK = 3;
   typedef brick::BrickedArray<bElem, Dim<2,2,2>> BrickedArray;

@@ -79,7 +79,7 @@ init_iter(const std::vector<long> &dimlist, const std::vector<long> &stride, Bri
     }
     ++i;
   }
-
+  assert(*grid_ptr < bInfo.nbricks);
   init_fill<numCommDims, numCommDims>(commDimsStride, bInfo.adj[*grid_ptr], grid_ptr, low, high, TagSelect<numCommDims>::value);
 }
 

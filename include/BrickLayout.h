@@ -277,7 +277,7 @@ public:
       init_iter<RANK, RANK>(
           extentAsVector, strideAsVector, bInfo, indexInStorage.getData().get(),
           indexInStorage.getData().get(),
-          indexInStorage.getData().get() + numBricks, RunningTag());
+          indexInStorage.getData().get() + indexInStorage.numElements, RunningTag());
       // Build a pointer to the BrickInfo
       std::shared_ptr<BrickInfoType> bInfoPtr(
           new BrickInfoType(bInfo), [](BrickInfoType *p) {

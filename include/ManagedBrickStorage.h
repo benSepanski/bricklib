@@ -41,10 +41,8 @@ public:
       bStorage_dev.dat = std::shared_ptr<bElem>(
           datptr,
           [](bElem *p) {
-            std::cout << "Freeing brick-storage on cuda" << std::endl;
             cudaCheck(cudaFree(p));
-          }
-          );
+          });
       *cudaStoragePtr = bStorage_dev;
     }
     return *cudaStoragePtr;

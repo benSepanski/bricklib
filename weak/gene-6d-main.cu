@@ -382,21 +382,29 @@ void semiArakawaBrickKernel(brick::Array<unsigned, RANK, brick::Padding<>, unsig
   // compute stencil
   bComplexElem result = 0.0;
   auto in = bIn[fieldBrickIdx];
-  constexpr int l_offset[] = {-2, -1, -1, -1,  0,  0, 0, 0, 0,  1, 1, 1, 2};
-  constexpr int k_offset[] = { 0, -1,  0,  1, -2, -1, 0, 1, 2, -1, 0, 1, 0};
-  #pragma unroll
-  for(unsigned stencilIdx = 0; stencilIdx < ARAKAWA_STENCIL_SIZE; stencilIdx++)
-  {
-    static_assert(COEFF_BRICK_DIM[5] == 1, "Coefficient brick must have dimension 1 in stencil index");
+  auto input = [&](int deltaK, int deltaL) -> bComplexElem {
+    return in[n][m][l + deltaL][k + deltaK][j][i];
+  };
+  auto c = [&](unsigned stencilIdx) -> bElem {
     unsigned coeffBrickIndex = coeffGrid(stencilIdx, b_i, b_k, b_l, b_m, b_n);
-    auto coeff = bCoeff[coeffBrickIndex];
-    const unsigned deltaL = l_offset[stencilIdx];
-    const unsigned deltaK = k_offset[stencilIdx];
-    result += coeff[n][m][l][k][i][0]
-               * in[n][m][l + deltaL][k + deltaK][j][i];
-  }
-  // store result
-  bOut[fieldBrickIdx][n][m][l][k][j][i] = result;
+    return bCoeff[coeffBrickIndex][n][m][l][k][i][0];
+  };
+  bOut[fieldBrickIdx][n][m][l][k][j][i]
+      = c( 0) * input( 0, -2)
+      + c( 1) * input(-1, -1)
+      + c( 2) * input( 0, -1)
+      + c( 3) * input( 1, -1)
+      + c( 4) * input(-2,  0)
+      + c( 5) * input(-1,  0)
+      + c( 6) * input( 0,  0)
+      + c( 7) * input( 1,  0)
+      + c( 8) * input( 2,  0)
+      + c( 9) * input(-1,  1)
+      + c(10) * input( 0,  1)
+      + c(11) * input( 1,  1)
+      + c(12) * input( 0,  2);
+  assert(bIn[fieldBrickIdx][n][m][l][k][j][i] != bComplexElem(0.0, 0.0));
+  bOut[fieldBrickIdx][n][m][l][k][j][i] = bIn[fieldBrickIdx][n][m][l][k][j][i];
 }
 
 /**
@@ -422,6 +430,8 @@ void semiArakawaDistributedBrick(complexArray6D out,
   BrickedFieldArray bInArray(fieldLayout, nullptr);
   BrickedFieldArray bOutArray(fieldLayout, nullptr);
 #endif
+  // load in input
+  bInArray.loadFrom(in);
   std::array<unsigned, RANK> coeffBrickGridExtent{};
   for(unsigned d = 0; d < RANK; ++d) {
     assert(coeffs.extent[d] % COEFF_BRICK_DIM[d] == 0);
@@ -476,7 +486,7 @@ void semiArakawaDistributedBrick(complexArray6D out,
     dim3 cuda_grid_size(brickExtentWithGZ[2],
                         brickExtentWithGZ[3],
                         brickExtentWithGZ[0] * brickExtentWithGZ[1] *
-                           brickExtentWithGZ[4] * brickExtentWithGZ[5]),
+                        brickExtentWithGZ[4] * brickExtentWithGZ[5]),
          cuda_block_size(BRICK_DIM[0], BRICK_DIM[1], FieldBrick_kl::BRICKLEN / BRICK_DIM[0] / BRICK_DIM[1]);
     cudaCheck(cudaEventRecord(c_0));
     for (int i = 0; i < NUM_GHOST_ZONES; ++i) {
@@ -485,6 +495,7 @@ void semiArakawaDistributedBrick(complexArray6D out,
           bIn_dev, bCoeff_dev
           );
       if(i + 1 < NUM_GHOST_ZONES) {
+        std::cout << "Swapping!" << std::endl;
         std::swap(bOut_dev, bIn_dev);
       }
     }
@@ -758,7 +769,7 @@ int main(int argc, char **argv) {
   // initialize my coefficients to random data, and receive coefficients for ghost-zones
   realArray6D coeffs{realArray6D::random(coeffExtentWithGZ)};
   std::cout << "Beginning coefficient exchange" << std::endl;
-  brick::MPILayout<FieldBrickDimsType, CommIn_kl> coeffMpiLayout(
+  brick::MPILayout<CoeffBrickDimsType, CommIn_kl> coeffMpiLayout(
       cartesianComm, coeffExtent, coeffGhostDepth, skin2d
       );
 #if defined(USE_TYPES)
@@ -794,8 +805,8 @@ int main(int argc, char **argv) {
           for (unsigned j = GHOST_ZONE[1];
                j < GHOST_ZONE[1] + perProcessExtent[1]; ++j) {
             // #pragma omp simd
-            for (unsigned i = PADDING[0] + GHOST_ZONE[0];
-                 i < PADDING[0] + GHOST_ZONE[0] + perProcessExtent[0]; ++i) {
+            for (unsigned i = GHOST_ZONE[0];
+                 i < GHOST_ZONE[0] + perProcessExtent[0]; ++i) {
               std::complex<bElem> arr = array_out(i, j, k, l, m, n);
               std::complex<bElem> bri = brick_out(i, j, k, l, m, n);
               if (std::abs(arr - bri) >= 1e-7) {

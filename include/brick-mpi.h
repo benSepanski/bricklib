@@ -280,32 +280,31 @@ private:
       cur = cur % (t_dims[d]);
     }
     // CommDims uses dimension starting at 0
-    unsigned num_neighbors_in_dim = 1;
+    std::vector<int> neighborShifts = {0};
     if(CommunicatingDims::communicatesInDim(d)) {
-      num_neighbors_in_dim = 3;
+      neighborShifts = {-1, 0, 1};
       idx *= 3;
     }
     if (d == 0) {
-      for (int i = 0; i < num_neighbors_in_dim; ++i) {
-        assert(idx + i < (static_power<3, CommunicatingDims::numCommunicatingDims(sizeof...(BDims))>::value));
-        if (i + cur < 1 || i + cur > t_dims[d] || ref < 0) {
-          adj[idx + i] = 0;
+      for (int shift : neighborShifts) {
+        assert(idx < (static_power<3, CommunicatingDims::numCommunicatingDims(sizeof...(BDims))>::value));
+        if (shift + cur < 0 || shift + cur >= t_dims[d] || ref < 0) {
+          adj[idx] = 0;
         }
         else {
-          assert(ref + i - 1 < grid_size);
-          adj[idx + i] = grid[ref + i - 1];
+          assert(ref + shift < grid_size);
+          adj[idx] = grid[ref + shift];
         }
+        idx++;
       }
     } else {
-      for (int i = 0; i < num_neighbors_in_dim; ++i) {
-        unsigned next_idx = idx;
-        if(CommunicatingDims::communicatesInDim(d)) { ///< CommDims uses dimension starting at 0
-          next_idx = idx + i;
-        }
-        if (i + cur < 1 || i + cur > t_dims[d] || ref < 0)
+      unsigned next_idx = idx;
+      for (int shift : neighborShifts) {
+        if (shift + cur < 0 || shift + cur >= t_dims[d] || ref < 0)
           _adj_populate(-1, d - 1, next_idx, adj, grid_size);
         else
-          _adj_populate(ref + (i - 1) * (long) stride[d], d - 1, next_idx, adj, grid_size);
+          _adj_populate(ref + shift * (long) stride[d], d - 1, next_idx, adj, grid_size);
+        next_idx++;
       }
     }
   }
