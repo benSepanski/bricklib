@@ -1,9 +1,10 @@
 add_executable(single-cpu-tests
                array-test.cpp
-               bricked-array-test.cpp)
+               bricked-array-test.cpp index-space-test.cpp)
 target_link_libraries(single-cpu-tests gtest gtest_main brick ${LIBRT})
 add_test(NAME multiarray_test COMMAND array-test.cpp)
 add_test(NAME bricked_array_test COMMAND bricked-array-test.cpp)
+add_test(NAME index_space_test COMMAND index-space-test.cpp)
 
 if(MPI_FOUND)
     add_executable(mpi-cpu-tests mpi-layout-test.cpp MPIEnvironment.cpp)
