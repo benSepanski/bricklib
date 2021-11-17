@@ -46,10 +46,15 @@ TYPED_TEST(MPI_CartesianTest3D, ExchangeMMAPTest) {
   brick::MPILayout<BrickDims, CommunicatingDims> mpiLayout(this->buildMPILayout());
   // build a brick from the layout using mmap
   brick::BrickedArray<bElem, BrickDims> bArr(mpiLayout.getBrickLayout(), nullptr);
+  // also build a regular array from the layout
+  brick::Array<bElem, 3> arr({bArr.extent[0], bArr.extent[1], bArr.extent[2]});
+  // fill in arrays entries with their associated entries
   this->template assignEntriesToRegion(bArr);
+  this->template assignEntriesToRegion(arr);
   // exchange
   ExchangeView ev = mpiLayout.buildExchangeView(bArr);
   ev.exchange();
+  mpiLayout.exchangeArray(arr);
   // Now make sure that ghosts received the appropriate regionTag
   // (NOTE: THIS RELIES ON THE CARTESIAN COMM BEING PERIODIC)
   for (unsigned k = 0; k < this->extentWithGZ[2]; ++k) {
@@ -57,6 +62,7 @@ TYPED_TEST(MPI_CartesianTest3D, ExchangeMMAPTest) {
       for (unsigned i = 0; i < this->extentWithGZ[0]; ++i) {
         Region r = this->getRegion(i, j, k);
         EXPECT_EQ(bArr(i, j, k), r.regionID);
+        EXPECT_EQ(arr(i, j, k), r.regionID);
       }
     }
   }
@@ -138,24 +144,38 @@ TYPED_TEST(MPI_CartesianTest3D, MemoryLayoutTest) {
 
   // Get a handle on the actual bricks
   auto bricks = bArr.template viewBricks<CommunicatingDims>();
-  auto bricksNoComm = bArr.template viewBricks<CommDims<false, false, false> >();
   // make sure the values stored in the bricks are what we expect
   auto BDIM = brick::BrickedArray<bElem, BrickDims>::BRICK_DIMS;
   for(unsigned bk = 0; bk < layout.indexInStorage.extent[2]; ++bk) {
-    for(unsigned bj = 0; bj < layout.indexInStorage.extent[1]; ++bj) {
-      for(unsigned bi = 0; bi < layout.indexInStorage.extent[0]; ++bi) {
+    for (unsigned bj = 0; bj < layout.indexInStorage.extent[1]; ++bj) {
+      for (unsigned bi = 0; bi < layout.indexInStorage.extent[0]; ++bi) {
         unsigned b = layout.indexInStorage.get(bi, bj, bk);
         ASSERT_EQ(b, (*mpiLayout.getBrickDecompPtr())[bk][bj][bi]);
-        for(unsigned k = 0; k < BDIM[2]; ++k) {
-          for(unsigned j = 0; j < BDIM[1]; ++j) {
-            for(unsigned i = 0; i < BDIM[0]; ++i) {
-              bElem *addressFromBrickList = &bricks[b][k][j][i];
-              bElem *addressFromNoCommBrickList = &bricksNoComm[b][k][j][i];
-              bElem *addressFromBrickedArray = &bArr(bi * BDIM[0] + i,
-                                                     bj * BDIM[1] + j,
-                                                     bk * BDIM[2] + k);
-              EXPECT_EQ(addressFromBrickList, addressFromNoCommBrickList);
-              EXPECT_EQ(addressFromNoCommBrickList, addressFromBrickedArray);
+        for (unsigned k = 0; k < BDIM[2]; ++k) {
+          unsigned globalK = bk * BDIM[2] + k;
+          for (unsigned j = 0; j < BDIM[1]; ++j) {
+            unsigned globalJ = bj * BDIM[1] + j;
+            for (unsigned i = 0; i < BDIM[0]; ++i) {
+              unsigned globalI = bi * BDIM[0] + i;
+              // check address equality
+              for (unsigned d = 0; d < 3; ++d) {
+                std::array<unsigned, 3> globalIdx = {globalI, globalJ, globalK};
+                for (int delta = -(int)BDIM[d]; delta <= (int) BDIM[d]; delta++) {
+                  if(!CommunicatingDims::communicatesInDim(d) && delta != 0) {
+                    continue;
+                  }
+                  std::array<int, 3> shift = {0, 0, 0};
+                  shift[d] = delta;
+                  if (globalIdx[d] + shift[d] < bArr.extent[d]) {
+                    bElem *addressFromBrickList =
+                        &bricks[b][k + shift[2]][j + shift[1]][i + shift[0]];
+                    bElem *addressFromBrickedArray =
+                        &bArr(globalI + shift[0], globalJ + shift[1],
+                              globalK + shift[2]);
+                    EXPECT_EQ(addressFromBrickList, addressFromBrickedArray);
+                  }
+                }
+              }
             }
           }
         }

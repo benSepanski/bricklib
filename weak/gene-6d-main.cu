@@ -217,19 +217,20 @@ void semiArakawaArrKernel(brick::Array<bComplexElem, 6> out,
 
   out(idx[0] + PADDING[0], idx[1] + PADDING[1], idx[2] + PADDING[2],
       idx[3] + PADDING[3], idx[4] + PADDING[4], idx[5] + PADDING[5])
-      = c( 0) * input( 0, -2)
-      + c( 1) * input(-1, -1)
-      + c( 2) * input( 0, -1)
-      + c( 3) * input( 1, -1)
-      + c( 4) * input(-2,  0)
-      + c( 5) * input(-1,  0)
-      + c( 6) * input( 0,  0)
-      + c( 7) * input( 1,  0)
-      + c( 8) * input( 2,  0)
-      + c( 9) * input(-1,  1)
-      + c(10) * input( 0,  1)
-      + c(11) * input( 1,  1)
-      + c(12) * input( 0,  2);
+      = input(0, -1);
+//      = c( 0) * input( 0, -2)
+//      + c( 1) * input(-1, -1)
+//      + c( 2) * input( 0, -1)
+//      + c( 3) * input( 1, -1)
+//      + c( 4) * input(-2,  0)
+//      + c( 5) * input(-1,  0)
+//      + c( 6) * input( 0,  0)
+//      + c( 7) * input( 1,  0)
+//      + c( 8) * input( 2,  0)
+//      + c( 9) * input(-1,  1)
+//      + c(10) * input( 0,  1)
+//      + c(11) * input( 1,  1)
+//      + c(12) * input( 0,  2);
 }
 
 /**
@@ -305,6 +306,7 @@ void semiArakawaDistributedArray(complexArray6D out,
     for (int i = 0; i < NUM_GHOST_ZONES; ++i) {
       semiArakawaArrKernel<< < grid, block>> > (*outPtr_dev, *inPtr_dev, coeff_dev);
       if(i + 1 < NUM_GHOST_ZONES) {
+        std::cout << "Swapping!" << std::endl;
         std::swap(outPtr_dev, inPtr_dev);
       }
     }
@@ -389,22 +391,20 @@ void semiArakawaBrickKernel(brick::Array<unsigned, RANK, brick::Padding<>, unsig
     unsigned coeffBrickIndex = coeffGrid(stencilIdx, b_i, b_k, b_l, b_m, b_n);
     return bCoeff[coeffBrickIndex][n][m][l][k][i][0];
   };
-  bOut[fieldBrickIdx][n][m][l][k][j][i]
-      = c( 0) * input( 0, -2)
-      + c( 1) * input(-1, -1)
-      + c( 2) * input( 0, -1)
-      + c( 3) * input( 1, -1)
-      + c( 4) * input(-2,  0)
-      + c( 5) * input(-1,  0)
-      + c( 6) * input( 0,  0)
-      + c( 7) * input( 1,  0)
-      + c( 8) * input( 2,  0)
-      + c( 9) * input(-1,  1)
-      + c(10) * input( 0,  1)
-      + c(11) * input( 1,  1)
-      + c(12) * input( 0,  2);
-  assert(bIn[fieldBrickIdx][n][m][l][k][j][i] != bComplexElem(0.0, 0.0));
-  bOut[fieldBrickIdx][n][m][l][k][j][i] = bIn[fieldBrickIdx][n][m][l][k][j][i];
+  bOut[fieldBrickIdx][n][m][l][k][j][i] = input(0, -1);
+//      = c( 0) * input( 0, -2)
+//      + c( 1) * input(-1, -1)
+//      + c( 2) * input( 0, -1)
+//      + c( 3) * input( 1, -1)
+//      + c( 4) * input(-2,  0)
+//      + c( 5) * input(-1,  0)
+//      + c( 6) * input( 0,  0)
+//      + c( 7) * input( 1,  0)
+//      + c( 8) * input( 2,  0)
+//      + c( 9) * input(-1,  1)
+//      + c(10) * input( 0,  1)
+//      + c(11) * input( 1,  1)
+//      + c(12) * input( 0,  2);
 }
 
 /**
@@ -461,11 +461,11 @@ void semiArakawaDistributedBrick(complexArray6D out,
     cudaEvent_t c_0, c_1;
     cudaEventCreate(&c_0);
     cudaEventCreate(&c_1);
-    std::cout << "Beginning communication" << std::endl;
 #ifndef CUDA_AWARE
   {
     double t_a = omp_get_wtime();
-    mpiLayout.copyBoundaryFromCuda(bInArray);
+//    mpiLayout.copyBoundaryFromCuda(bInArray);
+    bInArray.copyFromDevice(); // TODO: JUST COPY BOUNDARY
     double t_b = omp_get_wtime();
     movetime += t_b - t_a;
   #ifdef DECOMP_PAGEUNALIGN
@@ -474,8 +474,8 @@ void semiArakawaDistributedBrick(complexArray6D out,
     ev.exchange();
   #endif
     t_a = omp_get_wtime();
-    mpiLayout.copyGhostToCuda(bInArray);
-    std::cout << "Communication complete" << std::endl;
+//    mpiLayout.copyGhostToCuda(bInArray);
+    bInArray.copyToDevice(); // TODO: JUST COPY GHOSTS
     t_b = omp_get_wtime();
     movetime += t_b - t_a;
   }
