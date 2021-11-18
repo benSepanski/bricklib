@@ -82,7 +82,7 @@ protected:
    */
   template <size_t CurrentDim = 0>
   typename std::enable_if<CurrentDim == 3, Region>::type
-  getRegion() {
+  getRegion() const {
     return Region{false, 0};
   }
 
@@ -97,7 +97,7 @@ protected:
    */
   template <size_t CurrentDim = 0, typename... IndexType>
       typename std::enable_if<CurrentDim <3 , Region>::type
-                                getRegion(unsigned firstIndex, IndexType... remainingIndices) {
+                                getRegion(unsigned firstIndex, IndexType... remainingIndices) const {
     static_assert(sizeof...(IndexType) + 1 == 3 - CurrentDim,
                   "Mismatch in number of indices");
     Region r = getRegion<CurrentDim + 1>(remainingIndices...);
@@ -119,22 +119,53 @@ protected:
   }
 
   /**
-   * Sets each value in array to its region ID (negative for ghost
-   * values)
+   * Fill each ghost element of arr with -1 and each non-ghost
+   * element with the value from getIndex(i, j, k)
    *
-   * @tparam T type of arr
+   * @tparam T 3d array type
    * @param arr the array
    */
   template<typename T>
-  void assignEntriesToRegion(T &arr) {
+  void fill3DArray(T &arr) {
     for (unsigned k = 0; k < this->extentWithGZ[2]; ++k) {
       for (unsigned j = 0; j < this->extentWithGZ[1]; ++j) {
         for (unsigned i = 0; i < this->extentWithGZ[0]; ++i) {
-          Region r = this->getRegion(i, j, k);
-          arr(i, j, k) = r.isGhost ? -r.regionID : r.regionID;
+          auto r = this->template getRegion(i, j, k);
+          if(r.isGhost) {
+            arr(i, j, k) = -1;
+          } else {
+            arr(i, j, k) = this->getIndex(i, j, k);
+          }
         }
       }
     }
+  }
+
+  /**
+   *
+   * @param i index along axis 0
+   * @param j index along axis 1
+   * @param k index along axis 2
+   * @return A unique index into the array if non-ghost, or the expected
+   *         ghost element otherwise
+   */
+  unsigned getIndex(unsigned i, unsigned j, unsigned k) {
+    unsigned flatIndex = 0;
+    std::array<unsigned, 3> actualIdx = {i, j, k};
+    for(unsigned d = 0; d < actualIdx.size(); ++d) {
+      if(actualIdx[d] < ghostDepth[d]) {
+        actualIdx[d] += extent[d] - ghostDepth[d];
+      } else if(actualIdx[d] < ghostDepth[d] + extent[d]) {
+        actualIdx[d] -= ghostDepth[d];
+      } else {
+        actualIdx[d] -= extent[d] + ghostDepth[d];
+      }
+      if(d > 0) {
+        flatIndex *= extent[d - 1];
+      }
+      flatIndex += actualIdx[d];
+    }
+    return flatIndex;
   }
 };
 

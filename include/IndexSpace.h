@@ -175,6 +175,16 @@ public:
   }
 
   /**
+   * Create an index object with the given extents (0th index first)
+   * @param indices the indices
+   */
+  explicit IndexSpace(const IndexType *extents) {
+    for(unsigned d = 0; d < Rank; ++d) {
+      this->bounds[d] = Interval<IndexType>(extents[d]);
+    }
+  }
+
+  /**
    * Create an index object with the given bounds (0th index first)
    * @param indices the indices
    */
@@ -256,6 +266,10 @@ public:
      */
     inline bool operator==(const Iterator &that) const {
       return this->index == that.index;
+    }
+
+    inline bool operator!=(const Iterator &that) const {
+      return !this->operator==(that);
     }
 
     inline reference operator*() {

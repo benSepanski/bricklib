@@ -340,7 +340,24 @@ public:
     std::reverse(bdims.begin(), bdims.end());
 
     for (int i = 0; i < dim; ++i) {
-      assert(ghost_depth[i] % bdims[i] == 0);
+      // validate user input
+      std::stringstream errorStream;
+      if(ghost_depth[i] % bdims[i] != 0) {
+        errorStream << "ghost_depth[" << i << "] = " << ghost_depth[i]
+                    << " is not divisible by brick dimension " << bdims[i];
+        throw std::runtime_error(errorStream.str());
+      }
+      if(dims[i] % bdims[i] != 0) {
+        errorStream << "dims[" << i << "] = " << dims[i]
+                    << " is not divisible by brick dimension " << bdims[i];
+        throw std::runtime_error(errorStream.str());
+      }
+      // Expect to have a layer of skin on both sides, and an internal region
+      if(dims[i] < 3 * ghost_depth[i] / bdims[i]) {
+        errorStream << "dims[" << i << "] = " << dims[i] << " must be at least "
+                    << "3 ghost-zones deep.";
+      }
+      // store the depths
       g_depth.emplace_back(ghost_depth[i] / bdims[i]);
       this->dims[i] /= bdims[i];
     }

@@ -22,17 +22,22 @@ TYPED_TEST(MPI_CartesianTest3D, ExchangeNoMMAPTest) {
   // build a brick from the layout
   brick::MPILayout<BrickDims, CommunicatingDims> mpiLayout(this->buildMPILayout());
   brick::BrickedArray<bElem, BrickDims> bArr(mpiLayout.getBrickLayout());
-  this->template assignEntriesToRegion(bArr);
-
+  // also build a regular array from the layout
+  brick::Array<bElem, 3> arr({bArr.extent[0], bArr.extent[1], bArr.extent[2]});
+  // fill in arrays entries with their associated entries
+  this->template fill3DArray(bArr);
+  this->template fill3DArray(arr);
   // exchange
   mpiLayout.exchangeWithoutMMAP(bArr);
+  mpiLayout.exchangeArray(arr);
   // Now make sure that ghosts received the appropriate regionTag
   // (NOTE: THIS RELIES ON THE CARTESIAN COMM BEING PERIODIC)
   for (unsigned k = 0; k < this->extentWithGZ[2]; ++k) {
     for (unsigned j = 0; j < this->extentWithGZ[1]; ++j) {
       for (unsigned i = 0; i < this->extentWithGZ[0]; ++i) {
-        Region r = this->getRegion(i, j, k);
-        EXPECT_EQ(bArr(i, j, k), r.regionID);
+        unsigned expectedIndex = this->getIndex(i, j, k);
+        EXPECT_EQ(bArr(i, j, k), expectedIndex);
+        EXPECT_EQ(arr(i, j, k), expectedIndex);
       }
     }
   }
@@ -49,8 +54,8 @@ TYPED_TEST(MPI_CartesianTest3D, ExchangeMMAPTest) {
   // also build a regular array from the layout
   brick::Array<bElem, 3> arr({bArr.extent[0], bArr.extent[1], bArr.extent[2]});
   // fill in arrays entries with their associated entries
-  this->template assignEntriesToRegion(bArr);
-  this->template assignEntriesToRegion(arr);
+  this->template fill3DArray(bArr);
+  this->template fill3DArray(arr);
   // exchange
   ExchangeView ev = mpiLayout.buildExchangeView(bArr);
   ev.exchange();
@@ -60,9 +65,9 @@ TYPED_TEST(MPI_CartesianTest3D, ExchangeMMAPTest) {
   for (unsigned k = 0; k < this->extentWithGZ[2]; ++k) {
     for (unsigned j = 0; j < this->extentWithGZ[1]; ++j) {
       for (unsigned i = 0; i < this->extentWithGZ[0]; ++i) {
-        Region r = this->getRegion(i, j, k);
-        EXPECT_EQ(bArr(i, j, k), r.regionID);
-        EXPECT_EQ(arr(i, j, k), r.regionID);
+        unsigned expectedIndex = this->getIndex(i, j, k);
+        EXPECT_EQ(bArr(i, j, k), expectedIndex);
+        EXPECT_EQ(arr(i, j, k), expectedIndex);
       }
     }
   }
