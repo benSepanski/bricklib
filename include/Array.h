@@ -136,7 +136,12 @@ namespace brick {
                       "arrExtent data type must be convertible to IndexType");
         SizeType numElements = 1;
         for(unsigned d = 0; d < RANK; ++d) {
-          numElements *= ((IndexType) arrExtent[d]) + 2 * PADDING(d);
+          IndexType extentWithPadding = ((IndexType) arrExtent[d]) + 2 * PADDING(d);
+          SizeType newNumElements = numElements * extentWithPadding;
+          if(newNumElements / extentWithPadding != numElements) {
+            throw std::runtime_error("Number of elements with padding overflows");
+          }
+          numElements = newNumElements;
         }
         return numElements;
       }
