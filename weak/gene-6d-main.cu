@@ -170,6 +170,25 @@ void timeAndPrintMPIStats(std::function<void(void)> func, GeneMPILayout &mpiLayo
   }
 }
 
+void validateLaunchConfig(dim3 grid, dim3 block) {
+  std::ostringstream gridErrorStream;
+  // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#features-and-technical-specifications__technical-specifications-per-compute-capability
+  if(grid.z > 65535) {
+    gridErrorStream << "grid.z = " << grid.z << " should be at most 65535" << std::endl;
+  }
+  if(grid.x > (1U << 31) - 1) {
+    gridErrorStream << "grid.x = " << grid.x << " should be at most " << (1U << 31) - 1 << std::endl;
+  }
+  if(block.x > 1024 || block.y > 1024 || block.z > 64) {
+    gridErrorStream << "block (.x = " << block.x << ", .y = " << block.y << ", .z = " << block.z << ")"
+                    << " is too large in one or more dimensions."
+                    << std::endl;
+  }
+  if(!gridErrorStream.str().empty()) {
+    throw std::runtime_error(gridErrorStream.str());
+  }
+}
+
 __device__ __constant__ unsigned arrayExtentWithGZDev[RANK];
 
 /**
@@ -272,6 +291,14 @@ void semiArakawaDistributedArray(complexArray6D out,
   unpaddedIn.copyToDevice(unpaddedIn_dev);
   coeffs.copyToDevice(coeff_dev);
 
+  // set up grid
+  dim3 block(TILE_SIZE, TILE_SIZE),
+      grid((in.extent[2] + block.x - 1) / block.x,
+           (in.extent[3] + block.y - 1) / block.y,
+           (in.extent[0] * in.extent[1] * in.extent[4] * in.extent[5] + block.z - 1) / block.z);
+  // validate grid:
+  validateLaunchConfig(grid, block);
+
   // build function to perform computation
   auto inPtr_dev = &unpaddedIn_dev;
   auto outPtr_dev = &unpaddedOut_dev;
@@ -285,7 +312,7 @@ void semiArakawaDistributedArray(complexArray6D out,
     double st = omp_get_wtime();
     unpaddedIn.copyFromDevice(*inPtr_dev);
     movetime += omp_get_wtime() - st;
-    mpiLayout.exchangeArray(in); // exchange should ignore padding
+    mpiLayout.exchangeArray(in);
     st = omp_get_wtime();
     unpaddedIn.copyToDevice(*inPtr_dev);
     movetime += omp_get_wtime() - st;
@@ -298,12 +325,9 @@ void semiArakawaDistributedArray(complexArray6D out,
                            rtypemap);
 #endif
     cudaCheck(cudaEventRecord(c_0));
-    dim3 block(TILE_SIZE, TILE_SIZE),
-          grid((in.extent[2] + block.x - 1) / block.x,
-               (in.extent[3] + block.y - 1) / block.y,
-               (in.extent[0] * in.extent[1] * in.extent[4] * in.extent[5]) / block.z);
     for (int i = 0; i < NUM_GHOST_ZONES; ++i) {
       semiArakawaArrKernel<< < grid, block>> > (*outPtr_dev, *inPtr_dev, coeff_dev);
+      cudaCheck(cudaPeekAtLastError());
       if(i + 1 < NUM_GHOST_ZONES) {
         std::cout << "Swapping!" << std::endl;
         std::swap(outPtr_dev, inPtr_dev);
@@ -451,6 +475,15 @@ void semiArakawaDistributedBrick(complexArray6D out,
   auto coeffIndexInStorage_dev = coeffLayout.indexInStorage.allocateOnDevice();
   coeffLayout.indexInStorage.copyToDevice(coeffIndexInStorage_dev);
 
+  // set up grid
+  const unsigned * const brickExtentWithGZ = fieldLayout.indexInStorage.extent;
+  dim3 cuda_grid_size(brickExtentWithGZ[2],
+                      brickExtentWithGZ[3],
+                      brickExtentWithGZ[0] * brickExtentWithGZ[1] *
+                          brickExtentWithGZ[4] * brickExtentWithGZ[5]),
+      cuda_block_size(BRICK_DIM[0], BRICK_DIM[1], FieldBrick_kl::BRICKLEN / BRICK_DIM[0] / BRICK_DIM[1]);
+  validateLaunchConfig(cuda_grid_size, cuda_block_size);
+
 #ifndef DECOMP_PAGEUNALIGN
   ExchangeView ev = mpiLayout.buildExchangeView(bInArray);
 #endif
@@ -479,18 +512,13 @@ void semiArakawaDistributedBrick(complexArray6D out,
 #else
   bDecomp.exchange(bStorage_dev);
 #endif
-    const unsigned * const brickExtentWithGZ = fieldLayout.indexInStorage.extent;
-    dim3 cuda_grid_size(brickExtentWithGZ[2],
-                        brickExtentWithGZ[3],
-                        brickExtentWithGZ[0] * brickExtentWithGZ[1] *
-                        brickExtentWithGZ[4] * brickExtentWithGZ[5]),
-         cuda_block_size(BRICK_DIM[0], BRICK_DIM[1], FieldBrick_kl::BRICKLEN / BRICK_DIM[0] / BRICK_DIM[1]);
     cudaCheck(cudaEventRecord(c_0));
     for (int i = 0; i < NUM_GHOST_ZONES; ++i) {
       semiArakawaBrickKernel<< < cuda_grid_size, cuda_block_size>> >(
           fieldIndexInStorage_dev, coeffIndexInStorage_dev, bOut_dev,
           bIn_dev, bCoeff_dev
           );
+      cudaCheck(cudaPeekAtLastError());
       if(i + 1 < NUM_GHOST_ZONES) {
         std::cout << "Swapping!" << std::endl;
         std::swap(bOut_dev, bIn_dev);
@@ -659,12 +687,14 @@ int main(int argc, char **argv) {
     }
     std::cout << " for a total of " << totElems << " elements " << std::endl
               << std::setw(io_col_width) << "Ghost Zone :";
+    size_t totElemsWithGhosts = 1;
     for(int i = 0; i < RANK; ++i) {
+      totElemsWithGhosts *= perProcessExtent[i] + 2 * GHOST_ZONE[i];
       std::cout << std::setw(2) << GHOST_ZONE[i];
       if(i < RANK - 1) std::cout << " x ";
     }
-    std::cout << std::endl
-              << std::setw(io_col_width) << "Array Padding :";
+    std::cout << " for a total of " << totElemsWithGhosts << " elements "
+              << std::endl << std::setw(io_col_width) << "Array Padding :";
     for(int i = 0; i < RANK; ++i) {
       std::cout << std::setw(2) << PADDING[i];
       if(i < RANK - 1) std::cout << " x ";
@@ -791,7 +821,7 @@ int main(int argc, char **argv) {
   semiArakawaDistributedBrick(brick_out, in, coeffs, mpiLayout);
 
   // check for correctness
-  // #pragma omp parallel for collapse(5)
+  #pragma omp parallel for collapse(5)
   for(unsigned n = GHOST_ZONE[5]; n < GHOST_ZONE[5] + perProcessExtent[5]; ++n) {
     for (unsigned m = GHOST_ZONE[4]; m < GHOST_ZONE[4] + perProcessExtent[4];
          ++m) {
