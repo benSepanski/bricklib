@@ -447,7 +447,8 @@ void semiArakawaDistributedBrick(complexArray6D out,
   // set up brick-info and storage on host
   brick::BrickLayout<RANK> fieldLayout = mpiLayout.getBrickLayout();
 #ifdef DECOMP_PAGEUNALIGN
-  BrickedFieldArray bIn(in.extent), bOut(out.extent);
+  BrickedFieldArray bInArray(fieldLayout);
+  BrickedFieldArray bOutArray(fieldLayout);
 #else
   // load with mmap
   BrickedFieldArray bInArray(fieldLayout, nullptr);
@@ -485,7 +486,7 @@ void semiArakawaDistributedBrick(complexArray6D out,
   validateLaunchConfig(cuda_grid_size, cuda_block_size);
 
 #ifndef DECOMP_PAGEUNALIGN
-  ExchangeView ev = mpiLayout.buildExchangeView(bInArray);
+  ExchangeView ev = mpiLayout.buildBrickedArrayMMAPExchangeView(bInArray);
 #endif
   // setup brick function to compute stencil
   auto brickFunc = [&]() -> void {
@@ -500,7 +501,7 @@ void semiArakawaDistributedBrick(complexArray6D out,
     double t_b = omp_get_wtime();
     movetime += t_b - t_a;
   #ifdef DECOMP_PAGEUNALIGN
-    b_decomp.exchange(b_storage);
+    mpiLayout.exchangeBrickedArray(bInArray);
   #else
     ev.exchange();
   #endif
@@ -510,6 +511,7 @@ void semiArakawaDistributedBrick(complexArray6D out,
     movetime += t_b - t_a;
   }
 #else
+  static_assert(false, "CUDA AWARE NOT IMPLEMENTED YET");
   bDecomp.exchange(bStorage_dev);
 #endif
     cudaCheck(cudaEventRecord(c_0));

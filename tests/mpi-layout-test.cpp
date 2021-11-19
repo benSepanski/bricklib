@@ -28,7 +28,7 @@ TYPED_TEST(MPI_CartesianTest3D, ExchangeNoMMAPTest) {
   this->template fill3DArray(bArr);
   this->template fill3DArray(arr);
   // exchange
-  mpiLayout.exchangeWithoutMMAP(bArr);
+  mpiLayout.exchangeBrickedArray(bArr);
   mpiLayout.exchangeArray(arr);
   // Now make sure that ghosts received the appropriate regionTag
   // (NOTE: THIS RELIES ON THE CARTESIAN COMM BEING PERIODIC)
@@ -57,7 +57,7 @@ TYPED_TEST(MPI_CartesianTest3D, ExchangeMMAPTest) {
   this->template fill3DArray(bArr);
   this->template fill3DArray(arr);
   // exchange
-  ExchangeView ev = mpiLayout.buildExchangeView(bArr);
+  ExchangeView ev = mpiLayout.buildBrickedArrayMMAPExchangeView(bArr);
   ev.exchange();
   mpiLayout.exchangeArray(arr);
   // Now make sure that ghosts received the appropriate regionTag

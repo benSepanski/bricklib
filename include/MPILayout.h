@@ -266,8 +266,7 @@ public:
    * @return an exchange view for the host-data of the bricked array
    */
   template <typename... T>
-  ExchangeView
-  buildExchangeView(const brick::BrickedArray<T...> &brickedArray) {
+  ExchangeView buildBrickedArrayMMAPExchangeView(const brick::BrickedArray<T...> &brickedArray) {
     if(brickedArray.getStorage().mmap_info == nullptr) {
       throw std::runtime_error("Storage has no mmap info");
     }
@@ -282,7 +281,7 @@ public:
    *                     Must have been built on this object's BrickLayout
    */
   template<typename ... T>
-  void exchangeWithoutMMAP(brick::BrickedArray<T...> &brickedArray) {
+  void exchangeBrickedArray(brick::BrickedArray<T...> &brickedArray) {
     BrickStorage storage = brickedArray.getStorage();
     brickDecompPtr->exchange(storage);
   }
