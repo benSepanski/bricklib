@@ -35,6 +35,7 @@ public:
     if (!*allocatedOnDevice) {
       *allocatedOnDevice = true;
       BrickStorage bStorage_dev = getHostStorage();
+      bStorage_dev.mmap_info = nullptr;
       size_t size = bStorage_dev.step * bStorage_dev.chunks * sizeof(bElem);
       bElem *datptr;
       cudaCheck(cudaMalloc(&datptr, size));
