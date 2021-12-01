@@ -5,7 +5,7 @@ project(brick
 
 cmake_policy(SET CMP0077 NEW)
 
-set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(IgnoreMe "${CMAKE_C_COMPILER}")
 
@@ -53,6 +53,22 @@ if (CMAKE_CUDA_COMPILER)
 else()
     message(STATUS "Could NOT find CUDA")
 endif ()
+
+# hip/samples/2_Cookbook/12_cmake_hip_add_executable
+if (USE_HIP)
+    if(DEFINED ENV{HIP_PATH})
+        set(HIP_PATH $ENV{HIP_PATH})
+    else()
+        set(HIP_PATH /opt/rocm/hip)
+    endif()
+    set(CMAKE_MODULE_PATH "${HIP_PATH}/cmake" ${CMAKE_MODULE_PATH})
+    list(APPEND CMAKE_PREFIX_PATH "${HIP_PATH}" "${HIP_PATH}/..")
+    find_package(HIP MODULE)
+    if (NOT HIP_FOUND)
+        message(FATAL_ERROR "HIP not found with USE_HIP specified")
+    endif()
+    find_package(hip REQUIRED)
+endif()
 
 find_package(OpenMP REQUIRED)
 find_package(MPI)
@@ -103,8 +119,6 @@ if (HAS_SYCL)
     set(CMAKE_BUILD_RPATH "${SYCL_DIR}/lib")
 endif ()
 
-set(VS_PREPROCESSOR cpp CACHE STRING "Preprocessor for vector scatter")
-
 # BRICK_PROJECT_PATH is set when brick is used as a submodule
 # parent project should take care of VecScatter initialization
 if (NOT BRICK_PROJECT_PATH)
@@ -130,6 +144,7 @@ endif ()
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
 set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -Xcompiler \"${CMAKE_CXX_FLAGS}\"")
+set(CMAKE_HIP_FLAGS "${OpenMP_CXX_FLAGS}")
 
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/include

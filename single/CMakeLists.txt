@@ -14,14 +14,16 @@ set_target_properties(single-mpi
 if (HAS_SYCL)
     set(SYCL3AXIS_INCLUDE_DIRS
             "${SYCL_DIR}/include"
-            )
+            "${SYCL_DIR}/include/sycl")
     set(SYCL3AXIS_COMPILE_OPTIONS
-            "-fsycl"
-            )
-    VSTARGET(SYCL3AXIS ../stencils/3axis_sycl.cpp ${CMAKE_CURRENT_BINARY_DIR}/3axis_sycl-out.cpp)
+            "-fsycl")
+    VSTARGET(SYCL3AXIS ../stencils/3axis_sycl.cpp ../stencils/3axis_sycl-out.cpp)
     add_executable(single-sycl sycl.cpp ${VSTARGET_SYCL3AXIS_OUTPUT})
-    target_link_libraries(single-sycl brick brickhelper stdc++ sycl OpenCL)
-    target_include_directories(single-sycl PUBLIC "${SYCL_DIR}/include")
+    target_link_libraries(single-sycl brick brickhelper stdc++ sycl)
+    target_include_directories(single-sycl
+            PUBLIC "${SYCL_DIR}/include"
+            PUBLIC "${SYCL_DIR}/include/sycl"
+            PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/stencils")
     target_link_directories(single-sycl PUBLIC "${SYCL_DIR}/lib")
     # sycl need option for both phase
     target_compile_options(single-sycl PUBLIC "-fsycl")
@@ -57,6 +59,29 @@ if (CMAKE_CUDA_COMPILER)
             )
 endif ()
 
+if (USE_HIP)
+    VSTARGET(H3AXIS ../stencils/3axis.hip.cpp ../stencils/3axis-out.hip.cpp)
+    set(HIP_SRCS hip.cpp ${VSTARGET_H3AXIS_OUTPUT})
+    set_source_files_properties(${HIP_SRCS} PROPERTIES HIP_SOURCE_PROPERTY_FORMAT 1)
+    hip_add_executable(single-hip ${HIP_SRCS} CLANG_OPTIONS ${CMAKE_CXX_FLAGS})
+    target_link_libraries(single-hip brickhelper hip::host)
+    set_target_properties(single-hip
+            PROPERTIES OUTPUT_NAME hip)
+endif ()
+
+if (USE_DPC)
+   VSTARGET(D3AXIS ../stencils/3axis_dpc.cpp ../stencils/3axis_dpc-out.cpp)
+   set(CMAKE_CXX_COMPILER "dpcpp")
+   set(CMAKE_LINKER "dpcpp")
+   set(CMAKE_AR "llvm-ar")
+   set(CMAKE_RANLIB "llvm-ranlib")
+   set(CMAKE_CXX_STANDARD 17)
+   add_executable(single-dpc dpc.cpp ${VSTARGET_D3AXIS_OUTPUT})
+   target_link_libraries(single-dpc brickhelper)
+   target_include_directories(single-dpc PUBLIC "$(which dpcpp)/../../include/sycl/")
+   set_target_properties(single-dpc PROPERTIES OUTPUT_NAME dpc)
+endif ()
+
 if(BRICKS_BUILD_GTENSOR_BENCHMARKS)
 #     get_target_property(GTENSOR_INCLUDES gtensor::gtensor INTERFACE_INCLUDE_DIRECTORIES)
 #     message(STATUS "Linking with gtensor from ${GTENSOR_INCLUDES}")
@@ -69,7 +94,7 @@ if(BRICKS_BUILD_GTENSOR_BENCHMARKS)
     target_gtensor_sources(single-gene6d PRIVATE gene-6d-main.cpp ../stencils/gene-6d.cpp)
     target_link_libraries(single-gene6d brickhelper gtensor::gtensor nvToolsExt)
 
-    set_target_properties(single-gene6d 
+    set_target_properties(single-gene6d
             PROPERTIES OUTPUT_NAME gene6d)
     target_include_directories(single-gene6d PUBLIC
             "${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES}"
