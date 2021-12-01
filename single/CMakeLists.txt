@@ -82,7 +82,7 @@ if (USE_DPC)
    set_target_properties(single-dpc PROPERTIES OUTPUT_NAME dpc)
 endif ()
 
-if(BRICKS_BUILD_GTENSOR_BENCHMARKS)
+if(gtensor_FOUND)
 #     get_target_property(GTENSOR_INCLUDES gtensor::gtensor INTERFACE_INCLUDE_DIRECTORIES)
 #     message(STATUS "Linking with gtensor from ${GTENSOR_INCLUDES}")
 #     set(GENE5D_INCLUDE_DIRS "${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES}" "${GTENSOR_INCLUDES}")
@@ -101,7 +101,7 @@ if(BRICKS_BUILD_GTENSOR_BENCHMARKS)
             )
 endif ()
 
-if(BRICKS_ENABLE_FFT)
+if(CMAKE_CUDA_COMPILER)
     # sample FFT
     add_executable(single-fft fft.cu)
     if(${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.17")

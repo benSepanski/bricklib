@@ -587,12 +587,6 @@ class BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
     void setup(InBrickType inBrick_dev, unsigned *in_grid_ptr_dev,
                OutBrickType outBrick_dev, unsigned *out_grid_ptr_dev)
     {
-      // validate input
-      validateIsDevicePointer(in_grid_ptr_dev);
-      validateIsDevicePointer(inBrick_dev.dat);
-      validateIsDevicePointer(out_grid_ptr_dev);
-      validateIsDevicePointer(outBrick_dev.dat);
-
       // set up host-side myCufftInfo
       myInCufftInfo.grid_ptr = in_grid_ptr_dev;
       myInCufftInfo.brick_step = inBrick_dev.step;

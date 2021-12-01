@@ -305,8 +305,8 @@ void semiArakawaDistributedArray(complexArray6D out,
   // build function to perform computation
   auto inWithPaddingPtr_dev = &inWithPadding_dev;
   auto outWithPaddingPtr_dev = &outWithPadding_dev;
-  auto inPtr_dev = &in_dev;
-  auto outPtr_dev = &out_dev;
+  auto inPtr = &inCopy;
+  auto outPtr = &out;
   auto arrFunc = [&]() -> void {
     float elapsed;
     cudaEvent_t c_0, c_1;
@@ -315,11 +315,11 @@ void semiArakawaDistributedArray(complexArray6D out,
 #if !defined(CUDA_AWARE) || !defined(USE_TYPES)
     // Copy everything back from device
     double st = omp_get_wtime();
-    inWithPadding.copyFromDevice(*inPtr_dev);
+    inWithPadding.copyFromDevice(*inWithPaddingPtr_dev);
     movetime += omp_get_wtime() - st;
-    mpiLayout.exchangeArray(inCopy);
+    mpiLayout.exchangeArray(*inPtr);
     st = omp_get_wtime();
-    inWithPadding.copyToDevice(*inPtr_dev);
+    inWithPadding.copyToDevice(*inWithPaddingPtr_dev);
     movetime += omp_get_wtime() - st;
 #else
     mpiLayout.exchangeArray(*inPtr_dev, complexFieldMPIArrayTypesHandle);
@@ -331,7 +331,7 @@ void semiArakawaDistributedArray(complexArray6D out,
       if(i + 1 < NUM_GHOST_ZONES) {
         std::cout << "Swapping!" << std::endl;
         std::swap(outWithPaddingPtr_dev, inWithPaddingPtr_dev);
-        std::swap(outPtr_dev, inPtr_dev);
+        std::swap(inPtr, outPtr);
       }
     }
     gpuCheck(cudaEventRecord(c_1));
