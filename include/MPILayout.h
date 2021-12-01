@@ -51,6 +51,18 @@ template <typename BrickDims, typename CommunicatingDims = CommDims<>>
 class MPILayout;
 
 /**
+ * A handle for the MPI types used by MPILayout to exchange arrays
+ * @see MPILayout
+ */
+class MPIArrayTypesHandle {
+private:
+  template <typename BrickDims, typename CommunicatingDims>
+  friend class brick::MPILayout;
+  std::unordered_map<uint64_t, MPI_Datatype> stypemap;
+  std::unordered_map<uint64_t, MPI_Datatype> rtypemap;
+};
+
+/**
  * An MPI-layout to handle setup of fast MPI transfers for
  * bricks and arrays.
  *
@@ -210,6 +222,17 @@ private:
   std::vector<long> ghost{}, extent{};
 
   /// methods
+private:
+  // private methods
+  template<typename ArrType>
+  void validateExtentsMatch(const ArrType &a) {
+    for (unsigned d = 0; d < RANK; ++d) {
+      if (a.extent[d] != extent[d] + 2 * ghost[d]) {
+        throw std::runtime_error("Mismatch in extents");
+      }
+    }
+  }
+
 public:
   // public methods
   /**
@@ -287,6 +310,23 @@ public:
   }
 
 #ifdef __CUDACC__
+   /**
+   * Exchange ghost-zones of the brickedArray on device
+   * without using any MMAP info
+   *
+   * Requires cuda-aware
+   *
+   * @tparam T type parameters to BrickedArray
+   * @param brickedArray the bricked array to exchange ghost-zones on the
+   *                     device for.
+   *                     Must have been built on this object's BrickLayout.
+   */
+  template<typename ... T>
+  void exchangeCudaBrickedArray(brick::BrickedArray<T...> &brickedArray) {
+    BrickStorage storage = brickedArray.getCudaStorage();
+    brickDecompPtr->exchange(storage);
+  }
+
   /**
    * Copy the boundary regions of the bricked array from the CUDA
    * device to host
@@ -340,12 +380,10 @@ public:
             typename ArrIndexType>
   void exchangeArray(
       Array<DataType, RANK, ArrPadding, ArrSizeType, ArrIndexType> arr) {
+    validateExtentsMatch(arr);
     std::vector<long> padding;
     padding.reserve(RANK);
     for (unsigned d = 0; d < RANK; ++d) {
-      if (arr.extent[d] != extent[d] + 2 * ghost[d]) {
-        throw std::runtime_error("Mismatch in extents");
-      }
       padding.push_back(arr.PADDING(d));
     }
     exchangeArr<RANK>(arr.getData().get(), brickDecompPtr->comm,
@@ -353,7 +391,64 @@ public:
                       this->ghost);
   }
 
-  // TODO: Implement exchangeArrayWithTypes
+  /**
+   * Build a handle for exchanging ghost-elements of arrays
+   * using MPI Types.
+   *
+   * @tparam DataType data type of the array
+   * @tparam ArrPadding array padding
+   * @tparam ArrSizeType array size type
+   * @tparam ArrIndexType array index type
+   * @param arr the array
+   * @return the handle
+   * @see exchangeArray
+   */
+  template <typename DataType, typename ArrPadding, typename ArrSizeType,
+            typename ArrIndexType>
+  MPIArrayTypesHandle buildArrayTypesHandle(
+      Array<DataType, RANK, ArrPadding, ArrSizeType, ArrIndexType> arr) {
+    validateExtentsMatch(arr);
+    std::vector<long> padding;
+    padding.reserve(RANK);
+    for (unsigned d = 0; d < RANK; ++d) {
+      padding.push_back(arr.PADDING(d));
+    }
+    MPIArrayTypesHandle handle;
+    exchangeArrPrepareTypes<RANK, DataType>(handle.stypemap,
+                                            handle.rtypemap,
+                                            this->extent,
+                                            padding,
+                                            this->ghost);
+    return handle;
+  }
+
+  /**
+   * Exchange arrays using the provided handle
+   * @tparam DataType data-type of the array
+   * @tparam ArrPadding the padding of the array
+   * @tparam ArrSizeType the size-type of the array
+   * @tparam ArrIndexType the index-type of the array
+   * @param arr the array to exchange
+   * @param handle the handle describing the array types
+   * @see buildArrayTypesHandle
+   */
+  template <typename DataType, typename ArrPadding, typename ArrSizeType,
+            typename ArrIndexType>
+  void exchangeArray(
+      Array<DataType, RANK, ArrPadding, ArrSizeType, ArrIndexType> arr,
+      MPIArrayTypesHandle handle) {
+    validateExtentsMatch(arr);
+    std::vector<long> padding;
+    padding.reserve(RANK);
+    for (unsigned d = 0; d < RANK; ++d) {
+      padding.push_back(arr.PADDING(d));
+    }
+    exchangeArrTypes<RANK>(arr.getData().get(),
+                           brickDecompPtr->comm,
+                           brickDecompPtr->rank_map,
+                           handle.stypemap,
+                           handle.rtypemap);
+  }
 };
 
 } // end namespace brick

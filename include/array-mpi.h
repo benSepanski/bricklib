@@ -413,10 +413,11 @@ void exchangeArrTypes(elemType *arr, const MPI_Comm &comm, std::unordered_map<ui
   assert(stypemap.size() == rtypemap.size());
   assert(stypemap.size() == neighbors.size());
   for(unsigned i = 0; i < stypemap.size(); ++i) {
-    uint64_t section = neighbors[i];
-    assert(!(stypemap[section] == MPI_DATATYPE_NULL ^ rtypemap[section] == MPI_DATATYPE_NULL));
+    uint64_t section = neighbors[i].set;
+    assert((stypemap[section] == MPI_DATATYPE_NULL) == (rtypemap[section] == MPI_DATATYPE_NULL));
     if(stypemap[section] != MPI_DATATYPE_NULL) {
       non_empty_neighbors.push_back(neighbors[i]);
+      assert(rank_map.find(neighbors[i].set) != rank_map.end());
     }
   }
   std::vector<MPI_Request> requests(non_empty_neighbors.size() * 2);
@@ -427,6 +428,8 @@ void exchangeArrTypes(elemType *arr, const MPI_Comm &comm, std::unordered_map<ui
   double st = omp_get_wtime(), ed;
 
   for (int i = 0; i < (int) non_empty_neighbors.size(); ++i) {
+    assert(rtypemap[non_empty_neighbors[i].set] != MPI_DATATYPE_NULL);
+    assert(stypemap[non_empty_neighbors[i].set] != MPI_DATATYPE_NULL);
     MPI_Irecv(arr, 1, rtypemap[non_empty_neighbors[i].set], rank_map[non_empty_neighbors[i].set],
               (int) non_empty_neighbors.size() - i - 1, comm, &(requests[i * 2]));
     MPI_Isend(arr, 1, stypemap[non_empty_neighbors[i].set], rank_map[non_empty_neighbors[i].set], i, comm, &(requests[i * 2 + 1]));

@@ -262,33 +262,36 @@ void semiArakawaArrKernel(brick::Array<bComplexElem, 6> out,
  * @param[in] mpiLayout the mpi layout
  */
 void semiArakawaDistributedArray(complexArray6D out,
-                                 complexArray6D in,
+                                 const complexArray6D in,
                                  realArray6D coeffs,
                                  GeneMPILayout &mpiLayout) {
+  // take copy of input array
+  complexArray6D inCopy({in.extent[0], in.extent[1], in.extent[2], in.extent[3], in.extent[4], in.extent[5]}, 0.0);
+#pragma omp parallel for
+  for(unsigned i = 0; i < in.numElementsWithPadding; ++i) {
+    inCopy.getData().get()[i] = in.getData().get()[i];
+  }
   // set up MPI types for transfer
-  std::unordered_map<uint64_t, MPI_Datatype> stypemap;
-  std::unordered_map<uint64_t, MPI_Datatype> rtypemap;
+  auto complexFieldMPIArrayTypesHandle = mpiLayout.buildArrayTypesHandle(inCopy);
   // get arrays as vectors
   std::vector<long> extentAsVector({in.extent[0], in.extent[1], in.extent[2],
                                     in.extent[3], in.extent[4], in.extent[5]}),
                     paddingAsVector(PADDING.begin(), PADDING.end()),
                     ghostZoneAsVector(GHOST_ZONE.begin(), GHOST_ZONE.end());
-  exchangeArrPrepareTypes<RANK, bComplexElem>(stypemap,
-                                              rtypemap,
-                                              extentAsVector,
-                                              paddingAsVector,
-                                              ghostZoneAsVector);
   // set up in/out ptrs on device without padding
-  std::array<unsigned, RANK> unpaddedExtentWithGZ{};
+  std::array<unsigned, RANK> extentWithGZAndPadding{}, extentWithGZ{};
   for(unsigned d = 0; d < RANK; ++d) {
-    unpaddedExtentWithGZ[d] = in.extent[d] + 2 * PADDING[d];
+    extentWithGZ[d] = in.extent[d];
+    extentWithGZAndPadding[d] = in.extent[d] + 2 * PADDING[d];
   }
-  brick::Array<bComplexElem, 6> unpaddedIn(unpaddedExtentWithGZ, in.getData()),
-      unpaddedOut(unpaddedExtentWithGZ, out.getData()),
-      unpaddedIn_dev = unpaddedIn.allocateOnDevice(),
-      unpaddedOut_dev = unpaddedOut.allocateOnDevice();
+  brick::Array<bComplexElem, 6> inWithPadding(extentWithGZAndPadding, inCopy.getData()),
+      outWithPadding(extentWithGZAndPadding, out.getData()),
+      inWithPadding_dev = inWithPadding.allocateOnDevice(),
+      outWithPadding_dev = outWithPadding.allocateOnDevice(),
+      in_dev(extentWithGZ, inWithPadding_dev.getData()),
+      out_dev(extentWithGZ, outWithPadding_dev.getData());
   realArray6D coeff_dev = coeffs.allocateOnDevice();
-  unpaddedIn.copyToDevice(unpaddedIn_dev);
+  inWithPadding.copyToDevice(inWithPadding_dev);
   coeffs.copyToDevice(coeff_dev);
 
   // set up grid
@@ -300,8 +303,10 @@ void semiArakawaDistributedArray(complexArray6D out,
   validateLaunchConfig(grid, block);
 
   // build function to perform computation
-  auto inPtr_dev = &unpaddedIn_dev;
-  auto outPtr_dev = &unpaddedOut_dev;
+  auto inWithPaddingPtr_dev = &inWithPadding_dev;
+  auto outWithPaddingPtr_dev = &outWithPadding_dev;
+  auto inPtr_dev = &in_dev;
+  auto outPtr_dev = &out_dev;
   auto arrFunc = [&]() -> void {
     float elapsed;
     cudaEvent_t c_0, c_1;
@@ -312,24 +317,20 @@ void semiArakawaDistributedArray(complexArray6D out,
     double st = omp_get_wtime();
     unpaddedIn.copyFromDevice(*inPtr_dev);
     movetime += omp_get_wtime() - st;
-    mpiLayout.exchangeArray(in);
+    mpiLayout.exchangeArray(inCopy);
     st = omp_get_wtime();
     unpaddedIn.copyToDevice(*inPtr_dev);
     movetime += omp_get_wtime() - st;
 #else
-    static_assert(false, "Not implemented yet");
-    exchangeArrTypes<RANK>(in_dev.getData(),
-                           bDecomp.comm,
-                           bDecomp.rank_map,
-                           stypemap,
-                           rtypemap);
+    mpiLayout.exchangeArray(*inPtr_dev, complexFieldMPIArrayTypesHandle);
 #endif
     cudaCheck(cudaEventRecord(c_0));
     for (int i = 0; i < NUM_GHOST_ZONES; ++i) {
-      semiArakawaArrKernel<< < grid, block>> > (*outPtr_dev, *inPtr_dev, coeff_dev);
+      semiArakawaArrKernel<< < grid, block>> > (*outWithPaddingPtr_dev, *inWithPaddingPtr_dev, coeff_dev);
       cudaCheck(cudaPeekAtLastError());
       if(i + 1 < NUM_GHOST_ZONES) {
         std::cout << "Swapping!" << std::endl;
+        std::swap(outWithPaddingPtr_dev, inWithPaddingPtr_dev);
         std::swap(outPtr_dev, inPtr_dev);
       }
     }
@@ -346,7 +347,7 @@ void semiArakawaDistributedArray(complexArray6D out,
   timeAndPrintMPIStats(arrFunc, mpiLayout, (double) in.numElements);
 
   // Copy back
-  unpaddedOut.copyFromDevice(unpaddedOut_dev);
+  outWithPadding.copyFromDevice(outWithPadding_dev);
 }
 
 __device__ __constant__ unsigned brick_grid_extent_with_gz_dev[RANK];
@@ -441,7 +442,7 @@ void semiArakawaBrickKernel(brick::Array<unsigned, RANK, brick::Padding<>, unsig
  * @param[in] mpiLayout the mpi-layout
  */
 void semiArakawaDistributedBrick(complexArray6D out,
-                                 complexArray6D in,
+                                 const complexArray6D in,
                                  realArray6D coeffs,
                                  GeneMPILayout &mpiLayout) {
   // set up brick-info and storage on host
@@ -511,8 +512,7 @@ void semiArakawaDistributedBrick(complexArray6D out,
     movetime += t_b - t_a;
   }
 #else
-  static_assert(false, "CUDA AWARE NOT IMPLEMENTED YET");
-  bDecomp.exchange(bStorage_dev);
+  mpiLayout.exchangeCudaBrickedArray(bInArray);
 #endif
     cudaCheck(cudaEventRecord(c_0));
     for (int i = 0; i < NUM_GHOST_ZONES; ++i) {
@@ -802,16 +802,8 @@ int main(int argc, char **argv) {
       cartesianComm, coeffExtent, coeffGhostDepth, skin2d
       );
 #if defined(USE_TYPES)
-  static_assert(false, "exchangeArrTypes with BrickLayout implemented yet");
-  // set up MPI types for transfer of ghost-zone coeffs
-  std::unordered_map<uint64_t, MPI_Datatype> coeffs_stypemap;
-  std::unordered_map<uint64_t, MPI_Datatype> coeffs_rtypemap;
-  exchangeArrPrepareTypes<DIM, bElem>(coeffs_stypemap,
-                                      coeffs_rtypemap,
-                                      coeff_extent,
-                                      std::vector<long>(coeff_extent.size(), 0), ///< no padding for coeffs
-                                      coeff_ghost_zone);
-  exchangeArrTypes<DIM>(coeffs, b_decomp.comm, b_decomp.rank_map, coeffs_stypemap, coeffs_rtypemap);
+  auto coeffMPIArrayTypesHandle = coeffMpiLayout.buildArrayTypesHandle(coeffs);
+  coeffMpiLayout.exchangeArray(coeffs, coeffMPIArrayTypesHandle);
 #else
   coeffMpiLayout.exchangeArray(coeffs);
 #endif
