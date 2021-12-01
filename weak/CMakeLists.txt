@@ -40,7 +40,7 @@ if(CMAKE_CUDA_COMPILER)
     set_target_properties(weak-cuda-mmap
             PROPERTIES OUTPUT_NAME cuda-mmap)
 
-    if(BRICKS_BUILD_GTENSOR_BENCHMARKS)
+    if(gtensor_FOUND)
         OPTION(GENE6D_UNALIGN "Use DECOMP_PAGEUNALIGN for weak-gene6d" OFF)
         OPTION(GENE6D_CUDA_AWARE "Use CUDA_AWARE for weak-gene6d" OFF)
         OPTION(GENE6D_USE_TYPES "Use MPI Types for array transfers" OFF)

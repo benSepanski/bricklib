@@ -27,7 +27,7 @@ __constant__ char grid_iteration_order[RANK+1];
 __host__
     void copy_i_deriv_coeff(const bElem i_deriv_coeff_host[5])
 {
-  cudaCheck(cudaMemcpyToSymbol(const_i_deriv_coeff_dev, i_deriv_coeff_host, 5 * sizeof(bElem)));
+  gpuCheck(cudaMemcpyToSymbol(const_i_deriv_coeff_dev, i_deriv_coeff_host, 5 * sizeof(bElem)));
 }
 
 /**
@@ -36,7 +36,7 @@ __host__
 __host__
     void copy_grid_iteration_order(const char * grid_iteration_order_host)
 {
-  cudaCheck(cudaMemcpyToSymbol(grid_iteration_order, grid_iteration_order_host, (RANK+1) * sizeof(char)));
+  gpuCheck(cudaMemcpyToSymbol(grid_iteration_order, grid_iteration_order_host, (RANK+1) * sizeof(char)));
 }
 
 __global__ __launch_bounds__(NUM_ELEMENTS_PER_BRICK, max_blocks_per_sm(NUM_ELEMENTS_PER_BRICK))

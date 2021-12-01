@@ -379,10 +379,10 @@ namespace brick {
       Array allocateOnDevice() const {
         size_t dataSize = numElementsWithPadding * sizeof(DataType);
         DataType *dataPtr_dev;
-        cudaCheck(cudaMalloc(&dataPtr_dev, dataSize));
+        gpuCheck(cudaMalloc(&dataPtr_dev, dataSize));
         std::shared_ptr<DataType> sharedDataPtr_dev(
             dataPtr_dev,
-            [](DataType *p) { cudaCheck(cudaFree(p)); }
+            [](DataType *p) { gpuCheck(cudaFree(p)); }
         );
         return Array({extent[Range0ToRank]...}, sharedDataPtr_dev);
       }
@@ -398,7 +398,7 @@ namespace brick {
           }
         }
         size_t dataSize = numElementsWithPadding * sizeof(DataType);
-        cudaCheck(cudaMemcpy(that_dev.dataPtr, dataPtr, dataSize, cudaMemcpyHostToDevice));
+        gpuCheck(cudaMemcpy(that_dev.dataPtr, dataPtr, dataSize, cudaMemcpyHostToDevice));
       }
 
       /**
@@ -413,7 +413,7 @@ namespace brick {
           }
         }
         size_t dataSize = numElementsWithPadding * sizeof(DataType);
-        cudaCheck(cudaMemcpy(dataPtr, that_dev.dataPtr, dataSize, cudaMemcpyDeviceToHost));
+        gpuCheck(cudaMemcpy(dataPtr, that_dev.dataPtr, dataSize, cudaMemcpyDeviceToHost));
       }
 #endif
 

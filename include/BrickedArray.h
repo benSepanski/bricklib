@@ -237,7 +237,7 @@ namespace brick {
        */
       void copyToDevice() {
         size_t dataSize = brickStorage.step * brickStorage.chunks * sizeof(bElem);
-        cudaCheck(cudaMemcpy(brickStorage.getCudaStorage().dat.get(),
+        gpuCheck(cudaMemcpy(brickStorage.getCudaStorage().dat.get(),
                                 brickStorage.getHostStorage().dat.get(),
                                 dataSize,
                                 cudaMemcpyHostToDevice));
@@ -254,7 +254,7 @@ namespace brick {
        */
       void copyFromDevice() {
         size_t dataSize = brickStorage.step * brickStorage.chunks * sizeof(bElem);
-        cudaCheck(cudaMemcpy(brickStorage.getHostStorage().dat.get(),
+        gpuCheck(cudaMemcpy(brickStorage.getHostStorage().dat.get(),
                                 brickStorage.getCudaStorage().dat.get(),
                                 dataSize,
                                 cudaMemcpyDeviceToHost));

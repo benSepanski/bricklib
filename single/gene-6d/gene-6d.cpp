@@ -262,12 +262,12 @@ void semi_arakawa_bricks(complexArray6D out,
 
   // copy coefficient bricks to device
   RealCoeffBrick *bCoeffs_dev = nullptr;
-  cudaCheck(cudaMalloc(&bCoeffs_dev, ARAKAWA_STENCIL_SIZE * sizeof(RealCoeffBrick)));
+  gpuCheck(cudaMalloc(&bCoeffs_dev, ARAKAWA_STENCIL_SIZE * sizeof(RealCoeffBrick)));
   bCoeffs[0].copyToDevice(); // Copies all interleaved bricks (TODO: Better notation?)
   for(unsigned s = 0; s < ARAKAWA_STENCIL_SIZE; ++s)
   {
     RealCoeffBrick brickToCopy = bCoeffs[s].viewBricksOnDevice<NoComm>();
-    cudaCheck(cudaMemcpy(bCoeffs_dev + s,
+    gpuCheck(cudaMemcpy(bCoeffs_dev + s,
                             &brickToCopy,
                             sizeof(RealCoeffBrick),
                             cudaMemcpyHostToDevice));
@@ -336,7 +336,7 @@ void semi_arakawa_bricks(complexArray6D out,
     bOut.copyToDevice();
   }
 
-  cudaCheck(cudaFree(bCoeffs_dev));
+  gpuCheck(cudaFree(bCoeffs_dev));
 }
 
 /**

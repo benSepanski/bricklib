@@ -319,15 +319,15 @@ public:
                         movBrickInfo(*brickInfoPtr, cudaMemcpyHostToDevice),
                     *brickInfo_devPtr;
       size_t brickInfoSize = sizeof(BrickInfoType);
-      cudaCheck(cudaMalloc(&brickInfo_devPtr, brickInfoSize));
-      cudaCheck(cudaMemcpy(brickInfo_devPtr, &brickInfoWithDataOnDev, brickInfoSize,
+      gpuCheck(cudaMalloc(&brickInfo_devPtr, brickInfoSize));
+      gpuCheck(cudaMemcpy(brickInfo_devPtr, &brickInfoWithDataOnDev, brickInfoSize,
                            cudaMemcpyHostToDevice));
       // Build a pointer to the BrickInfo
       auto adj_dev = brickInfoWithDataOnDev.adj; // Need this for lambda capture
       std::shared_ptr<BrickInfoType> bInfoSharedPtr_dev(brickInfo_devPtr,
           [adj_dev](BrickInfoType *p) {
-            cudaCheck(cudaFree(adj_dev));
-            cudaCheck(cudaFree(p));
+            gpuCheck(cudaFree(adj_dev));
+            gpuCheck(cudaFree(p));
           });
       auto insertHandle = insertIntoCache(*brickInfo_devCachePtr, bInfoSharedPtr_dev);
       assert(insertHandle.second);

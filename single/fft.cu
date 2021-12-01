@@ -47,8 +47,8 @@ int main()
   // set up brick info in cuda
   BrickInfo<DIM> *bInfo_dev;
   BrickInfo<DIM> _bInfo_dev = movBrickInfo(bInfo, cudaMemcpyHostToDevice);
-  cudaCheck(cudaMalloc(&bInfo_dev, sizeof(BrickInfo<DIM>)));
-  cudaCheck(cudaMemcpy(bInfo_dev, &_bInfo_dev, sizeof(BrickInfo<DIM>), cudaMemcpyHostToDevice));
+  gpuCheck(cudaMalloc(&bInfo_dev, sizeof(BrickInfo<DIM>)));
+  gpuCheck(cudaMemcpy(bInfo_dev, &_bInfo_dev, sizeof(BrickInfo<DIM>), cudaMemcpyHostToDevice));
   // mov brick storage to cuda
   BrickStorage bStorage_dev = movBrickStorage(bStorage, cudaMemcpyHostToDevice);
   // set up brick in cuda
@@ -57,8 +57,8 @@ int main()
   // copy grids to device
   unsigned *grid_ptr_dev;
   size_t size = sizeof(unsigned) * static_power<EXTENT / BDIM, DIM>::value;
-  cudaCheck(cudaMalloc(&grid_ptr_dev, size));
-  cudaCheck(cudaMemcpy(grid_ptr_dev, grid_ptr, size, cudaMemcpyHostToDevice));
+  gpuCheck(cudaMalloc(&grid_ptr_dev, size));
+  gpuCheck(cudaMemcpy(grid_ptr_dev, grid_ptr, size, cudaMemcpyHostToDevice));
 
   // set up FFT for bricks
   PlanType myPlan({EXTENT/BDIM, EXTENT/BDIM, EXTENT/BDIM});
@@ -66,14 +66,14 @@ int main()
   // compute FFT
   std::cout << "Starting FFT" << std::endl;
   myPlan.launch();
-  cudaCheck(cudaDeviceSynchronize());
+  gpuCheck(cudaDeviceSynchronize());
 
   // now compute FFT on regular array
   cuDoubleComplex *in_arr_dev, *out_arr_dev;
   size = sizeof(bComplexElem) * static_power<EXTENT, DIM>::value;
-  cudaCheck(cudaMalloc(&in_arr_dev, size));
-  cudaCheck(cudaMalloc(&out_arr_dev, size));
-  cudaCheck(cudaMemcpy(in_arr_dev, in_arr, size, cudaMemcpyHostToDevice));
+  gpuCheck(cudaMalloc(&in_arr_dev, size));
+  gpuCheck(cudaMalloc(&out_arr_dev, size));
+  gpuCheck(cudaMemcpy(in_arr_dev, in_arr, size, cudaMemcpyHostToDevice));
   cufftHandle arr_plan;
   int n[1] = {EXTENT};
   int embed[1] = {EXTENT*EXTENT};
@@ -85,20 +85,20 @@ int main()
   {
     cufftExecZ2Z(arr_plan, in_arr_dev + i, out_arr_dev + i, CUFFT_FORWARD);
   }
-  cudaCheck(cudaDeviceSynchronize());
+  gpuCheck(cudaDeviceSynchronize());
   // Now compare array FFT with bricks fft
   std::cout << "Comparing bricksFFT result with array FFT result" << std::endl;
   // make sure out_arr != out_check_arr before memcpy
   for(unsigned i = 0; i < static_power<EXTENT, DIM>::value; ++i) out_arr[i] = 1.0;
   for(unsigned i = 0; i < static_power<EXTENT, DIM>::value; ++i) out_check_arr[i] = 0.0;
-  cudaCheck(cudaMemcpy(
+  gpuCheck(cudaMemcpy(
     bStorage.dat.get(),
     bStorage_dev.dat.get(),
     bInfo.nbricks * bStorage.step * sizeof(bElem),
     cudaMemcpyDeviceToHost
   ));
   copyFromBrick<DIM>(extents, padding, ghost_zone, out_arr, grid_ptr, outBrick);
-  cudaCheck(cudaMemcpy(out_check_arr, out_arr_dev, size, cudaMemcpyDeviceToHost));
+  gpuCheck(cudaMemcpy(out_check_arr, out_arr_dev, size, cudaMemcpyDeviceToHost));
   correctness_check(out_arr, out_check_arr);
   // zero-out out arrays
   for(unsigned i = 0; i < static_power<EXTENT, DIM>::value; ++i) out_arr[i] = 0.0;
@@ -111,7 +111,7 @@ int main()
     cufftExecZ2Z(arr_plan, out_arr_dev + i, out_arr_dev + i, CUFFT_INVERSE);
   }
   // copy result back to host
-  cudaCheck(cudaMemcpy(out_arr, out_arr_dev, size, cudaMemcpyDeviceToHost));
+  gpuCheck(cudaMemcpy(out_arr, out_arr_dev, size, cudaMemcpyDeviceToHost));
   std::cout << "Starting array FFT inverse correctness check" << std::endl;
   // handle scaling https://docs.nvidia.com/cuda/cufft/index.html#cufft-transform-directions
   for(unsigned i = 0; i < static_power<EXTENT, DIM>::value; ++i) out_arr[i] /= EXTENT;
@@ -123,13 +123,13 @@ int main()
   std::cout << "Starting bricks FFT inverse" << std::endl;
   myPlan.setup(outBrick_dev, grid_ptr_dev, inBrick_dev, grid_ptr_dev);
   myPlan.launch(PlanType::BRICKS_FFT_INVERSE);
-  cudaCheck(cudaDeviceSynchronize());
+  gpuCheck(cudaDeviceSynchronize());
 
   // zero out data before copy-back just to be careful
   for(unsigned i = 0; i < bInfo.nbricks * bStorage.step; ++i) bStorage.dat.get()[i] = 0.0;
   // copy output back from device
   std::cout << "Starting bricks FFT inverse correctness check" << std::endl;
-  cudaCheck(cudaMemcpy(
+  gpuCheck(cudaMemcpy(
     bStorage.dat.get(),
     bStorage_dev.dat.get(),
     bInfo.nbricks * bStorage.step * sizeof(bElem),
@@ -143,9 +143,9 @@ int main()
   correctness_check(in_arr, out_arr);
 
   // free memory
-  cudaCheck(cudaFree(grid_ptr_dev));
-  cudaCheck(cudaFree(_bInfo_dev.adj));
-  cudaCheck(cudaFree(bInfo_dev));
+  gpuCheck(cudaFree(grid_ptr_dev));
+  gpuCheck(cudaFree(_bInfo_dev.adj));
+  gpuCheck(cudaFree(bInfo_dev));
   free(grid_ptr);
   free(out_check_arr);
   free(out_arr);

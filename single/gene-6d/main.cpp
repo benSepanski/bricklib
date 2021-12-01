@@ -31,7 +31,7 @@ int main(int argc, char * const argv[]) {
 
   // print some helpful cuda info
   cudaDeviceProp prop;
-  cudaCheck(cudaGetDeviceProperties(&prop, 0));
+  gpuCheck(cudaGetDeviceProperties(&prop, 0));
   std::cout << std::left;
   std::cout << std::setw(24) << "Device name" << " : " << prop.name << "\n"
             << std::setw(24) << "Compute Capability" << " : " << prop.major << "." << prop.minor << "\n"
@@ -47,8 +47,8 @@ int main(int argc, char * const argv[]) {
   std::cout << "NDEBUG is defined" << std::endl;
   // check cuda device
   unsigned *dummy;
-  _cudaCheck(cudaMalloc(&dummy, sizeof(decltype(dummy))), "cudaMalloc(&dummy, sizeof(unsigned))", __FILE__, __LINE__);
-  _cudaCheck(cudaFree(dummy), "cudaFree(dummy)", __FILE__, __LINE__);
+  _gpuCheck(cudaMalloc(&dummy, sizeof(decltype(dummy))), "cudaMalloc(&dummy, sizeof(unsigned))", __FILE__, __LINE__);
+  _gpuCheck(cudaFree(dummy), "cudaFree(dummy)", __FILE__, __LINE__);
   #endif
   unsigned width = 2;
   std::cout << std::right;

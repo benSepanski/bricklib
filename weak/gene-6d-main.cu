@@ -310,33 +310,33 @@ void semiArakawaDistributedArray(complexArray6D out,
   auto arrFunc = [&]() -> void {
     float elapsed;
     cudaEvent_t c_0, c_1;
-    cudaCheck(cudaEventCreate(&c_0));
-    cudaCheck(cudaEventCreate(&c_1));
+    gpuCheck(cudaEventCreate(&c_0));
+    gpuCheck(cudaEventCreate(&c_1));
 #if !defined(CUDA_AWARE) || !defined(USE_TYPES)
     // Copy everything back from device
     double st = omp_get_wtime();
-    unpaddedIn.copyFromDevice(*inPtr_dev);
+    inWithPadding.copyFromDevice(*inPtr_dev);
     movetime += omp_get_wtime() - st;
     mpiLayout.exchangeArray(inCopy);
     st = omp_get_wtime();
-    unpaddedIn.copyToDevice(*inPtr_dev);
+    inWithPadding.copyToDevice(*inPtr_dev);
     movetime += omp_get_wtime() - st;
 #else
     mpiLayout.exchangeArray(*inPtr_dev, complexFieldMPIArrayTypesHandle);
 #endif
-    cudaCheck(cudaEventRecord(c_0));
+    gpuCheck(cudaEventRecord(c_0));
     for (int i = 0; i < NUM_GHOST_ZONES; ++i) {
       semiArakawaArrKernel<< < grid, block>> > (*outWithPaddingPtr_dev, *inWithPaddingPtr_dev, coeff_dev);
-      cudaCheck(cudaPeekAtLastError());
+      gpuCheck(cudaPeekAtLastError());
       if(i + 1 < NUM_GHOST_ZONES) {
         std::cout << "Swapping!" << std::endl;
         std::swap(outWithPaddingPtr_dev, inWithPaddingPtr_dev);
         std::swap(outPtr_dev, inPtr_dev);
       }
     }
-    cudaCheck(cudaEventRecord(c_1));
-    cudaCheck(cudaEventSynchronize(c_1));
-    cudaCheck(cudaEventElapsedTime(&elapsed, c_0, c_1));
+    gpuCheck(cudaEventRecord(c_1));
+    gpuCheck(cudaEventSynchronize(c_1));
+    gpuCheck(cudaEventElapsedTime(&elapsed, c_0, c_1));
     calctime += elapsed / 1000.0;
   };
 
@@ -514,21 +514,21 @@ void semiArakawaDistributedBrick(complexArray6D out,
 #else
   mpiLayout.exchangeCudaBrickedArray(bInArray);
 #endif
-    cudaCheck(cudaEventRecord(c_0));
+    gpuCheck(cudaEventRecord(c_0));
     for (int i = 0; i < NUM_GHOST_ZONES; ++i) {
       semiArakawaBrickKernel<< < cuda_grid_size, cuda_block_size>> >(
           fieldIndexInStorage_dev, coeffIndexInStorage_dev, bOut_dev,
           bIn_dev, bCoeff_dev
           );
-      cudaCheck(cudaPeekAtLastError());
+      gpuCheck(cudaPeekAtLastError());
       if(i + 1 < NUM_GHOST_ZONES) {
         std::cout << "Swapping!" << std::endl;
         std::swap(bOut_dev, bIn_dev);
       }
     }
-    cudaCheck(cudaEventRecord(c_1));
-    cudaCheck(cudaEventSynchronize(c_1));
-    cudaCheck(cudaEventElapsedTime(&elapsed, c_0, c_1));
+    gpuCheck(cudaEventRecord(c_1));
+    gpuCheck(cudaEventSynchronize(c_1));
+    gpuCheck(cudaEventElapsedTime(&elapsed, c_0, c_1));
     calctime += elapsed / 1000.0;
   };
 
@@ -742,7 +742,7 @@ int main(int argc, char **argv) {
   }
   std::cout << "Building input arrays..." << std::endl;
 
-  cudaCheck(cudaMemcpyToSymbol(arrayExtentWithGZDev, perProcessExtentWithGZ.data(), RANK * sizeof(unsigned)));
+  gpuCheck(cudaMemcpyToSymbol(arrayExtentWithGZDev, perProcessExtentWithGZ.data(), RANK * sizeof(unsigned)));
   // set up coeffs
   std::array<unsigned, RANK> coeffExtent{}, coeffGhostDepth{};
   coeffExtent[0] = ARAKAWA_STENCIL_SIZE;

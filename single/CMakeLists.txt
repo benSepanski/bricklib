@@ -125,7 +125,7 @@ if(BRICKS_ENABLE_FFT)
     endif()
 
     # gene-style FFT
-    if(BRICKS_BUILD_GTENSOR_BENCHMARKS)
+    if(gtensor_FOUND)
         add_executable(single-fft-gene-6d fft-gene-6d.cu)
         if(${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.17")
             set_property(TARGET single-fft-gene-6d PROPERTY CUDA_SEPARABLE_COMPILATION ON)

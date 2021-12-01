@@ -344,7 +344,7 @@ public:
     auto dst = bStorage.dat.get() + bStorage.step * bdyStart;
     auto src = bStorage_dev.dat.get() + bStorage_dev.step * bdyStart;
     size_t size = bStorage.step * (bdyEnd - bdyStart) * sizeof(bElem);
-    cudaCheck(cudaMemcpy(dst, src, size, cudaMemcpyDeviceToHost));
+    gpuCheck(cudaMemcpy(dst, src, size, cudaMemcpyDeviceToHost));
   }
 
   /**
@@ -364,7 +364,7 @@ public:
     auto dst = bStorage_dev.dat.get() + bStorage_dev.step * ghostStart;
     auto src = bStorage.dat.get() + bStorage.step * ghostStart;
     size_t size = bStorage.step * (ghostEnd - ghostStart) * sizeof(bElem);
-    cudaCheck(cudaMemcpy(dst, src, size, cudaMemcpyHostToDevice));
+    gpuCheck(cudaMemcpy(dst, src, size, cudaMemcpyHostToDevice));
   }
 #endif
 

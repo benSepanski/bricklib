@@ -78,9 +78,9 @@ double complex_to_complex_1d_j_fft_array(bComplexElem *in_arr, bComplexElem *out
   // copy data to device
   bCuComplexElem *in_arr_dev, *out_arr_dev;
   constexpr size_t ARR_SIZE = sizeof(bComplexElem) * NUM_ELEMENTS;
-  cudaCheck(cudaMalloc(&in_arr_dev, ARR_SIZE));
-  cudaCheck(cudaMalloc(&out_arr_dev, ARR_SIZE));
-  cudaCheck(cudaMemcpy(in_arr_dev, in_arr, ARR_SIZE, cudaMemcpyHostToDevice));
+  gpuCheck(cudaMalloc(&in_arr_dev, ARR_SIZE));
+  gpuCheck(cudaMalloc(&out_arr_dev, ARR_SIZE));
+  gpuCheck(cudaMemcpy(in_arr_dev, in_arr, ARR_SIZE, cudaMemcpyHostToDevice));
 
   // lambda function for timing
   auto compute_fft = [&plan](bCuComplexElem *in_arr, bCuComplexElem *out_arr, int direction) -> void 
@@ -97,7 +97,7 @@ double complex_to_complex_1d_j_fft_array(bComplexElem *in_arr, bComplexElem *out
   }, warmup, iter);
 
   // copy data back from device
-  cudaCheck(cudaMemcpy(out_arr, out_arr_dev, ARR_SIZE, cudaMemcpyDeviceToHost));
+  gpuCheck(cudaMemcpy(out_arr, out_arr_dev, ARR_SIZE, cudaMemcpyDeviceToHost));
 
   // sanity check: inverse should match in_arr (up to scaling)
   nvtxRangePushA("inverse_fft_check");
@@ -106,23 +106,23 @@ double complex_to_complex_1d_j_fft_array(bComplexElem *in_arr, bComplexElem *out
     bComplexElem *out_check_arr = zeroComplexArray({EXTENT});
     bCuComplexElem *out_check_arr_dev;
     size_t size = NUM_ELEMENTS * sizeof(bComplexElem);
-    cudaCheck(cudaMalloc(&out_check_arr_dev, size));
+    gpuCheck(cudaMalloc(&out_check_arr_dev, size));
     // perform the inverse computation
     int inverse_direction = (direction == CUFFT_FORWARD) ? CUFFT_INVERSE : CUFFT_FORWARD;
     compute_fft(out_arr_dev, out_check_arr_dev, inverse_direction);
-    cudaCheck(cudaDeviceSynchronize());
+    gpuCheck(cudaDeviceSynchronize());
     // copy check back to host and make sure it is correct
-    cudaCheck(cudaMemcpy(out_check_arr, out_check_arr_dev, size, cudaMemcpyDeviceToHost));
+    gpuCheck(cudaMemcpy(out_check_arr, out_check_arr_dev, size, cudaMemcpyDeviceToHost));
     check_close(in_arr, out_check_arr, NUM_ELEMENTS, "cufft 1d j array inverse check failed", 1.0 / EXTENT_j);
     // free memroy
-    cudaCheck(cudaFree(out_check_arr_dev));
+    gpuCheck(cudaFree(out_check_arr_dev));
     free(out_check_arr);
   }
   nvtxRangePop();
 
   // free memory
-  cudaCheck(cudaFree(out_arr_dev));
-  cudaCheck(cudaFree(in_arr_dev));
+  gpuCheck(cudaFree(out_arr_dev));
+  gpuCheck(cudaFree(in_arr_dev));
   cufftAlwaysCheck(cufftDestroy(plan));
 
   // return timing
@@ -211,11 +211,11 @@ double complex_to_complex_1d_j_fft_array_callback(bComplexElem *in_arr, bComplex
   // copy callback addresses from symbol memory
   ArrayLoadCallback array_load_cb;
   ArrayStoreCallback array_store_cb;
-  cudaCheck(cudaMemcpyFromSymbol(
+  gpuCheck(cudaMemcpyFromSymbol(
                           &array_load_cb, 
                           array_load_callback_ptr,
                           sizeof(array_load_cb)));
-  cudaCheck(cudaMemcpyFromSymbol(
+  gpuCheck(cudaMemcpyFromSymbol(
                           &array_store_cb, 
                           array_store_callback_ptr,
                           sizeof(array_store_cb)));
@@ -236,9 +236,9 @@ double complex_to_complex_1d_j_fft_array_callback(bComplexElem *in_arr, bComplex
   // copy data to device
   bCuComplexElem *in_arr_dev, *out_arr_dev;
   constexpr size_t ARR_SIZE = sizeof(bComplexElem) * NUM_ELEMENTS;
-  cudaCheck(cudaMalloc(&in_arr_dev, ARR_SIZE));
-  cudaCheck(cudaMalloc(&out_arr_dev, ARR_SIZE));
-  cudaCheck(cudaMemcpy(in_arr_dev, in_arr, ARR_SIZE, cudaMemcpyHostToDevice));
+  gpuCheck(cudaMalloc(&in_arr_dev, ARR_SIZE));
+  gpuCheck(cudaMalloc(&out_arr_dev, ARR_SIZE));
+  gpuCheck(cudaMemcpy(in_arr_dev, in_arr, ARR_SIZE, cudaMemcpyHostToDevice));
 
   // lambda function for timing
   auto compute_fft = [&plan](bCuComplexElem *in_arr, bCuComplexElem *out_arr, int direction) -> void {
@@ -251,7 +251,7 @@ double complex_to_complex_1d_j_fft_array_callback(bComplexElem *in_arr, bComplex
   }, warmup, iter);
 
   // copy data back from device
-  cudaCheck(cudaMemcpy(out_arr, out_arr_dev, ARR_SIZE, cudaMemcpyDeviceToHost));
+  gpuCheck(cudaMemcpy(out_arr, out_arr_dev, ARR_SIZE, cudaMemcpyDeviceToHost));
 
   // sanity check: inverse should match in_arr (up to scaling)
   nvtxRangePushA("inverse_fft_check");
@@ -260,23 +260,23 @@ double complex_to_complex_1d_j_fft_array_callback(bComplexElem *in_arr, bComplex
     bComplexElem *out_check_arr = zeroComplexArray({EXTENT});
     bCuComplexElem *out_check_arr_dev;
     size_t size = NUM_ELEMENTS * sizeof(bComplexElem);
-    cudaCheck(cudaMalloc(&out_check_arr_dev, size));
+    gpuCheck(cudaMalloc(&out_check_arr_dev, size));
     // perform the inverse computation
     int inverse_direction = (direction == CUFFT_FORWARD) ? CUFFT_INVERSE : CUFFT_FORWARD;
     compute_fft(out_arr_dev, out_check_arr_dev, inverse_direction);
-    cudaCheck(cudaDeviceSynchronize());
+    gpuCheck(cudaDeviceSynchronize());
     // copy check back to host and make sure it is correct
-    cudaCheck(cudaMemcpy(out_check_arr, out_check_arr_dev, size, cudaMemcpyDeviceToHost));
+    gpuCheck(cudaMemcpy(out_check_arr, out_check_arr_dev, size, cudaMemcpyDeviceToHost));
     check_close(in_arr, out_check_arr, NUM_ELEMENTS, "cufft 1d j array callback inverse check failed", 1.0 / EXTENT_j);
     // free memroy
-    cudaCheck(cudaFree(out_check_arr_dev));
+    gpuCheck(cudaFree(out_check_arr_dev));
     free(out_check_arr);
   }
   nvtxRangePop();
 
   // free memory
-  cudaCheck(cudaFree(out_arr_dev));
-  cudaCheck(cudaFree(in_arr_dev));
+  gpuCheck(cudaFree(out_arr_dev));
+  gpuCheck(cudaFree(in_arr_dev));
   cufftAlwaysCheck(cufftDestroy(plan));
 
   // return timing
@@ -316,10 +316,10 @@ double complex_to_complex_1d_j_fft_array_transpose(bComplexElem *in_arr, bComple
   // copy data to device
   bCuComplexElem *in_arr_dev, *out_arr_dev, *intermed_arr_dev;
   constexpr size_t ARR_SIZE = sizeof(bComplexElem) * NUM_ELEMENTS;
-  cudaCheck(cudaMalloc(&in_arr_dev, ARR_SIZE));
-  cudaCheck(cudaMalloc(&out_arr_dev, ARR_SIZE));
-  cudaCheck(cudaMalloc(&intermed_arr_dev, ARR_SIZE));
-  cudaCheck(cudaMemcpy(in_arr_dev, in_arr, ARR_SIZE, cudaMemcpyHostToDevice));
+  gpuCheck(cudaMalloc(&in_arr_dev, ARR_SIZE));
+  gpuCheck(cudaMalloc(&out_arr_dev, ARR_SIZE));
+  gpuCheck(cudaMalloc(&intermed_arr_dev, ARR_SIZE));
+  gpuCheck(cudaMemcpy(in_arr_dev, in_arr, ARR_SIZE, cudaMemcpyHostToDevice));
 
   // lambda function for timing
   auto compute_fft = [&plan](const bCuComplexElem *in_arr, bCuComplexElem *intermed_arr, bCuComplexElem *out_arr, int direction) -> void 
@@ -342,7 +342,7 @@ double complex_to_complex_1d_j_fft_array_transpose(bComplexElem *in_arr, bComple
   }, warmup, iter);
 
   // copy data back from device
-  cudaCheck(cudaMemcpy(out_arr, out_arr_dev, ARR_SIZE, cudaMemcpyDeviceToHost));
+  gpuCheck(cudaMemcpy(out_arr, out_arr_dev, ARR_SIZE, cudaMemcpyDeviceToHost));
 
   // sanity check: inverse should match in_arr (up to scaling)
   nvtxRangePushA("inverse_fft_check");
@@ -351,24 +351,24 @@ double complex_to_complex_1d_j_fft_array_transpose(bComplexElem *in_arr, bComple
     bComplexElem *out_check_arr = zeroComplexArray({EXTENT});
     bCuComplexElem *out_check_arr_dev;
     size_t size = NUM_ELEMENTS * sizeof(bComplexElem);
-    cudaCheck(cudaMalloc(&out_check_arr_dev, size));
+    gpuCheck(cudaMalloc(&out_check_arr_dev, size));
     // perform the inverse computation
     int inverse_direction = (direction == CUFFT_FORWARD) ? CUFFT_INVERSE : CUFFT_FORWARD;
     compute_fft(out_arr_dev, intermed_arr_dev, out_check_arr_dev, inverse_direction);
-    cudaCheck(cudaDeviceSynchronize());
+    gpuCheck(cudaDeviceSynchronize());
     // copy check back to host and make sure it is correct
-    cudaCheck(cudaMemcpy(out_check_arr, out_check_arr_dev, size, cudaMemcpyDeviceToHost));
+    gpuCheck(cudaMemcpy(out_check_arr, out_check_arr_dev, size, cudaMemcpyDeviceToHost));
     check_close(in_arr, out_check_arr, NUM_ELEMENTS, "cufft 1d j array transpose inverse check failed", 1.0 / EXTENT_j);
     // free memory
-    cudaCheck(cudaFree(out_check_arr_dev));
+    gpuCheck(cudaFree(out_check_arr_dev));
     free(out_check_arr);
   }
   nvtxRangePop();
 
   // free memory
-  cudaCheck(cudaFree(out_arr_dev));
-  cudaCheck(cudaFree(intermed_arr_dev));
-  cudaCheck(cudaFree(in_arr_dev));
+  gpuCheck(cudaFree(out_arr_dev));
+  gpuCheck(cudaFree(intermed_arr_dev));
+  gpuCheck(cudaFree(in_arr_dev));
   cufftAlwaysCheck(cufftDestroy(plan));
 
   // return timing
@@ -409,8 +409,8 @@ double complex_to_complex_1d_j_fft_brick(bComplexElem *in_arr, bComplexElem *out
   // set up brick info in cuda
   BrickInfo<DIM, NoComm> *bInfo_dev;
   BrickInfo<DIM, NoComm> _bInfo_dev = movBrickInfo(bInfo, cudaMemcpyHostToDevice);
-  cudaCheck(cudaMalloc(&bInfo_dev, sizeof(BrickInfo<DIM, NoComm>)));
-  cudaCheck(cudaMemcpy(bInfo_dev, &_bInfo_dev, sizeof(BrickInfo<DIM, NoComm>), cudaMemcpyHostToDevice));
+  gpuCheck(cudaMalloc(&bInfo_dev, sizeof(BrickInfo<DIM, NoComm>)));
+  gpuCheck(cudaMemcpy(bInfo_dev, &_bInfo_dev, sizeof(BrickInfo<DIM, NoComm>), cudaMemcpyHostToDevice));
   // mov brick storage to cuda
   BrickStorage bStorage_dev = movBrickStorage(bStorage, cudaMemcpyHostToDevice);
   // set up brick in cuda
@@ -419,8 +419,8 @@ double complex_to_complex_1d_j_fft_brick(bComplexElem *in_arr, bComplexElem *out
   // copy grids to device
   unsigned *grid_ptr_dev;
   size_t size = sizeof(unsigned) * NUM_BRICKS;
-  cudaCheck(cudaMalloc(&grid_ptr_dev, size));
-  cudaCheck(cudaMemcpy(grid_ptr_dev, grid_ptr, size, cudaMemcpyHostToDevice));
+  gpuCheck(cudaMalloc(&grid_ptr_dev, size));
+  gpuCheck(cudaMemcpy(grid_ptr_dev, grid_ptr, size, cudaMemcpyHostToDevice));
 
   // set up FFT for bricks
   typedef BricksCufftPlan<ComplexBrick, FourierType<ComplexToComplex, 1> > FFTPlanType;
@@ -432,7 +432,7 @@ double complex_to_complex_1d_j_fft_brick(bComplexElem *in_arr, bComplexElem *out
   double num_seconds = cutime_func(compute_fft, warmup, iter);
 
   // copy data back from device
-  cudaCheck(cudaMemcpy(bStorage.dat.get(), bStorage_dev.dat.get(), bInfo.nbricks * bStorage.step * sizeof(bElem),
+  gpuCheck(cudaMemcpy(bStorage.dat.get(), bStorage_dev.dat.get(), bInfo.nbricks * bStorage.step * sizeof(bElem),
                        cudaMemcpyDeviceToHost));
   // copy data back into array
   copyFromBrick<DIM>({EXTENT}, std::vector<long>(DIM, 0), std::vector<long>(DIM, 0), out_arr, grid_ptr, bOut);
@@ -444,28 +444,28 @@ double complex_to_complex_1d_j_fft_brick(bComplexElem *in_arr, bComplexElem *out
     bComplexElem *out_check_arr = zeroComplexArray({EXTENT});
     bCuComplexElem *out_check_arr_dev;
     size_t size = NUM_ELEMENTS * sizeof(bComplexElem);
-    cudaCheck(cudaMalloc(&out_check_arr_dev, size));
+    gpuCheck(cudaMalloc(&out_check_arr_dev, size));
     // perform the inverse computation
     int inverse_direction = (direction == CUFFT_FORWARD) ? FFTPlanType::BRICKS_FFT_INVERSE : FFTPlanType::BRICKS_FFT_FORWARD;
     plan.setup(bOut_dev, grid_ptr_dev, bOut_dev, grid_ptr_dev);
     compute_fft(inverse_direction);
-    cudaCheck(cudaDeviceSynchronize());
+    gpuCheck(cudaDeviceSynchronize());
     // copy data back from device
-    cudaCheck(cudaMemcpy(bStorage.dat.get(), bStorage_dev.dat.get(), bInfo.nbricks * bStorage.step * sizeof(bElem),
+    gpuCheck(cudaMemcpy(bStorage.dat.get(), bStorage_dev.dat.get(), bInfo.nbricks * bStorage.step * sizeof(bElem),
                         cudaMemcpyDeviceToHost));
     // copy data back into check-array
     copyFromBrick<DIM>({EXTENT}, std::vector<long>(DIM, 0), std::vector<long>(DIM, 0), out_check_arr, grid_ptr, bOut);
     check_close(in_arr, out_check_arr, NUM_ELEMENTS, "cufft 1d j brick inverse check failed", 1.0 / EXTENT_j);
     // free memroy
-    cudaCheck(cudaFree(out_check_arr_dev));
+    gpuCheck(cudaFree(out_check_arr_dev));
     free(out_check_arr);
   }
   nvtxRangePop();
 
   // free memory
-  cudaCheck(cudaFree(grid_ptr_dev));
-  cudaCheck(cudaFree(_bInfo_dev.adj));
-  cudaCheck(cudaFree(bInfo_dev));
+  gpuCheck(cudaFree(grid_ptr_dev));
+  gpuCheck(cudaFree(_bInfo_dev.adj));
+  gpuCheck(cudaFree(bInfo_dev));
   free(grid_ptr);
 
   // return timing
@@ -517,8 +517,8 @@ double complex_to_complex_1d_j_fft_brick_transpose(bComplexElem *in_arr, bComple
   // set up brick info in cuda
   BrickInfo<DIM, NoComm> *bInfo_dev;
   BrickInfo<DIM, NoComm> _bInfo_dev = movBrickInfo(bInfo, cudaMemcpyHostToDevice);
-  cudaCheck(cudaMalloc(&bInfo_dev, sizeof(BrickInfo<DIM, NoComm>)));
-  cudaCheck(cudaMemcpy(bInfo_dev, &_bInfo_dev, sizeof(BrickInfo<DIM, NoComm>), cudaMemcpyHostToDevice));
+  gpuCheck(cudaMalloc(&bInfo_dev, sizeof(BrickInfo<DIM, NoComm>)));
+  gpuCheck(cudaMemcpy(bInfo_dev, &_bInfo_dev, sizeof(BrickInfo<DIM, NoComm>), cudaMemcpyHostToDevice));
   // mov brick storage to cuda
   BrickStorage bInStorage_dev = movBrickStorage(bInStorage, cudaMemcpyHostToDevice);
   BrickStorage bOutStorage_dev = movBrickStorage(bOutStorage, cudaMemcpyHostToDevice);
@@ -528,17 +528,17 @@ double complex_to_complex_1d_j_fft_brick_transpose(bComplexElem *in_arr, bComple
   // copy grids to device
   unsigned *grid_ptr_dev;
   size_t size = sizeof(unsigned) * NUM_BRICKS;
-  cudaCheck(cudaMalloc(&grid_ptr_dev, size));
-  cudaCheck(cudaMemcpy(grid_ptr_dev, grid_ptr, size, cudaMemcpyHostToDevice));
+  gpuCheck(cudaMalloc(&grid_ptr_dev, size));
+  gpuCheck(cudaMemcpy(grid_ptr_dev, grid_ptr, size, cudaMemcpyHostToDevice));
 
   // set up brickinfo for transposed bricks
   BrickInfo<DIM, NoComm> _bInfoTransposed_dev = movBrickInfo(bInfo, cudaMemcpyHostToDevice);
   BrickInfo<DIM, NoComm> *bInfoTransposed_dev;
-  cudaCheck(cudaMalloc(&bInfoTransposed_dev, sizeof(BrickInfo<DIM, NoComm>)));
-  cudaCheck(cudaMemcpy(bInfoTransposed_dev, &_bInfoTransposed_dev, sizeof(BrickInfo<DIM, NoComm>), cudaMemcpyHostToDevice));
+  gpuCheck(cudaMalloc(&bInfoTransposed_dev, sizeof(BrickInfo<DIM, NoComm>)));
+  gpuCheck(cudaMemcpy(bInfoTransposed_dev, &_bInfoTransposed_dev, sizeof(BrickInfo<DIM, NoComm>), cudaMemcpyHostToDevice));
   // set up transposed grid ptr
   unsigned *grid_ptr_transposed_dev;
-  cudaCheck(cudaMalloc(&grid_ptr_transposed_dev, size));
+  gpuCheck(cudaMalloc(&grid_ptr_transposed_dev, size));
   transpose_brick_info_ij_on_device(bInfo.nbricks, 64, bInfo_dev, bInfoTransposed_dev);
   constexpr size_t CollapsedDims = BRICK_EXTENT_n * BRICK_EXTENT_m * BRICK_EXTENT_l * BRICK_EXTENT_k;
   constexpr unsigned TileJ = 32, TileI = 8;
@@ -547,8 +547,8 @@ double complex_to_complex_1d_j_fft_brick_transpose(bComplexElem *in_arr, bComple
   int blockSize = 128;
   int numBlocks = prop.multiProcessorCount * (prop.maxThreadsPerMultiProcessor / blockSize) * 4;
   transpose_ij<TileI, TileJ><< <numBlocks, blockSize>> >(grid_ptr_dev, grid_ptr_transposed_dev, CollapsedDims, BRICK_EXTENT_i, BRICK_EXTENT_j);
-  cudaCheck(cudaDeviceSynchronize());
-  cudaCheck(cudaPeekAtLastError());
+  gpuCheck(cudaDeviceSynchronize());
+  gpuCheck(cudaPeekAtLastError());
 
   // set up intermediate brick on device
   BrickStorage intermedStorage_dev = movBrickStorage(bInStorage, cudaMemcpyHostToDevice);
@@ -581,7 +581,7 @@ double complex_to_complex_1d_j_fft_brick_transpose(bComplexElem *in_arr, bComple
   double num_seconds = cutime_func(compute_fft, warmup, iter);
 
   // copy data back from device
-  cudaCheck(cudaMemcpy(bOutStorage.dat.get(), bOutStorage_dev.dat.get(), bInfo.nbricks * bOutStorage.step * sizeof(bElem),
+  gpuCheck(cudaMemcpy(bOutStorage.dat.get(), bOutStorage_dev.dat.get(), bInfo.nbricks * bOutStorage.step * sizeof(bElem),
                        cudaMemcpyDeviceToHost));
   // copy data back into array
   copyFromBrick<DIM>({EXTENT}, std::vector<long>(DIM, 0), std::vector<long>(DIM, 0), out_arr, grid_ptr, bOut);
@@ -593,33 +593,33 @@ double complex_to_complex_1d_j_fft_brick_transpose(bComplexElem *in_arr, bComple
     bComplexElem *out_check_arr = zeroComplexArray({EXTENT});
     bCuComplexElem *out_check_arr_dev;
     size_t size = NUM_ELEMENTS * sizeof(bComplexElem);
-    cudaCheck(cudaMalloc(&out_check_arr_dev, size));
+    gpuCheck(cudaMalloc(&out_check_arr_dev, size));
     // perform the inverse computation
     int inverse_direction = (direction == CUFFT_FORWARD) ? FFTPlanType::BRICKS_FFT_INVERSE : FFTPlanType::BRICKS_FFT_FORWARD;
-    cudaCheck(cudaMemcpy(bInStorage_dev.dat.get(), bOutStorage_dev.dat.get(), bInfo.nbricks * bOutStorage.step * sizeof(bElem),
+    gpuCheck(cudaMemcpy(bInStorage_dev.dat.get(), bOutStorage_dev.dat.get(), bInfo.nbricks * bOutStorage.step * sizeof(bElem),
                          cudaMemcpyDeviceToDevice));
     compute_fft(inverse_direction);
-    cudaCheck(cudaDeviceSynchronize());
-    cudaCheck(cudaPeekAtLastError());
+    gpuCheck(cudaDeviceSynchronize());
+    gpuCheck(cudaPeekAtLastError());
     // copy data back from device
-    cudaCheck(cudaMemcpy(bOutStorage.dat.get(), bOutStorage_dev.dat.get(), bInfo.nbricks * bOutStorage.step * sizeof(bElem),
+    gpuCheck(cudaMemcpy(bOutStorage.dat.get(), bOutStorage_dev.dat.get(), bInfo.nbricks * bOutStorage.step * sizeof(bElem),
                         cudaMemcpyDeviceToHost));
     // copy data back into check-array
     copyFromBrick<DIM>({EXTENT}, std::vector<long>(DIM, 0), std::vector<long>(DIM, 0), out_check_arr, grid_ptr, bOut);
     check_close(in_arr, out_check_arr, NUM_ELEMENTS, "cufft 1d j brick transpose inverse check failed", 1.0 / EXTENT_j);
     // free memroy
-    cudaCheck(cudaFree(out_check_arr_dev));
+    gpuCheck(cudaFree(out_check_arr_dev));
     free(out_check_arr);
   }
   nvtxRangePop();
 
   // free memory
-  cudaCheck(cudaFree(grid_ptr_dev));
-  cudaCheck(cudaFree(_bInfo_dev.adj));
-  cudaCheck(cudaFree(bInfo_dev));
-  cudaCheck(cudaFree(_bInfoTransposed_dev.adj));
-  cudaCheck(cudaFree(bInfoTransposed_dev));
-  cudaCheck(cudaFree(grid_ptr_transposed_dev));
+  gpuCheck(cudaFree(grid_ptr_dev));
+  gpuCheck(cudaFree(_bInfo_dev.adj));
+  gpuCheck(cudaFree(bInfo_dev));
+  gpuCheck(cudaFree(_bInfoTransposed_dev.adj));
+  gpuCheck(cudaFree(bInfoTransposed_dev));
+  gpuCheck(cudaFree(grid_ptr_transposed_dev));
   free(grid_ptr);
 
   // return timing
@@ -667,8 +667,8 @@ double complex_to_complex_1d_collaped_ij_fft_brick(bComplexElem *in_arr, bComple
   // set up brick info in cuda
   BrickInfo<DIM-1, NoComm> *bInfo_dev;
   BrickInfo<DIM-1, NoComm> _bInfo_dev = movBrickInfo(bInfo, cudaMemcpyHostToDevice);
-  cudaCheck(cudaMalloc(&bInfo_dev, sizeof(BrickInfo<DIM-1, NoComm>)));
-  cudaCheck(cudaMemcpy(bInfo_dev, &_bInfo_dev, sizeof(BrickInfo<DIM-1, NoComm>), cudaMemcpyHostToDevice));
+  gpuCheck(cudaMalloc(&bInfo_dev, sizeof(BrickInfo<DIM-1, NoComm>)));
+  gpuCheck(cudaMemcpy(bInfo_dev, &_bInfo_dev, sizeof(BrickInfo<DIM-1, NoComm>), cudaMemcpyHostToDevice));
   // mov brick storage to cuda
   BrickStorage bInStorage_dev = movBrickStorage(bInStorage, cudaMemcpyHostToDevice),
                bOutStorage_dev = movBrickStorage(bOutStorage, cudaMemcpyHostToDevice);
@@ -678,8 +678,8 @@ double complex_to_complex_1d_collaped_ij_fft_brick(bComplexElem *in_arr, bComple
   // copy grids to device
   unsigned *grid_ptr_dev;
   size_t size = sizeof(unsigned) * NUM_BRICKS;
-  cudaCheck(cudaMalloc(&grid_ptr_dev, size));
-  cudaCheck(cudaMemcpy(grid_ptr_dev, grid_ptr, size, cudaMemcpyHostToDevice));
+  gpuCheck(cudaMalloc(&grid_ptr_dev, size));
+  gpuCheck(cudaMemcpy(grid_ptr_dev, grid_ptr, size, cudaMemcpyHostToDevice));
 
   // set up FFT for bricks
   typedef BricksCufftPlan<ComplexBrick, FourierType<ComplexToComplex, 0> > FFTPlanType;
@@ -693,7 +693,7 @@ double complex_to_complex_1d_collaped_ij_fft_brick(bComplexElem *in_arr, bComple
   double num_seconds = cutime_func(compute_fft, warmup, iter);
 
   // copy data back from device
-  cudaCheck(cudaMemcpy(bOutStorage.dat.get(), bOutStorage_dev.dat.get(), bInfo.nbricks * bOutStorage.step * sizeof(bElem),
+  gpuCheck(cudaMemcpy(bOutStorage.dat.get(), bOutStorage_dev.dat.get(), bInfo.nbricks * bOutStorage.step * sizeof(bElem),
                        cudaMemcpyDeviceToHost));
   // copy data back into array
   copyFromBrick<DIM-1>(arr_extent, std::vector<long>(DIM-1, 0), std::vector<long>(DIM-1, 0), out_arr, grid_ptr, bOut);
@@ -705,29 +705,29 @@ double complex_to_complex_1d_collaped_ij_fft_brick(bComplexElem *in_arr, bComple
     bComplexElem *out_check_arr = zeroComplexArray({EXTENT});
     bCuComplexElem *out_check_arr_dev;
     size_t size = NUM_ELEMENTS * sizeof(bComplexElem);
-    cudaCheck(cudaMalloc(&out_check_arr_dev, size));
+    gpuCheck(cudaMalloc(&out_check_arr_dev, size));
     // perform the inverse computation
     int inverse_direction = (direction == CUFFT_FORWARD) ? FFTPlanType::BRICKS_FFT_INVERSE : FFTPlanType::BRICKS_FFT_FORWARD;
     plan.setup(bOut_dev, grid_ptr_dev, bOut_dev, grid_ptr_dev);
     compute_fft(inverse_direction);
-    cudaCheck(cudaDeviceSynchronize());
-    cudaCheck(cudaPeekAtLastError());
+    gpuCheck(cudaDeviceSynchronize());
+    gpuCheck(cudaPeekAtLastError());
     // copy data back from device
-    cudaCheck(cudaMemcpy(bOutStorage.dat.get(), bOutStorage_dev.dat.get(), bInfo.nbricks * bOutStorage.step * sizeof(bElem),
+    gpuCheck(cudaMemcpy(bOutStorage.dat.get(), bOutStorage_dev.dat.get(), bInfo.nbricks * bOutStorage.step * sizeof(bElem),
                         cudaMemcpyDeviceToHost));
     // copy data back into check-array
     copyFromBrick<DIM-1>(arr_extent, std::vector<long>(DIM-1, 0), std::vector<long>(DIM-1, 0), out_check_arr, grid_ptr, bOut);
     check_close(in_arr, out_check_arr, NUM_ELEMENTS, "cufft 1d collaped i-j brick inverse check failed", 1.0 / arr_extent[0]);
     // free memroy
-    cudaCheck(cudaFree(out_check_arr_dev));
+    gpuCheck(cudaFree(out_check_arr_dev));
     free(out_check_arr);
   }
   nvtxRangePop();
 
   // free memory
-  cudaCheck(cudaFree(grid_ptr_dev));
-  cudaCheck(cudaFree(_bInfo_dev.adj));
-  cudaCheck(cudaFree(bInfo_dev));
+  gpuCheck(cudaFree(grid_ptr_dev));
+  gpuCheck(cudaFree(_bInfo_dev.adj));
+  gpuCheck(cudaFree(bInfo_dev));
   free(grid_ptr);
 
   // return timing

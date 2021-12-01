@@ -260,20 +260,20 @@ void ij_deriv_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr,
   {
     unsigned num_field_bricks = NUM_GZ_BRICKS;
     unsigned num_coeff_bricks = NUM_GZ_BRICKS / GZ_BRICK_EXTENT_j;
-    cudaCheck(cudaMalloc(&field_grid_ptr_dev, num_field_bricks * sizeof(unsigned)));
-    cudaCheck(cudaMalloc(&coeff_grid_ptr_dev, num_coeff_bricks * sizeof(unsigned)));
-    cudaCheck(cudaMemcpy(field_grid_ptr_dev, field_grid_ptr, num_field_bricks * sizeof(unsigned), cudaMemcpyHostToDevice));
-    cudaCheck(cudaMemcpy(coeff_grid_ptr_dev, coeff_grid_ptr, num_coeff_bricks * sizeof(unsigned), cudaMemcpyHostToDevice));
+    gpuCheck(cudaMalloc(&field_grid_ptr_dev, num_field_bricks * sizeof(unsigned)));
+    gpuCheck(cudaMalloc(&coeff_grid_ptr_dev, num_coeff_bricks * sizeof(unsigned)));
+    gpuCheck(cudaMemcpy(field_grid_ptr_dev, field_grid_ptr, num_field_bricks * sizeof(unsigned), cudaMemcpyHostToDevice));
+    gpuCheck(cudaMemcpy(coeff_grid_ptr_dev, coeff_grid_ptr, num_coeff_bricks * sizeof(unsigned), cudaMemcpyHostToDevice));
   }
   BrickInfo<DIM, CommIn_i> *fieldBrickInfo_dev;
   BrickInfo<DIM-1, NoComm> *coeffBrickInfo_dev;
   BrickInfo<DIM, CommIn_i> _fieldBrickInfo_dev = movBrickInfo(fieldBrickInfo, cudaMemcpyHostToDevice);
   BrickInfo<DIM-1, NoComm> _coeffBrickInfo_dev = movBrickInfo(coeffBrickInfo, cudaMemcpyHostToDevice);
   {
-    cudaCheck(cudaMalloc(&fieldBrickInfo_dev, sizeof(decltype(fieldBrickInfo))));
-    cudaCheck(cudaMalloc(&coeffBrickInfo_dev, sizeof(decltype(coeffBrickInfo))));
-    cudaCheck(cudaMemcpy(fieldBrickInfo_dev, &_fieldBrickInfo_dev, sizeof(decltype(fieldBrickInfo)), cudaMemcpyHostToDevice));
-    cudaCheck(cudaMemcpy(coeffBrickInfo_dev, &_coeffBrickInfo_dev, sizeof(decltype(coeffBrickInfo)), cudaMemcpyHostToDevice));
+    gpuCheck(cudaMalloc(&fieldBrickInfo_dev, sizeof(decltype(fieldBrickInfo))));
+    gpuCheck(cudaMalloc(&coeffBrickInfo_dev, sizeof(decltype(coeffBrickInfo))));
+    gpuCheck(cudaMemcpy(fieldBrickInfo_dev, &_fieldBrickInfo_dev, sizeof(decltype(fieldBrickInfo)), cudaMemcpyHostToDevice));
+    gpuCheck(cudaMemcpy(coeffBrickInfo_dev, &_coeffBrickInfo_dev, sizeof(decltype(coeffBrickInfo)), cudaMemcpyHostToDevice));
   }
 
   // setup brick storage on host
@@ -314,8 +314,8 @@ void ij_deriv_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr,
   bComplexElem *ikj_dev = nullptr;
   {
     unsigned ikj_size = PADDED_EXTENT_j * sizeof(bComplexElem);
-    cudaCheck(cudaMalloc(&ikj_dev, ikj_size));
-    cudaCheck(cudaMemcpy(ikj_dev, ikj, ikj_size, cudaMemcpyHostToDevice));
+    gpuCheck(cudaMalloc(&ikj_dev, ikj_size));
+    gpuCheck(cudaMemcpy(ikj_dev, ikj, ikj_size, cudaMemcpyHostToDevice));
   }
 
   // build function to actually run computation (vectorized)
@@ -346,7 +346,7 @@ void ij_deriv_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr,
   std::cout << "bricks (vec): " << gene_cutime_func(compute_ij_deriv_vec);
 
   // copy back to host to check correctness
-  cudaCheck(cudaMemcpy(fieldBrickStorage.dat.get(),
+  gpuCheck(cudaMemcpy(fieldBrickStorage.dat.get(),
                        fieldBrickStorage_dev.dat.get(),
                        fieldBrickStorage.chunks * fieldBrickStorage.step * sizeof(bElem),
                        cudaMemcpyDeviceToHost));
@@ -358,7 +358,7 @@ void ij_deriv_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr,
   // reset out-array
   set_to_zero(out_arr);
   copyToBrick<DIM>({GZ_EXTENT}, {PADDING}, {0,0,0,0,0,0}, out_ptr, field_grid_ptr, bOut);
-  cudaCheck(cudaMemcpy(fieldBrickStorage_dev.dat.get(),
+  gpuCheck(cudaMemcpy(fieldBrickStorage_dev.dat.get(),
                        fieldBrickStorage.dat.get(),
                        fieldBrickStorage.chunks * fieldBrickStorage.step * sizeof(bElem),
                        cudaMemcpyHostToDevice));
@@ -391,7 +391,7 @@ void ij_deriv_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr,
   std::cout << "bricks: " << gene_cutime_func(compute_ij_deriv);
 
   // copy back to host to check correctness
-  cudaCheck(cudaMemcpy(fieldBrickStorage.dat.get(),
+  gpuCheck(cudaMemcpy(fieldBrickStorage.dat.get(),
                        fieldBrickStorage_dev.dat.get(),
                        fieldBrickStorage.chunks * fieldBrickStorage.step * sizeof(bElem),
                        cudaMemcpyDeviceToHost));
@@ -402,13 +402,13 @@ void ij_deriv_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr,
   set_to_zero(out_arr);
 
   // free allocated memory
-  cudaCheck(cudaFree(ikj_dev));
-  cudaCheck(cudaFree(_coeffBrickInfo_dev.adj));
-  cudaCheck(cudaFree(_fieldBrickInfo_dev.adj));
-  cudaCheck(cudaFree(coeffBrickInfo_dev));
-  cudaCheck(cudaFree(fieldBrickInfo_dev));
-  cudaCheck(cudaFree(coeff_grid_ptr_dev));
-  cudaCheck(cudaFree(field_grid_ptr_dev));
+  gpuCheck(cudaFree(ikj_dev));
+  gpuCheck(cudaFree(_coeffBrickInfo_dev.adj));
+  gpuCheck(cudaFree(_fieldBrickInfo_dev.adj));
+  gpuCheck(cudaFree(coeffBrickInfo_dev));
+  gpuCheck(cudaFree(fieldBrickInfo_dev));
+  gpuCheck(cudaFree(coeff_grid_ptr_dev));
+  gpuCheck(cudaFree(field_grid_ptr_dev));
   free(coeffBrickInfo.adj);
   free(fieldBrickInfo.adj);
   free(coeff_grid_ptr);
@@ -623,20 +623,20 @@ void semi_arakawa_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr, bElem *coe
   {
     unsigned num_field_bricks = NUM_GZ_BRICKS;
     unsigned num_coeff_bricks = NUM_GZ_BRICKS / GZ_BRICK_EXTENT_j;
-    cudaCheck(cudaMalloc(&field_grid_ptr_dev, num_field_bricks * sizeof(unsigned)));
-    cudaCheck(cudaMalloc(&coeff_grid_ptr_dev, num_coeff_bricks * sizeof(unsigned)));
-    cudaCheck(cudaMemcpy(field_grid_ptr_dev, field_grid_ptr, num_field_bricks * sizeof(unsigned), cudaMemcpyHostToDevice));
-    cudaCheck(cudaMemcpy(coeff_grid_ptr_dev, coeff_grid_ptr, num_coeff_bricks * sizeof(unsigned), cudaMemcpyHostToDevice));
+    gpuCheck(cudaMalloc(&field_grid_ptr_dev, num_field_bricks * sizeof(unsigned)));
+    gpuCheck(cudaMalloc(&coeff_grid_ptr_dev, num_coeff_bricks * sizeof(unsigned)));
+    gpuCheck(cudaMemcpy(field_grid_ptr_dev, field_grid_ptr, num_field_bricks * sizeof(unsigned), cudaMemcpyHostToDevice));
+    gpuCheck(cudaMemcpy(coeff_grid_ptr_dev, coeff_grid_ptr, num_coeff_bricks * sizeof(unsigned), cudaMemcpyHostToDevice));
   }
   BrickInfo<DIM, CommIn_kl> *fieldBrickInfo_dev = nullptr;
   BrickInfo<DIM - 1, NoComm> *coeffBrickInfo_dev = nullptr;
   BrickInfo<DIM, CommIn_kl> _fieldBrickInfo_dev = movBrickInfo(fieldBrickInfo, cudaMemcpyHostToDevice);
   BrickInfo<DIM - 1, NoComm> _coeffBrickInfo_dev = movBrickInfo(coeffBrickInfo, cudaMemcpyHostToDevice);
   {
-    cudaCheck(cudaMalloc(&fieldBrickInfo_dev, sizeof(decltype(fieldBrickInfo))));
-    cudaCheck(cudaMalloc(&coeffBrickInfo_dev, sizeof(decltype(coeffBrickInfo))));
-    cudaCheck(cudaMemcpy(fieldBrickInfo_dev, &_fieldBrickInfo_dev, sizeof(decltype(fieldBrickInfo)), cudaMemcpyHostToDevice));
-    cudaCheck(cudaMemcpy(coeffBrickInfo_dev, &_coeffBrickInfo_dev, sizeof(decltype(coeffBrickInfo)), cudaMemcpyHostToDevice));
+    gpuCheck(cudaMalloc(&fieldBrickInfo_dev, sizeof(decltype(fieldBrickInfo))));
+    gpuCheck(cudaMalloc(&coeffBrickInfo_dev, sizeof(decltype(coeffBrickInfo))));
+    gpuCheck(cudaMemcpy(fieldBrickInfo_dev, &_fieldBrickInfo_dev, sizeof(decltype(fieldBrickInfo)), cudaMemcpyHostToDevice));
+    gpuCheck(cudaMemcpy(coeffBrickInfo_dev, &_coeffBrickInfo_dev, sizeof(decltype(coeffBrickInfo)), cudaMemcpyHostToDevice));
   }
 
   // setup brick storage on host
@@ -669,11 +669,11 @@ void semi_arakawa_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr, bElem *coe
 
   // copy coefficient bricks to device
   RealCoeffBrick *bCoeffs_dev = nullptr;
-  cudaCheck(cudaMalloc(&bCoeffs_dev, ARAKAWA_STENCIL_SIZE * sizeof(RealCoeffBrick)));
+  gpuCheck(cudaMalloc(&bCoeffs_dev, ARAKAWA_STENCIL_SIZE * sizeof(RealCoeffBrick)));
   for(unsigned i = 0; i < ARAKAWA_STENCIL_SIZE; ++i)
   {
     RealCoeffBrick brickToCopy(coeffBrickInfo_dev, coeffBrickStorage_dev, i * RealCoeffBrick::BRICKSIZE);
-    cudaCheck(cudaMemcpy(bCoeffs_dev + i, &brickToCopy, sizeof(RealCoeffBrick), cudaMemcpyHostToDevice));
+    gpuCheck(cudaMemcpy(bCoeffs_dev + i, &brickToCopy, sizeof(RealCoeffBrick), cudaMemcpyHostToDevice));
   }
 
   // build function to actually run computation
@@ -737,7 +737,7 @@ void semi_arakawa_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr, bElem *coe
                 << std::flush;
 
       // copy back to host
-      cudaCheck(cudaMemcpy(fieldBrickStorage.dat.get(),
+      gpuCheck(cudaMemcpy(fieldBrickStorage.dat.get(),
                           fieldBrickStorage_dev.dat.get(),
                           fieldBrickStorage.chunks * fieldBrickStorage.step * sizeof(bElem),
                           cudaMemcpyDeviceToHost));
@@ -751,7 +751,7 @@ void semi_arakawa_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr, bElem *coe
       // reset out-array
       set_to_zero((complexArray6D) out_ptr);
       copyToBrick<DIM>({GZ_EXTENT}, {PADDING}, {0,0,0,0,0,0}, out_ptr, field_grid_ptr, bOut);
-      cudaCheck(cudaMemcpy(fieldBrickStorage_dev.dat.get(),
+      gpuCheck(cudaMemcpy(fieldBrickStorage_dev.dat.get(),
                           fieldBrickStorage.dat.get(),
                           fieldBrickStorage.chunks * fieldBrickStorage.step * sizeof(bElem),
                           cudaMemcpyHostToDevice));
@@ -799,7 +799,7 @@ void semi_arakawa_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr, bElem *coe
               << std::flush;
 
     // copy back to host
-    cudaCheck(cudaMemcpy(fieldBrickStorage.dat.get(),
+    gpuCheck(cudaMemcpy(fieldBrickStorage.dat.get(),
                         fieldBrickStorage_dev.dat.get(),
                         fieldBrickStorage.chunks * fieldBrickStorage.step * sizeof(bElem),
                         cudaMemcpyDeviceToHost));
@@ -811,20 +811,20 @@ void semi_arakawa_bricks(bComplexElem *out_ptr, bComplexElem *in_ptr, bElem *coe
     // reset array
     set_to_zero((complexArray6D) out_ptr);
     copyToBrick<DIM>({GZ_EXTENT}, {PADDING}, {0,0,0,0,0,0}, out_ptr, field_grid_ptr, bOut);
-    cudaCheck(cudaMemcpy(fieldBrickStorage_dev.dat.get(),
+    gpuCheck(cudaMemcpy(fieldBrickStorage_dev.dat.get(),
                         fieldBrickStorage.dat.get(),
                         fieldBrickStorage.chunks * fieldBrickStorage.step * sizeof(bElem),
                         cudaMemcpyHostToDevice));
   }
 
   // free allocated memory
-  cudaCheck(cudaFree(bCoeffs_dev));
-  cudaCheck(cudaFree(_coeffBrickInfo_dev.adj));
-  cudaCheck(cudaFree(_fieldBrickInfo_dev.adj));
-  cudaCheck(cudaFree(coeffBrickInfo_dev));
-  cudaCheck(cudaFree(fieldBrickInfo_dev));
-  cudaCheck(cudaFree(coeff_grid_ptr_dev));
-  cudaCheck(cudaFree(field_grid_ptr_dev));
+  gpuCheck(cudaFree(bCoeffs_dev));
+  gpuCheck(cudaFree(_coeffBrickInfo_dev.adj));
+  gpuCheck(cudaFree(_fieldBrickInfo_dev.adj));
+  gpuCheck(cudaFree(coeffBrickInfo_dev));
+  gpuCheck(cudaFree(fieldBrickInfo_dev));
+  gpuCheck(cudaFree(coeff_grid_ptr_dev));
+  gpuCheck(cudaFree(field_grid_ptr_dev));
   free(coeffBrickInfo.adj);
   free(fieldBrickInfo.adj);
   free(coeff_grid_ptr);

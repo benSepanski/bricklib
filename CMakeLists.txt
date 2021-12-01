@@ -10,15 +10,12 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(IgnoreMe "${CMAKE_C_COMPILER}")
 
 # If using gtensor examples, set CXX standard to 14
-set(BRICKS_BUILD_GTENSOR_BENCHMARKS OFF CACHE BOOL "Set to ON to build benchmarks involving gtensor. Requires c++14 compatible compiler.")
-if(BRICKS_BUILD_GTENSOR_BENCHMARKS)
-    # set default device
-    if(NOT GTENSOR_DEVICE)
-        set(GTENSOR_DEVICE cuda)
-    endif()
-    message(STATUS "Setting CXX standard to 14 for compatability with gtensor")
-    set(CMAKE_CXX_STANDARD 14)
-    find_package(gtensor REQUIRED)
+# set default device
+if(NOT GTENSOR_DEVICE)
+    set(GTENSOR_DEVICE cuda)
+endif()
+find_package(gtensor)
+if(gtensor_FOUND)
     message(STATUS "${PROJECT_NAME}: gtensor found")
     set(CMAKE_CUDA_FLAGS_DEBUG "-g -G")
 endif()

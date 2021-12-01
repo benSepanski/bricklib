@@ -603,11 +603,11 @@ class BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
       out_dat = outBrick_dev.dat;
 
       // copy myCufftInfo to device
-      cudaCheck(cudaMemcpyToSymbol(globalInBricksCufftInfo_dev_const<BricksCufftInfo<const inElemType> >,
+      gpuCheck(cudaMemcpyToSymbol(globalInBricksCufftInfo_dev_const<BricksCufftInfo<const inElemType> >,
                                    &myInCufftInfo,
                                    sizeof(BricksCufftInfo<const inElemType>)
                                    ));
-      cudaCheck(cudaMemcpyToSymbol(globalOutBricksCufftInfo_dev_const<BricksCufftInfo<outElemType> >,
+      gpuCheck(cudaMemcpyToSymbol(globalOutBricksCufftInfo_dev_const<BricksCufftInfo<outElemType> >,
                                    &myOutCufftInfo,
                                    sizeof(BricksCufftInfo<outElemType>)
                                    ));
@@ -627,22 +627,22 @@ class BricksCufftPlan<Brick<Dim<BDims...>, Dim<Fold...>, isComplex, Communicatin
       // get address of function
       if(fourier_brick_dims_fill_grid_dims)
       {
-        cudaCheck(cudaMemcpyFromSymbol(
+        gpuCheck(cudaMemcpyFromSymbol(
                                 &loadCallbackPtr, 
                                 globalBricksCufftLoadCallBack<myType, true>,
                                 sizeof(loadCallbackPtr)));
-        cudaCheck(cudaMemcpyFromSymbol(
+        gpuCheck(cudaMemcpyFromSymbol(
                                 &storeCallbackPtr, 
                                 globalBricksCufftStoreCallBack<myType, true>,
                                 sizeof(storeCallbackPtr)));
       }
       else
       {
-        cudaCheck(cudaMemcpyFromSymbol(
+        gpuCheck(cudaMemcpyFromSymbol(
                                 &loadCallbackPtr, 
                                 globalBricksCufftLoadCallBack<myType, false>,
                                 sizeof(loadCallbackPtr)));
-        cudaCheck(cudaMemcpyFromSymbol(
+        gpuCheck(cudaMemcpyFromSymbol(
                                 &storeCallbackPtr, 
                                 globalBricksCufftStoreCallBack<myType, false>,
                                 sizeof(storeCallbackPtr)));

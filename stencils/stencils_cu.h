@@ -16,15 +16,15 @@ double cutime_func(T func, unsigned cu_warmup = CU_WARMUP, unsigned cu_iter = CU
   for(int i = 0; i < cu_warmup; ++i) func(); // Warm up
   cudaEvent_t start, stop;
   float elapsed = 0.0;
-  cudaCheck(cudaDeviceSynchronize());
-  cudaCheck(cudaEventCreate(&start));
-  cudaCheck(cudaEventCreate(&stop));
-  cudaCheck(cudaEventRecord(start));
+  gpuCheck(cudaDeviceSynchronize());
+  gpuCheck(cudaEventCreate(&start));
+  gpuCheck(cudaEventCreate(&stop));
+  gpuCheck(cudaEventRecord(start));
   for (int i = 0; i < cu_iter; ++i)
     func();
-  cudaCheck(cudaEventRecord(stop));
-  cudaCheck(cudaEventSynchronize(stop));
-  cudaCheck(cudaEventElapsedTime(&elapsed, start, stop));
+  gpuCheck(cudaEventRecord(stop));
+  gpuCheck(cudaEventSynchronize(stop));
+  gpuCheck(cudaEventElapsedTime(&elapsed, start, stop));
   return elapsed / cu_iter / 1000;
 }
 

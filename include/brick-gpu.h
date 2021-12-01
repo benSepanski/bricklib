@@ -30,21 +30,23 @@ void _gpuCheck(T e, const char *func, const char *call, const int line) {
 
 /**
  * @brief Moving BrickInfo to or from GPU 
- * @tparam dims implicit when used with bInfo argument
+ * @tparam dims implicit when used with bInfo arguments
+ * @tparam CommunicatingDims implicit when used with bInfo arguments
  * @param bInfo BrickInfo to copy to destination
  * @param kind Currently must be <hip|cuda>MempyHostToDevice or <hip|cuda>MemcpyDeviceToHost
  * @return a new BrickInfo struct allocated on the destination
  */
-template<unsigned dims>
-BrickInfo<dims> movBrickInfo(BrickInfo<dims> &bInfo, gpuMemcpyKind kind) {
+template<unsigned dims, typename CommunicatingDims>
+BrickInfo<dims, CommunicatingDims> movBrickInfo(BrickInfo<dims, CommunicatingDims> &bInfo, gpuMemcpyKind kind) {
     assert(kind == gpuMemcpyHostToDevice || kind == gpuMemcpyDeviceToHost);
 
-    BrickInfo<dims> ret = bInfo;
-    unsigned size = bInfo.nbricks * static_power<3, dims>::value * sizeof(unsigned);
+    constexpr unsigned numCommDims = CommunicatingDims::numCommunicatingDims(dims);
+    BrickInfo<dims, CommunicatingDims> ret = bInfo;
+    unsigned size = bInfo.nbricks * static_power<3, numCommDims>::value * sizeof(unsigned);
     if (kind == gpuMemcpyHostToDevice) {
         gpuCheck(gpuMalloc(&ret.adj, size));
     } else {
-        ret.adj = (unsigned (*)[(static_power<3, dims>::value)]) malloc(size);
+        ret.adj = (unsigned (*)[(static_power<3, numCommDims>::value)]) malloc(size);
     }
     gpuCheck(gpuMemcpy(ret.adj, bInfo.adj, size, kind));
     return ret;
@@ -53,19 +55,20 @@ BrickInfo<dims> movBrickInfo(BrickInfo<dims> &bInfo, gpuMemcpyKind kind) {
 /**
  * @brief Moving the full BrickInfo to or from GPU, including the adjacency list and other elements 
  * @tparam dims implicit when used with bInfo argument
+ * @tparam CommunicatingDIms implicit when used with bInfo argument
  * @param bInfo BrickInfo to copy to destination
  * @param kind Currently must be <hip|cuda>MempyHostToDevice or <hip|cuda>MemcpyDeviceToHost
  * @return a new pointer to a BrickInfo allocated on the destination
  */
-template<unsigned dims>
-BrickInfo<dims> *movBrickInfoDeep(BrickInfo<dims> &bInfo, gpuMemcpyKind kind) {
-    BrickInfo<dims> *ret;
-    BrickInfo<dims> temp = movBrickInfo(bInfo, kind);
-    unsigned size = sizeof(BrickInfo<dims>);
+template<unsigned dims, typename CommunicatingDIms>
+BrickInfo<dims, CommunicatingDIms> *movBrickInfoDeep(BrickInfo<dims, CommunicatingDIms> &bInfo, gpuMemcpyKind kind) {
+    BrickInfo<dims, CommunicatingDIms> *ret;
+    BrickInfo<dims, CommunicatingDIms> temp = movBrickInfo(bInfo, kind);
+    unsigned size = sizeof(BrickInfo<dims, CommunicatingDIms>);
     if (kind == gpuMemcpyHostToDevice) {
         gpuMalloc(&ret, size);
     } else {
-        ret = (BrickInfo<dims> *) malloc(size);
+        ret = (BrickInfo<dims, CommunicatingDIms> *) malloc(size);
     }
     gpuMemcpy(ret, &temp, size, kind);
     return ret;

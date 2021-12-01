@@ -38,11 +38,11 @@ public:
       bStorage_dev.mmap_info = nullptr;
       size_t size = bStorage_dev.step * bStorage_dev.chunks * sizeof(bElem);
       bElem *datptr;
-      cudaCheck(cudaMalloc(&datptr, size));
+      gpuCheck(cudaMalloc(&datptr, size));
       bStorage_dev.dat = std::shared_ptr<bElem>(
           datptr,
           [](bElem *p) {
-            cudaCheck(cudaFree(p));
+            gpuCheck(cudaFree(p));
           });
       *cudaStoragePtr = bStorage_dev;
     }

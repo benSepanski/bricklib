@@ -57,7 +57,7 @@ getIndexInsideBrick(unsigned idx)
 __host__
 void copy_i_deriv_coeff(const bElem i_deriv_coeff_host[5])
 {
-  cudaCheck(cudaMemcpyToSymbol(const_i_deriv_coeff_dev, i_deriv_coeff_host, 5 * sizeof(bElem)));
+  gpuCheck(cudaMemcpyToSymbol(const_i_deriv_coeff_dev, i_deriv_coeff_host, 5 * sizeof(bElem)));
 }
 
 /**
@@ -66,7 +66,7 @@ void copy_i_deriv_coeff(const bElem i_deriv_coeff_host[5])
 __host__
 void copy_grid_iteration_order(const char * grid_iteration_order_host)
 {
-  cudaCheck(cudaMemcpyToSymbol(grid_iteration_order, grid_iteration_order_host, (DIM+1) * sizeof(char)));
+  gpuCheck(cudaMemcpyToSymbol(grid_iteration_order, grid_iteration_order_host, (DIM+1) * sizeof(char)));
 }
 
 /**
