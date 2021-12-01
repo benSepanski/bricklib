@@ -12,7 +12,11 @@
  * Used to initialize/teardown MPI for googletests
  */
 class MPIEnvironment : public ::testing::Environment {
+private:
+  int argc;
+  char **argv;
 public:
+  MPIEnvironment(int argc, char ** argv);
   void SetUp() override ;
   ~MPIEnvironment() override = default;
   void TearDown() override;

@@ -191,6 +191,6 @@ TYPED_TEST(MPI_CartesianTest3D, MemoryLayoutTest) {
 
 int main(int argc, char *argv[]) {
   ::testing::InitGoogleTest(&argc, argv);
-  ::testing::AddGlobalTestEnvironment(new MPIEnvironment);
+  ::testing::AddGlobalTestEnvironment(new MPIEnvironment(argc, argv));
   return RUN_ALL_TESTS();
 }

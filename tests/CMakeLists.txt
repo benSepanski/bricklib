@@ -24,6 +24,6 @@ endif()
 
 if(MPI_FOUND AND CMAKE_CUDA_COMPILER)
     add_executable(mpi-cuda-tests mpi-cuda-test.cu MPIEnvironment.cpp)
-    target_link_libraries(mpi-cuda-tests gtest gtest_main brick brick-mpi ${MPI_CXX_LIBRARIES} ${LIBRT})
+    target_link_libraries(mpi-cuda-tests gtest gtest_main brick brick-mpi ${MPI_CXX_LIBRARIES} ${LIBRT} CUDA::cudart)
     add_test(NAME mpi_cuda COMMAND mpi-cuda-test.cu)
 endif()

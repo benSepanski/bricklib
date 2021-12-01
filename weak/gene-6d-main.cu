@@ -20,6 +20,7 @@
 #include <brick-mpi.h>
 #include <bricksetup.h>
 #include <brick-cuda.h>
+#include <mpi-cuda-util.h>
 
 #include "Array.h"
 #include "BrickedArray.h"
@@ -305,6 +306,8 @@ void semiArakawaDistributedArray(complexArray6D out,
   // build function to perform computation
   auto inWithPaddingPtr_dev = &inWithPadding_dev;
   auto outWithPaddingPtr_dev = &outWithPadding_dev;
+  auto inPtr_dev = &in_dev;
+  auto outPtr_dev = &out_dev;
   auto inPtr = &inCopy;
   auto outPtr = &out;
   auto arrFunc = [&]() -> void {
@@ -322,6 +325,7 @@ void semiArakawaDistributedArray(complexArray6D out,
     inWithPadding.copyToDevice(*inWithPaddingPtr_dev);
     movetime += omp_get_wtime() - st;
 #else
+    mpiCheckCudaAware();
     mpiLayout.exchangeArray(*inPtr_dev, complexFieldMPIArrayTypesHandle);
 #endif
     gpuCheck(cudaEventRecord(c_0));
@@ -331,6 +335,7 @@ void semiArakawaDistributedArray(complexArray6D out,
       if(i + 1 < NUM_GHOST_ZONES) {
         std::cout << "Swapping!" << std::endl;
         std::swap(outWithPaddingPtr_dev, inWithPaddingPtr_dev);
+        std::swap(inPtr_dev, outPtr_dev);
         std::swap(inPtr, outPtr);
       }
     }
@@ -512,6 +517,7 @@ void semiArakawaDistributedBrick(complexArray6D out,
     movetime += t_b - t_a;
   }
 #else
+  mpiCheckCudaAware();
   mpiLayout.exchangeCudaBrickedArray(bInArray);
 #endif
     gpuCheck(cudaEventRecord(c_0));
