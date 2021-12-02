@@ -47,7 +47,7 @@ if(CMAKE_CUDA_COMPILER)
 
         add_executable(weak-gene6d gene-6d-main.cu)
         target_gtensor_sources(weak-gene6d PRIVATE gene-6d-main.cu)
-        target_link_libraries(weak-gene6d brick brickhelper gtensor::gtensor ${MPI_CXX_LIBRARIES} ${LIBRT} brick-mpi)
+        target_link_libraries(weak-gene6d brick brickhelper gtensor::gtensor ${MPI_CXX_LIBRARIES} ${LIBRT} brick-mpi CUDA::cudart)
 
         set_target_properties(weak-gene6d 
                 PROPERTIES OUTPUT_NAME gene6d)
