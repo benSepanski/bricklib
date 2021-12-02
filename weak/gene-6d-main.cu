@@ -746,7 +746,9 @@ int main(int argc, char **argv) {
       throw std::runtime_error(error_stream.str());
     }
   }
-  std::cout << "Building input arrays..." << std::endl;
+  if(rank == 0) {
+      std::cout << "Building input arrays..." << std::endl;
+  }
 
   gpuCheck(cudaMemcpyToSymbol(arrayExtentWithGZDev, perProcessExtentWithGZ.data(), RANK * sizeof(unsigned)));
   // set up coeffs
@@ -768,7 +770,9 @@ int main(int argc, char **argv) {
                  array_out{perProcessExtentWithGZ, 0.0},
                  brick_out{perProcessExtentWithGZ, 0.0};
 
-  std::cout << "Input arrays built. Setting up brick decomposition..." << std::endl;
+  if(rank == 0) {
+      std::cout << "Input arrays built. Setting up brick decomposition..." << std::endl;
+  }
   // build 2d skin from 3d skin by removing all faces with a 3,
   // and replacing 1 -> 3, 2 -> 4
   std::vector<BitSet> skin2d = skin3d_good;
@@ -800,10 +804,14 @@ int main(int argc, char **argv) {
       cartesianComm, perProcessExtent, GHOST_ZONE, skin2d
   );
 
-  std::cout << "Brick decomposition setup complete. Beginning coefficient setup..." << std::endl;
+  if(rank == 0) {
+      std::cout << "Brick decomposition setup complete. Beginning coefficient setup..." << std::endl;
+  }
   // initialize my coefficients to random data, and receive coefficients for ghost-zones
   realArray6D coeffs{realArray6D::random(coeffExtentWithGZ)};
-  std::cout << "Beginning coefficient exchange" << std::endl;
+  if(rank == 0) {
+      std::cout << "Beginning coefficient exchange" << std::endl;
+  }
   brick::MPILayout<CoeffBrickDimsType, CommIn_kl> coeffMpiLayout(
       cartesianComm, coeffExtent, coeffGhostDepth, skin2d
       );
@@ -814,10 +822,14 @@ int main(int argc, char **argv) {
   coeffMpiLayout.exchangeArray(coeffs);
 #endif
 
-  std::cout << "Coefficient exchange complete. Beginning array computation" << std::endl;
+  if(rank == 0) {
+      std::cout << "Coefficient exchange complete. Beginning array computation" << std::endl;
+  }
   // run array computation
   semiArakawaDistributedArray(array_out, in, coeffs, mpiLayout);
-  std::cout << "Array computation complete. Beginning bricks computation" << std::endl;
+  if(rank == 0) {
+      std::cout << "Array computation complete. Beginning bricks computation" << std::endl;
+  }
   semiArakawaDistributedBrick(brick_out, in, coeffs, mpiLayout);
 
   // check for correctness
