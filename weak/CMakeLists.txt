@@ -39,29 +39,4 @@ if(CMAKE_CUDA_COMPILER)
     target_link_libraries(weak-cuda-mmap brick brick-mpi brickhelper ${MPI_CXX_LIBRARIES} ${LIBRT} cuda)
     set_target_properties(weak-cuda-mmap
             PROPERTIES OUTPUT_NAME cuda-mmap)
-
-    if(gtensor_FOUND)
-        OPTION(GENE6D_UNALIGN "Use DECOMP_PAGEUNALIGN for weak-gene6d" OFF)
-        OPTION(GENE6D_CUDA_AWARE "Use CUDA_AWARE for weak-gene6d" OFF)
-        OPTION(GENE6D_USE_TYPES "Use MPI Types for array transfers" OFF)
-
-        add_executable(weak-gene6d gene-6d-main.cu)
-        target_gtensor_sources(weak-gene6d PRIVATE gene-6d-main.cu)
-        target_link_libraries(weak-gene6d brick brickhelper gtensor::gtensor ${MPI_CXX_LIBRARIES} ${LIBRT} brick-mpi CUDA::cudart)
-
-        set_target_properties(weak-gene6d 
-                PROPERTIES OUTPUT_NAME gene6d)
-        target_include_directories(weak-gene6d PUBLIC
-                "${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES}"
-                )
-        if(GENE6D_UNALIGN)
-            target_compile_definitions(weak-gene6d PUBLIC DECOMP_PAGEUNALIGN)
-        endif()
-        if(GENE6D_CUDA_AWARE)
-            target_compile_definitions(weak-gene6d PUBLIC CUDA_AWARE)
-        endif()
-        if(GENE6D_USE_TYPES)
-            target_compile_definitions(weak-gene6d PUBLIC USE_TYPES)
-        endif()
-    endif ()
 endif ()
