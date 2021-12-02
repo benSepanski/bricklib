@@ -353,9 +353,10 @@ public:
         throw std::runtime_error(errorStream.str());
       }
       // Expect to have a layer of skin on both sides, and an internal region
-      if(dims[i] < 3 * ghost_depth[i] / bdims[i]) {
+      if(dims[i] < 3 * ghost_depth[i]) {
         errorStream << "dims[" << i << "] = " << dims[i] << " must be at least "
                     << "3 ghost-zones deep.";
+        throw std::runtime_error(errorStream.str());
       }
       // store the depths
       g_depth.emplace_back(ghost_depth[i] / bdims[i]);
