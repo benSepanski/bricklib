@@ -1,22 +1,21 @@
 /**
- * @file gene-6d-main.cu
+ * @file gene-6d-main.cpp
  * @author Ben Sepanski (ben_sepanski@utexas.edu)
- * @brief 
+ * @brief
  * @version 0.1
  * @date 2021-08-03
- * 
+ *
  * @copyright Copyright (c) 2021
- * 
+ *
  * Copied and modified from main.cu written by Tuowen Zhao
- * 
+ *
  */
 
+#include "mpi-cuda-util.h"
 #include <mpi.h>
 #include <numeric>
-#include <mpi-cuda-util.h>
 
 #include "MPILayout.h"
-#include "stencils/cudaarray.h"
 #include "gene-6d-stencils.h"
 #include "gene6d-gtensor-stencils.h"
 
@@ -28,11 +27,11 @@ unsigned NUM_EXCHANGES; ///< how many mpi exchanges?
 
 /**
  * @brief build a cartesian communicator
- * 
+ *
  * Assumes MPI_Init_thread has already been called.
- * 
+ *
  * Prints some useful information about the MPI setup.
- * 
+ *
  * @param[in] numProcsPerDim the number of MPI processes to put in each dimension.
  *                                  Product must match the number of MPI processes.
  * @param[in] perProcessExtent extent in each dimension for each individual MPI processes.
@@ -46,8 +45,9 @@ MPI_Comm buildCartesianComm(std::array<int, RANK> numProcsPerDim,
   check_MPI(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
 
   // make sure num_procs_per_dim has product to number of processes
-  int prodOfProcsPerDim = std::accumulate(numProcsPerDim.begin(), numProcsPerDim.end(), 1, std::multiplies<size_t>());
-  if(prodOfProcsPerDim != size) {
+  int prodOfProcsPerDim =
+      std::accumulate(numProcsPerDim.begin(), numProcsPerDim.end(), 1, std::multiplies<size_t>());
+  if (prodOfProcsPerDim != size) {
     std::ostringstream error_stream;
     error_stream << "Product of number of processes per dimension is " << prodOfProcsPerDim
                  << " which does not match number of MPI processes (" << size << ")\n";
@@ -56,18 +56,14 @@ MPI_Comm buildCartesianComm(std::array<int, RANK> numProcsPerDim,
 
   // set up processes on a cartesian communication grid
   std::array<int, RANK> periodic{};
-  for(int i = 0; i < RANK; ++i) {
+  for (int i = 0; i < RANK; ++i) {
     periodic[i] = true;
   }
   bool allowRankReordering = true;
   MPI_Comm cartesianComm;
-  check_MPI(MPI_Cart_create(MPI_COMM_WORLD,
-                            RANK,
-                            numProcsPerDim.data(),
-                            periodic.data(),
-                            allowRankReordering,
-                            &cartesianComm));
-  if(cartesianComm == MPI_COMM_NULL) {
+  check_MPI(MPI_Cart_create(MPI_COMM_WORLD, RANK, numProcsPerDim.data(), periodic.data(),
+                            allowRankReordering, &cartesianComm));
+  if (cartesianComm == MPI_COMM_NULL) {
     throw std::runtime_error("Failure in cartesian comm setup");
   }
 
@@ -77,23 +73,26 @@ MPI_Comm buildCartesianComm(std::array<int, RANK> numProcsPerDim,
 
 /**
  * @brief times func and prints stats
- * 
+ *
  * @param func the func to run
  * @param mpiLayout the MPI layout used
  * @param totElems the number of elements
  */
-void timeAndPrintMPIStats(std::function<void(void)> func, GeneMPILayout &mpiLayout, double totElems) {
+void timeAndPrintMPIStats(std::function<void(void)> func, GeneMPILayout &mpiLayout,
+                          double totElems) {
   // time function
-  int warmup = 5;  //<  TODO: read from cmdline
+  int warmup = 5; //<  TODO: read from cmdline
   int cnt = NUM_EXCHANGES * NUM_GHOST_ZONES;
-  for(int i = 0; i < warmup; ++i) func();
+  for (int i = 0; i < warmup; ++i)
+    func();
   packtime = calltime = waittime = movetime = calctime = 0;
   double start = omp_get_wtime(), end;
-  for (int i = 0; i < NUM_EXCHANGES; ++i) func();
+  for (int i = 0; i < NUM_EXCHANGES; ++i)
+    func();
   end = omp_get_wtime();
 
   size_t tsize = 0;
-  for (auto g: mpiLayout.getBrickDecompPtr()->ghost)
+  for (auto g : mpiLayout.getBrickDecompPtr()->ghost)
     tsize += g.len * FieldBrick_kl::BRICKSIZE * sizeof(bElem);
 
   double total = (end - start) / cnt;
@@ -103,7 +102,7 @@ void timeAndPrintMPIStats(std::function<void(void)> func, GeneMPILayout &mpiLayo
   mpi_stats call_s = mpi_statistics(calltime / cnt, MPI_COMM_WORLD);
   mpi_stats wait_s = mpi_statistics(waittime / cnt, MPI_COMM_WORLD);
   mpi_stats mspd_s = mpi_statistics(tsize / 1.0e9 / (calltime + waittime) * cnt, MPI_COMM_WORLD);
-  mpi_stats size_s = mpi_statistics((double) tsize * 1.0e-6, MPI_COMM_WORLD);
+  mpi_stats size_s = mpi_statistics((double)tsize * 1.0e-6, MPI_COMM_WORLD);
   total = calc_s.avg + wait_s.avg + call_s.avg + pack_s.avg;
 
   int rank;
@@ -120,7 +119,7 @@ void timeAndPrintMPIStats(std::function<void(void)> func, GeneMPILayout &mpiLayo
     std::cout << "  | MPI size (MB): " << size_s << std::endl;
     std::cout << "  | MPI speed (GB/s): " << mspd_s << std::endl;
 
-    double perf = (double) totElems * 1.0e-9;
+    double perf = (double)totElems * 1.0e-9;
     perf = perf / total;
     std::cout << "perf " << perf << " GStencil/s" << std::endl;
     std::cout << std::endl;
@@ -130,81 +129,101 @@ void timeAndPrintMPIStats(std::function<void(void)> func, GeneMPILayout &mpiLayo
 void validateLaunchConfig(dim3 grid, dim3 block) {
   std::ostringstream gridErrorStream;
   // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#features-and-technical-specifications__technical-specifications-per-compute-capability
-  if(grid.z > 65535) {
+  if (grid.z > 65535) {
     gridErrorStream << "grid.z = " << grid.z << " should be at most 65535" << std::endl;
   }
-  if(grid.x > (1U << 31) - 1) {
-    gridErrorStream << "grid.x = " << grid.x << " should be at most " << (1U << 31) - 1 << std::endl;
-  }
-  if(block.x > 1024 || block.y > 1024 || block.z > 64) {
-    gridErrorStream << "block (.x = " << block.x << ", .y = " << block.y << ", .z = " << block.z << ")"
-                    << " is too large in one or more dimensions."
+  if (grid.x > (1U << 31) - 1) {
+    gridErrorStream << "grid.x = " << grid.x << " should be at most " << (1U << 31) - 1
                     << std::endl;
   }
-  if(!gridErrorStream.str().empty()) {
+  if (block.x > 1024 || block.y > 1024 || block.z > 64) {
+    gridErrorStream << "block (.x = " << block.x << ", .y = " << block.y << ", .z = " << block.z
+                    << ")"
+                    << " is too large in one or more dimensions." << std::endl;
+  }
+  if (!gridErrorStream.str().empty()) {
     throw std::runtime_error(gridErrorStream.str());
   }
 }
 
 /**
  * @brief perform semi-arakawa k-l derivative kernel weak-scaling benchmark
- * 
+ *
  * Uses array layout
- * 
+ *
  * @param[out] out output data (has ghost-zones)
  * @param[in] in input data (has ghost-zones)
  * @param[in] coeffs input coefficients (has ghost-zones)
  * @param[in] mpiLayout the mpi layout
  */
-void semiArakawaDistributedArray(complexArray6D out,
-                                 const complexArray6D in,
-                                 realArray6D coeffs,
-                                 GeneMPILayout &mpiLayout) {
-  // take copy of input array
-  complexArray6D inCopy({in.extent[0], in.extent[1], in.extent[2], in.extent[3], in.extent[4], in.extent[5]}, 0.0);
-#pragma omp parallel for
-  for(unsigned i = 0; i < in.numElementsWithPadding; ++i) {
-    inCopy.getData().get()[i] = in.getData().get()[i];
+void semiArakawaDistributedGTensor(complexArray6D out, const complexArray6D in, realArray6D coeffs,
+                                   GeneMPILayout &mpiLayout) {
+  brick::Array<bComplexElem, 6> inWithPadding(
+      {in.extent[0] + 2 * in.PADDING(0), in.extent[1] + 2 * in.PADDING(1),
+       in.extent[2] + 2 * in.PADDING(2), in.extent[3] + 2 * in.PADDING(3),
+       in.extent[4] + 2 * in.PADDING(4), in.extent[5] + 2 * in.PADDING(4)},
+      in.getData());
+  brick::Array<bElem, 6> coeffsWithPadding(
+      {coeffs.extent[1] + 2 * coeffs.PADDING(1), coeffs.extent[0] + 2 * coeffs.PADDING(0),
+       coeffs.extent[2] + 2 * coeffs.PADDING(2), coeffs.extent[3] + 2 * coeffs.PADDING(3),
+       coeffs.extent[4] + 2 * coeffs.PADDING(4), coeffs.extent[5] + 2 * coeffs.PADDING(5)},
+      coeffs.getData());
+  auto shape6D =
+      gt::shape(inWithPadding.extent[0], inWithPadding.extent[1], inWithPadding.extent[2],
+                inWithPadding.extent[3], inWithPadding.extent[4], inWithPadding.extent[5]);
+  auto coeffShape = gt::shape(coeffsWithPadding.extent[1], coeffsWithPadding.extent[0],
+                              coeffsWithPadding.extent[2], coeffsWithPadding.extent[3],
+                              coeffsWithPadding.extent[4], coeffsWithPadding.extent[5]);
+
+  // copy in-arrays to gtensor (stripping off the padding)
+  auto gt_in = gt::empty<gt::complex<bElem>>(shape6D);
+  auto gt_coeff = gt::empty<bElem>(coeffShape);
+#pragma omp parallel for collapse(5)
+  for (unsigned n = 0; n < inWithPadding.extent[5]; ++n) {
+    for (unsigned m = 0; m < inWithPadding.extent[4]; ++m) {
+      for (unsigned l = 0; l < inWithPadding.extent[3]; ++l) {
+        for (unsigned k = 0; k < inWithPadding.extent[2]; ++k) {
+          for (unsigned j = 0; j < inWithPadding.extent[1]; ++j) {
+#pragma omp simd
+            for (unsigned i = 0; i < inWithPadding.extent[0]; ++i) {
+              gt_in(i, j, k, l, m, n) = inWithPadding(i, j, k, l, m, n);
+            }
+          }
+        }
+      }
+    }
   }
+
+#pragma omp parallel for collapse(5)
+  for (unsigned n = 0; n < coeffsWithPadding.extent[5]; ++n) {
+    for (unsigned m = 0; m < coeffsWithPadding.extent[4]; ++m) {
+      for (unsigned l = 0; l < coeffsWithPadding.extent[3]; ++l) {
+        for (unsigned k = 0; k < coeffsWithPadding.extent[2]; ++k) {
+          for (unsigned j = 0; j < coeffsWithPadding.extent[1]; ++j) {
+#pragma omp simd
+            for (unsigned i = 0; i < coeffsWithPadding.extent[0]; ++i) {
+              gt_coeff(j, i, k, l, m, n) = coeffsWithPadding(i, j, k, l, m, n);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // copy the in-arrays to device
+  auto in_dev = in.allocateOnDevice();
+  auto gt_in_dev = gt::adapt_device((gt::complex<bElem>*) in_dev.getData().get(), shape6D);
+  auto gt_coeff_dev = gt::empty_device<bElem>(coeffShape);
+  gt::copy(gt_in, gt_in_dev);
+  gt::copy(gt_coeff, gt_coeff_dev);
+  // declare our out-array
+  auto out_dev = out.allocateOnDevice();
+  auto gt_out_dev = gt::adapt_device((gt::complex<bElem>*) out_dev.getData().get(), shape6D);
   // set up MPI types for transfer
-  auto complexFieldMPIArrayTypesHandle = mpiLayout.buildArrayTypesHandle(inCopy);
-  // get arrays as vectors
-  std::vector<long> extentAsVector({in.extent[0], in.extent[1], in.extent[2],
-                                    in.extent[3], in.extent[4], in.extent[5]}),
-                    paddingAsVector(PADDING.begin(), PADDING.end()),
-                    ghostZoneAsVector(GHOST_ZONE.begin(), GHOST_ZONE.end());
-  // set up in/out ptrs on device without padding
-  std::array<unsigned, RANK> extentWithGZAndPadding{}, extentWithGZ{};
-  for(unsigned d = 0; d < RANK; ++d) {
-    extentWithGZ[d] = in.extent[d];
-    extentWithGZAndPadding[d] = in.extent[d] + 2 * PADDING[d];
-  }
-  brick::Array<bComplexElem, 6> inWithPadding(extentWithGZAndPadding, inCopy.getData()),
-      outWithPadding(extentWithGZAndPadding, out.getData()),
-      inWithPadding_dev = inWithPadding.allocateOnDevice(),
-      outWithPadding_dev = outWithPadding.allocateOnDevice(),
-      in_dev(extentWithGZ, inWithPadding_dev.getData()),
-      out_dev(extentWithGZ, outWithPadding_dev.getData());
-  realArray6D coeff_dev = coeffs.allocateOnDevice();
-  inWithPadding.copyToDevice(inWithPadding_dev);
-  coeffs.copyToDevice(coeff_dev);
+  auto complexFieldMPIArrayTypesHandle = mpiLayout.buildArrayTypesHandle(in);
 
-  // set up grid
-  dim3 block(TILE_SIZE, TILE_SIZE),
-      grid((in.extent[2] + block.x - 1) / block.x,
-           (in.extent[3] + block.y - 1) / block.y,
-           (in.extent[0] * in.extent[1] * in.extent[4] * in.extent[5] + block.z - 1) / block.z);
-  // validate grid:
-  validateLaunchConfig(grid, block);
-
-  // build function to perform computation
-  auto inWithPaddingPtr_dev = &inWithPadding_dev;
-  auto outWithPaddingPtr_dev = &outWithPadding_dev;
-  auto inPtr_dev = &in_dev;
-  auto outPtr_dev = &out_dev;
-  auto inPtr = &inCopy;
-  auto outPtr = &out;
-  auto arrFunc = [&]() -> void {
+  // build a function which computes our stencil
+  auto gtensorFunc = [&]() -> void {
     float elapsed;
     cudaEvent_t c_0, c_1;
     gpuCheck(cudaEventCreate(&c_0));
@@ -212,25 +231,26 @@ void semiArakawaDistributedArray(complexArray6D out,
 #if !defined(CUDA_AWARE) || !defined(USE_TYPES)
     // Copy everything back from device
     double st = omp_get_wtime();
-    inWithPadding.copyFromDevice(*inWithPaddingPtr_dev);
+    gt::copy(gt_in_dev, gt_in);
     movetime += omp_get_wtime() - st;
-    mpiLayout.exchangeArray(*inPtr);
+    mpiLayout.exchangeArray(in);
     st = omp_get_wtime();
-    inWithPadding.copyToDevice(*inWithPaddingPtr_dev);
+    in.copyToDevice(in_dev);
     movetime += omp_get_wtime() - st;
 #else
     mpiCheckCudaAware();
-    mpiLayout.exchangeArray(*inPtr_dev, complexFieldMPIArrayTypesHandle);
+    mpiLayout.exchangeArray(in_dev, complexFieldMPIArrayTypesHandle);
 #endif
     gpuCheck(cudaEventRecord(c_0));
     for (int i = 0; i < NUM_GHOST_ZONES; ++i) {
-      semiArakawaArrKernel<< < grid, block>> > (*outWithPaddingPtr_dev, *inWithPaddingPtr_dev, coeff_dev);
+      arakawaGTensor<gt::space::device>(gt_in_dev, gt_out_dev, gt_coeff_dev);
       gpuCheck(cudaPeekAtLastError());
-      if(i + 1 < NUM_GHOST_ZONES) {
+      if (i + 1 < NUM_GHOST_ZONES) {
         std::cout << "Swapping!" << std::endl;
-        std::swap(outWithPaddingPtr_dev, inWithPaddingPtr_dev);
-        std::swap(inPtr_dev, outPtr_dev);
-        std::swap(inPtr, outPtr);
+        // TODO:
+//        std::swap(outWithPaddingPtr_dev, inWithPaddingPtr_dev);
+//        std::swap(inPtr_dev, outPtr_dev);
+//        std::swap(inPtr, outPtr);
       }
     }
     gpuCheck(cudaEventRecord(c_1));
@@ -243,106 +263,42 @@ void semiArakawaDistributedArray(complexArray6D out,
   check_MPI(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
   if (rank == 0)
     std::cout << "array MPI decomp" << std::endl;
-  timeAndPrintMPIStats(arrFunc, mpiLayout, (double) in.numElements);
+  timeAndPrintMPIStats(gtensorFunc, mpiLayout, (double)in.numElements);
 
-  // Copy back
-  outWithPadding.copyFromDevice(outWithPadding_dev);
-}
-
-__device__ __constant__ unsigned brick_grid_extent_with_gz_dev[RANK];
-/**
- * @brief cuda kernel to compute k-l arakawa derivative (brick layout)
- * 
- * Should be invoked thread-block size =  num brick elements
- * and 1 thread-block per brick.
- * global brick idx should by x.y.z = K.L.IJMN.
- * intra-brick idx should be x.y.z = I.J.KLMN
- * 
- * @param grid brick-grid for field bricks (includes ghost bricks)
- * @param coeffGrid brick-grid for coefficients (includes ghost bricks)
- * @param bOut output brick
- * @param bIn input brick
- * @param bCoeff coefficients
- */
-__global__
-void semiArakawaBrickKernel(brick::Array<unsigned, RANK, brick::Padding<>, unsigned> grid,
-                            brick::Array<unsigned, RANK, brick::Padding<>, unsigned> coeffGrid,
-                            FieldBrick_kl bOut,
-                            FieldBrick_kl bIn,
-                            ArakawaCoeffBrick bCoeff)
-{
-  // get brick index for field
-  unsigned b_k = blockIdx.x;
-  unsigned b_l = blockIdx.y;
-  unsigned b_ijmn = blockIdx.z;
-  unsigned b_i = b_ijmn % grid.extent[0];
-  unsigned b_jmn = b_ijmn / grid.extent[0];
-  unsigned b_j = b_jmn % grid.extent[1];
-  unsigned b_mn = b_jmn / grid.extent[1];
-  unsigned b_m = b_mn % grid.extent[4];
-  unsigned b_n = b_mn / grid.extent[4];
-
-  // get field and coeff brick indexes
-  unsigned fieldBrickIdx = grid(b_i, b_j, b_k, b_l, b_m, b_n);
-
-  // intra-brick indexing
-  int i = threadIdx.x;
-  int j = threadIdx.y;
-  int klmn = threadIdx.z;
-  int k = klmn % BRICK_DIM[2];
-  int lmn = klmn / BRICK_DIM[2];
-  int l = lmn % BRICK_DIM[3];
-  int mn = lmn / BRICK_DIM[3];
-  int m = mn % BRICK_DIM[4];
-  int n = mn / BRICK_DIM[4];
-
-  // check for intra-brick OOB
-  assert(i < BRICK_DIM[0] && i < ARAKAWA_COEFF_BRICK_DIM[1]);
-  assert(j < BRICK_DIM[1]);
-  assert(k < BRICK_DIM[2] && k < ARAKAWA_COEFF_BRICK_DIM[2]);
-  assert(l < BRICK_DIM[3] && l < ARAKAWA_COEFF_BRICK_DIM[3]);
-  assert(m < BRICK_DIM[4] && m < ARAKAWA_COEFF_BRICK_DIM[4]);
-  assert(n < BRICK_DIM[5] && n < ARAKAWA_COEFF_BRICK_DIM[5]);
-
-  // compute stencil
-  bComplexElem result = 0.0;
-  auto in = bIn[fieldBrickIdx];
-  auto input = [&](int deltaK, int deltaL) -> bComplexElem {
-    return in[n][m][l + deltaL][k + deltaK][j][i];
-  };
-  auto c = [&](unsigned stencilIdx) -> bElem {
-    unsigned coeffBrickIndex = coeffGrid(stencilIdx, b_i, b_k, b_l, b_m, b_n);
-    return bCoeff[coeffBrickIndex][n][m][l][k][i][0];
-  };
-  bOut[fieldBrickIdx][n][m][l][k][j][i]
-      = c( 0) * input( 0, -2)
-      + c( 1) * input(-1, -1)
-      + c( 2) * input( 0, -1)
-      + c( 3) * input( 1, -1)
-      + c( 4) * input(-2,  0)
-      + c( 5) * input(-1,  0)
-      + c( 6) * input( 0,  0)
-      + c( 7) * input( 1,  0)
-      + c( 8) * input( 2,  0)
-      + c( 9) * input(-1,  1)
-      + c(10) * input( 0,  1)
-      + c(11) * input( 1,  1)
-      + c(12) * input( 0,  2);
+  // copy output data back to host
+  auto gt_out = gt::empty<gt::complex<bElem>>(shape6D);
+  gt::copy(gt_out_dev, gt_out);
+  // copy data from gtensor back to padded array
+#pragma omp parallel for collapse(5)
+  for (long n = 0; n < out.extent[5]; ++n) {
+    for (long m = 0; m < out.extent[4]; ++m) {
+      for (long l = 0; l < out.extent[3]; ++l) {
+        for (long k = 0; k < out.extent[2]; ++k) {
+          for (long j = 0; j < out.extent[1]; ++j) {
+#pragma omp simd
+            for (long i = 0; i < out.extent[0]; ++i) {
+              out(i, j, k, l, m, n) = reinterpret_cast<bComplexElem &>(
+                  gt_out(i + out.PADDING(0), j + out.PADDING(1), k + out.PADDING(2),
+                         l + out.PADDING(3), m + out.PADDING(4), n + out.PADDING(5)));
+            }
+          }
+        }
+      }
+    }
+  }
 }
 
 /**
  * @brief perform semi-arakawa k-l derivative kernel weak-scaling benchmark
- * 
+ *
  * Uses bricks layout
- * 
+ *
  * @param[out] out_ptr output data (has ghost-zones and padding)
  * @param[in] in_ptr input data (has ghost-zones and padding)
  * @param[in] coeffs input coefficients (has ghost-zones but no padding)
  * @param[in] mpiLayout the mpi-layout
  */
-void semiArakawaDistributedBrick(complexArray6D out,
-                                 const complexArray6D in,
-                                 realArray6D coeffs,
+void semiArakawaDistributedBrick(complexArray6D out, const complexArray6D in, realArray6D coeffs,
                                  GeneMPILayout &mpiLayout) {
   // set up brick-info and storage on host
   brick::BrickLayout<RANK> fieldLayout = mpiLayout.getBrickLayout();
@@ -357,7 +313,7 @@ void semiArakawaDistributedBrick(complexArray6D out,
   // load in input
   bInArray.loadFrom(in);
   std::array<unsigned, RANK> coeffBrickGridExtent{};
-  for(unsigned d = 0; d < RANK; ++d) {
+  for (unsigned d = 0; d < RANK; ++d) {
     assert(coeffs.extent[d] % ARAKAWA_COEFF_BRICK_DIM[d] == 0);
     coeffBrickGridExtent[d] = coeffs.extent[d] / ARAKAWA_COEFF_BRICK_DIM[d];
   }
@@ -377,12 +333,12 @@ void semiArakawaDistributedBrick(complexArray6D out,
   coeffLayout.indexInStorage.copyToDevice(coeffIndexInStorage_dev);
 
   // set up grid
-  const unsigned * const brickExtentWithGZ = fieldLayout.indexInStorage.extent;
-  dim3 cuda_grid_size(brickExtentWithGZ[2],
-                      brickExtentWithGZ[3],
-                      brickExtentWithGZ[0] * brickExtentWithGZ[1] *
-                          brickExtentWithGZ[4] * brickExtentWithGZ[5]),
-      cuda_block_size(BRICK_DIM[0], BRICK_DIM[1], FieldBrick_kl::BRICKLEN / BRICK_DIM[0] / BRICK_DIM[1]);
+  const unsigned *const brickExtentWithGZ = fieldLayout.indexInStorage.extent;
+  dim3 cuda_grid_size(brickExtentWithGZ[2], brickExtentWithGZ[3],
+                      brickExtentWithGZ[0] * brickExtentWithGZ[1] * brickExtentWithGZ[4] *
+                          brickExtentWithGZ[5]),
+      cuda_block_size(BRICK_DIM[0], BRICK_DIM[1],
+                      FieldBrick_kl::BRICKLEN / BRICK_DIM[0] / BRICK_DIM[1]);
   validateLaunchConfig(cuda_grid_size, cuda_block_size);
 
 #ifndef DECOMP_PAGEUNALIGN
@@ -395,33 +351,31 @@ void semiArakawaDistributedBrick(complexArray6D out,
     cudaEventCreate(&c_0);
     cudaEventCreate(&c_1);
 #ifndef CUDA_AWARE
-  {
-    double t_a = omp_get_wtime();
-    mpiLayout.copyBoundaryFromCuda(bInArray);
-    double t_b = omp_get_wtime();
-    movetime += t_b - t_a;
-  #ifdef DECOMP_PAGEUNALIGN
-    mpiLayout.exchangeBrickedArray(bInArray);
-  #else
-    ev.exchange();
-  #endif
-    t_a = omp_get_wtime();
-    mpiLayout.copyGhostToCuda(bInArray);
-    t_b = omp_get_wtime();
-    movetime += t_b - t_a;
-  }
+    {
+      double t_a = omp_get_wtime();
+      mpiLayout.copyBoundaryFromCuda(bInArray);
+      double t_b = omp_get_wtime();
+      movetime += t_b - t_a;
+#ifdef DECOMP_PAGEUNALIGN
+      mpiLayout.exchangeBrickedArray(bInArray);
 #else
-  mpiCheckCudaAware();
-  mpiLayout.exchangeCudaBrickedArray(bInArray);
+      ev.exchange();
+#endif
+      t_a = omp_get_wtime();
+      mpiLayout.copyGhostToCuda(bInArray);
+      t_b = omp_get_wtime();
+      movetime += t_b - t_a;
+    }
+#else
+    mpiCheckCudaAware();
+    mpiLayout.exchangeCudaBrickedArray(bInArray);
 #endif
     gpuCheck(cudaEventRecord(c_0));
     for (int i = 0; i < NUM_GHOST_ZONES; ++i) {
-      semiArakawaBrickKernel<< < cuda_grid_size, cuda_block_size>> >(
-          fieldIndexInStorage_dev, coeffIndexInStorage_dev, bOut_dev,
-          bIn_dev, bCoeff_dev
-          );
+      semiArakawaBrickKernel<<<cuda_grid_size, cuda_block_size>>>(
+          fieldIndexInStorage_dev, coeffIndexInStorage_dev, bOut_dev, bIn_dev, bCoeff_dev);
       gpuCheck(cudaPeekAtLastError());
-      if(i + 1 < NUM_GHOST_ZONES) {
+      if (i + 1 < NUM_GHOST_ZONES) {
         std::cout << "Swapping!" << std::endl;
         std::swap(bOut_dev, bIn_dev);
       }
@@ -437,7 +391,7 @@ void semiArakawaDistributedBrick(complexArray6D out,
   check_MPI(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
   if (rank == 0)
     std::cout << "brick MPI decomp" << std::endl;
-  timeAndPrintMPIStats(brickFunc, mpiLayout, (double) in.numElements);
+  timeAndPrintMPIStats(brickFunc, mpiLayout, (double)in.numElements);
 
   // Copy back
   bOutArray.copyFromDevice();
@@ -446,7 +400,7 @@ void semiArakawaDistributedBrick(complexArray6D out,
 
 /**
  * @brief Reads a tuple of unsigneds delimited by delim
- * 
+ *
  * @param in the input stream to read from
  * @param delim the delimiter between unsigneds
  * @return std::vector<unsigned> of the values read in
@@ -455,10 +409,11 @@ std::vector<unsigned> read_uint_tuple(std::istream &in, char delim = ',') {
   std::vector<unsigned> tuple;
   unsigned value;
   do {
-    if(in.peek() == delim) in.get();
+    if (in.peek() == delim)
+      in.get();
     in >> value;
     tuple.push_back(value);
-  } while(in.peek() == delim);
+  } while (in.peek() == delim);
   return tuple;
 }
 
@@ -467,77 +422,74 @@ std::vector<unsigned> read_uint_tuple(std::istream &in, char delim = ',') {
  * @param[out] per_process_domain_size the extent in each dimension of the domain
  * @param[out] num_procs_per_dim the number of processes per dimension
  * @param[in] in input stream to read from
- * 
+ *
  * @return the number of iterations, with default 100
  */
 unsigned parse_args(std::array<int, RANK> *per_process_domain_size,
-                    std::array<int, RANK> *num_procs_per_dim,
-                    std::istream &in)
-{
+                    std::array<int, RANK> *num_procs_per_dim, std::istream &in) {
   std::string option_string;
   unsigned num_iters = 100;
   std::vector<unsigned> tuple;
   bool read_dom_size = false, read_num_iters = false, read_num_procs_per_dim = false;
   std::string help_string = "Program options\n"
-      "  -h: show help (this message)\n"
-      "  Domain size,  in array order contiguous first\n"
-      "  -d: comma separated Int[6], per-process domain size\n"
-      "  Num Tasks per dimension, in array order contiguous first\n"
-      "  -p: comma separated Int[6], num process per dimension"
-      "  Benchmark control:\n"
-      "  -I: number of iterations, default 100 \n"
-      "Example usage:\n"
-      "  weak/gene6d -d 70,16,24,48,32,2 -p 1,1,3,1,2,1\n";
+                            "  -h: show help (this message)\n"
+                            "  Domain size,  in array order contiguous first\n"
+                            "  -d: comma separated Int[6], per-process domain size\n"
+                            "  Num Tasks per dimension, in array order contiguous first\n"
+                            "  -p: comma separated Int[6], num process per dimension"
+                            "  Benchmark control:\n"
+                            "  -I: number of iterations, default 100 \n"
+                            "Example usage:\n"
+                            "  weak/gene6d -d 70,16,24,48,32,2 -p 1,1,3,1,2,1\n";
   std::ostringstream error_stream;
-  while(in >> option_string) {
-    if(option_string[0] != '-' || option_string.size() != 2) {
+  while (in >> option_string) {
+    if (option_string[0] != '-' || option_string.size() != 2) {
       error_stream << "Unrecognized option " << option_string << std::endl;
     }
-    if(error_stream.str().size() != 0) {
+    if (error_stream.str().size() != 0) {
       error_stream << help_string;
       throw std::runtime_error(error_stream.str());
     }
-    switch(option_string[1]) {
-      case 'd': 
-        tuple = read_uint_tuple(in, ',');
-        if(read_dom_size) {
-          error_stream << "-d option should only be passed once" << std::endl;
-        } else if(tuple.size() != RANK) {
-          error_stream << "Expected extent of length " << RANK << ", not " << tuple.size();
-        } else {
-          std::copy(tuple.begin(), tuple.end(), per_process_domain_size->begin());
-        }
-        read_dom_size = true;
-        break;
-      case 'p':
-        tuple = read_uint_tuple(in, ',');
-        if(read_num_procs_per_dim) {
-          error_stream << "-p option should only be passed once" << std::endl;
-        }
-        else if(tuple.size() != RANK) {
-          error_stream << "Expected num procs per dim of length " << RANK << ", not " << tuple.size();
-        } else {
-          std::copy(tuple.begin(), tuple.end(), num_procs_per_dim->begin());
-        }
-        read_num_procs_per_dim = true;
-        break;
-      case 'I':
-        if(read_num_iters) {
-          error_stream << "-I option should only be passed once" << std::endl;
-        } else {
-          in >> num_iters;
-        }
-        read_num_iters = true;
-        break;
-      default:
-        error_stream << "Unrecognized option " << option_string << std::endl;
+    switch (option_string[1]) {
+    case 'd':
+      tuple = read_uint_tuple(in, ',');
+      if (read_dom_size) {
+        error_stream << "-d option should only be passed once" << std::endl;
+      } else if (tuple.size() != RANK) {
+        error_stream << "Expected extent of length " << RANK << ", not " << tuple.size();
+      } else {
+        std::copy(tuple.begin(), tuple.end(), per_process_domain_size->begin());
+      }
+      read_dom_size = true;
+      break;
+    case 'p':
+      tuple = read_uint_tuple(in, ',');
+      if (read_num_procs_per_dim) {
+        error_stream << "-p option should only be passed once" << std::endl;
+      } else if (tuple.size() != RANK) {
+        error_stream << "Expected num procs per dim of length " << RANK << ", not " << tuple.size();
+      } else {
+        std::copy(tuple.begin(), tuple.end(), num_procs_per_dim->begin());
+      }
+      read_num_procs_per_dim = true;
+      break;
+    case 'I':
+      if (read_num_iters) {
+        error_stream << "-I option should only be passed once" << std::endl;
+      } else {
+        in >> num_iters;
+      }
+      read_num_iters = true;
+      break;
+    default:
+      error_stream << "Unrecognized option " << option_string << std::endl;
     }
   }
-  if(!read_num_procs_per_dim) {
+  if (!read_num_procs_per_dim) {
     error_stream << "Missing -p option" << std::endl << help_string;
     throw std::runtime_error(error_stream.str());
   }
-  if(!read_dom_size) {
+  if (!read_dom_size) {
     error_stream << "Missing -d option" << std::endl << help_string;
     throw std::runtime_error(error_stream.str());
   }
@@ -559,11 +511,11 @@ int main(int argc, char **argv) {
   //       cmdline
   std::array<int, RANK> numProcsPerDim{}, globalExtent{}, perProcessExtent{};
   std::stringstream input_stream;
-  for(int i = 1; i < argc; ++i) {
+  for (int i = 1; i < argc; ++i) {
     input_stream << argv[i] << " ";
   }
   NUM_EXCHANGES = parse_args(&perProcessExtent, &numProcsPerDim, input_stream);
-  for(int i = 0; i < RANK; ++i) {
+  for (int i = 0; i < RANK; ++i) {
     globalExtent[i] = perProcessExtent[i] * numProcsPerDim[i];
   }
 
@@ -574,142 +526,139 @@ int main(int argc, char **argv) {
   check_MPI(MPI_Comm_size(MPI_COMM_WORLD, &size));
   if (rank == 0) {
     int numthreads;
-    #pragma omp parallel shared(numthreads) default(none)
+#pragma omp parallel shared(numthreads) default(none)
     numthreads = omp_get_num_threads();
     long page_size = sysconf(_SC_PAGESIZE);
-    size_t totElems = std::accumulate(globalExtent.begin(), globalExtent.end(), 1, std::multiplies<size_t>());
+    size_t totElems =
+        std::accumulate(globalExtent.begin(), globalExtent.end(), 1, std::multiplies<size_t>());
     int io_col_width = 30;
     std::cout << std::setw(io_col_width) << "Pagesize :" << page_size << "\n"
               << std::setw(io_col_width) << "MPI Processes :" << size << "\n"
-              << std::setw(io_col_width) << "OpenMP threads :" << numthreads << "\n" 
+              << std::setw(io_col_width) << "OpenMP threads :" << numthreads << "\n"
               << std::setw(io_col_width) << "Domain size (per-process) of :";
-    for(int i = 0; i < RANK; ++i) {
+    for (int i = 0; i < RANK; ++i) {
       std::cout << std::setw(2) << perProcessExtent[i];
-      if(i < RANK - 1) std::cout << " x ";
+      if (i < RANK - 1)
+        std::cout << " x ";
     }
     std::cout << " for a total of " << totElems << " elements " << std::endl
               << std::setw(io_col_width) << "Ghost Zone :";
     size_t totElemsWithGhosts = 1;
-    for(int i = 0; i < RANK; ++i) {
+    for (int i = 0; i < RANK; ++i) {
       totElemsWithGhosts *= perProcessExtent[i] + 2 * GHOST_ZONE[i];
       std::cout << std::setw(2) << GHOST_ZONE[i];
-      if(i < RANK - 1) std::cout << " x ";
+      if (i < RANK - 1)
+        std::cout << " x ";
     }
-    std::cout << " for a total of " << totElemsWithGhosts << " elements "
-              << std::endl << std::setw(io_col_width) << "Array Padding :";
-    for(int i = 0; i < RANK; ++i) {
+    std::cout << " for a total of " << totElemsWithGhosts << " elements " << std::endl
+              << std::setw(io_col_width) << "Array Padding :";
+    for (int i = 0; i < RANK; ++i) {
       std::cout << std::setw(2) << PADDING[i];
-      if(i < RANK - 1) std::cout << " x ";
+      if (i < RANK - 1)
+        std::cout << " x ";
     }
-    std::cout << std::endl
-              << std::setw(io_col_width) << "MPI Processes :";
-    for(int i = 0; i < RANK; ++i) {
+    std::cout << std::endl << std::setw(io_col_width) << "MPI Processes :";
+    for (int i = 0; i < RANK; ++i) {
       std::cout << std::setw(2) << numProcsPerDim[i];
-      if(i < RANK - 1) std::cout << " x ";
+      if (i < RANK - 1)
+        std::cout << " x ";
     }
     std::cout << " for a total of " << size << " processes" << std::endl
               << std::setw(io_col_width) << "Brick Size :";
-    for(int i = 0; i < RANK; ++i) {
+    for (int i = 0; i < RANK; ++i) {
       std::cout << std::setw(2) << BRICK_DIM[i];
-      if(i < RANK - 1) std::cout << " x ";
+      if (i < RANK - 1)
+        std::cout << " x ";
     }
     std::cout << "\n"
               << "Iters Between exchanges : " << NUM_GHOST_ZONES << "\n"
-              << "Num Exchanges : " << NUM_EXCHANGES << std::endl; 
+              << "Num Exchanges : " << NUM_EXCHANGES << std::endl;
   }
 
   // build cartesian communicator and setup MEMFD
   MPI_Comm cartesianComm = buildCartesianComm(numProcsPerDim, perProcessExtent);
   MEMFD::setup_prefix("weak-gene-6d-main", rank);
   // get array/brick extents set up for my MPI process (all include ghost-zones)
-  std::array<int, RANK> perProcessExtentWithGZ{},
-                       per_process_extent_with_padding{};
-  for(int i = 0; i < RANK; ++i) {
+  std::array<int, RANK> perProcessExtentWithGZ{}, per_process_extent_with_padding{};
+  for (int i = 0; i < RANK; ++i) {
     perProcessExtentWithGZ[i] = perProcessExtent[i] + 2 * (int)GHOST_ZONE[i];
     per_process_extent_with_padding[i] = perProcessExtentWithGZ[i] + 2 * (int)PADDING[i];
-    if(perProcessExtent[i] % BRICK_DIM[i] != 0) {
+    if (perProcessExtent[i] % BRICK_DIM[i] != 0) {
       std::ostringstream error_stream;
       error_stream << "Brick-dimension " << i << " (" << BRICK_DIM[i] << ")"
-                   << " does not divide per-process extent " << i << " (" << perProcessExtent[i] << ")";
+                   << " does not divide per-process extent " << i << " (" << perProcessExtent[i]
+                   << ")";
       throw std::runtime_error(error_stream.str());
     }
-    if(GHOST_ZONE[i] % BRICK_DIM[i] != 0) {
+    if (GHOST_ZONE[i] % BRICK_DIM[i] != 0) {
       std::ostringstream error_stream;
       error_stream << "Brick-dimension " << i << " (" << BRICK_DIM[i] << ")"
                    << " does not divide ghost-zone " << i << " (" << GHOST_ZONE[i] << ")";
       throw std::runtime_error(error_stream.str());
     }
   }
-  if(rank == 0) {
-      std::cout << "Building input arrays..." << std::endl;
+  if (rank == 0) {
+    std::cout << "Building input arrays..." << std::endl;
   }
 
-  gpuCheck(cudaMemcpyToSymbol(arrayExtentWithGZDev, perProcessExtentWithGZ.data(), RANK * sizeof(unsigned)));
   // set up coeffs
   std::array<unsigned, RANK> coeffExtent{}, coeffGhostDepth{};
   coeffExtent[0] = ARAKAWA_STENCIL_SIZE;
   coeffGhostDepth[0] = 0;
   coeffExtent[1] = perProcessExtent[0];
   coeffGhostDepth[0] = GHOST_ZONE[0];
-  for(unsigned i = 2; i < RANK; ++i) {
+  for (unsigned i = 2; i < RANK; ++i) {
     coeffExtent[i] = perProcessExtent[i];
     coeffGhostDepth[i] = GHOST_ZONE[i];
   }
   std::array<unsigned, RANK> coeffExtentWithGZ{};
-  for(unsigned i = 0; i < RANK; ++i) {
+  for (unsigned i = 0; i < RANK; ++i) {
     coeffExtentWithGZ[i] = coeffExtent[i] + 2 * coeffGhostDepth[i];
   }
 
   complexArray6D in{complexArray6D::random(perProcessExtentWithGZ)},
-                 array_out{perProcessExtentWithGZ, 0.0},
-                 brick_out{perProcessExtentWithGZ, 0.0};
+      array_out{perProcessExtentWithGZ, 0.0}, brick_out{perProcessExtentWithGZ, 0.0};
 
-  if(rank == 0) {
-      std::cout << "Input arrays built. Setting up brick decomposition..." << std::endl;
+  if (rank == 0) {
+    std::cout << "Input arrays built. Setting up brick decomposition..." << std::endl;
   }
   // build 2d skin from 3d skin by removing all faces with a 3,
   // and replacing 1 -> 3, 2 -> 4
   std::vector<BitSet> skin2d = skin3d_good;
-  auto set_contains_three = [](BitSet set) -> bool {
-    return set.get(3) || set.get(-3);
-  };
-  skin2d.erase(std::remove_if(skin2d.begin(), skin2d.end(), set_contains_three),
-               skin2d.end()) ;
-  for(BitSet &bitset : skin2d) {
-    if(bitset.get(1)) {
+  auto set_contains_three = [](BitSet set) -> bool { return set.get(3) || set.get(-3); };
+  skin2d.erase(std::remove_if(skin2d.begin(), skin2d.end(), set_contains_three), skin2d.end());
+  for (BitSet &bitset : skin2d) {
+    if (bitset.get(1)) {
       bitset.flip(1);
       bitset.flip(3);
     }
-    if(bitset.get(-1)) {
+    if (bitset.get(-1)) {
       bitset.flip(-1);
       bitset.flip(-3);
     }
-    if(bitset.get(2)) {
+    if (bitset.get(2)) {
       bitset.flip(2);
       bitset.flip(4);
     }
-    if(bitset.get(-2)) {
+    if (bitset.get(-2)) {
       bitset.flip(-2);
       bitset.flip(-4);
     }
   }
   // build brick decomp
-  brick::MPILayout<FieldBrickDimsType, CommIn_kl> mpiLayout(
-      cartesianComm, perProcessExtent,
-                                                            GHOST_ZONE, skin2d
-  );
+  brick::MPILayout<FieldBrickDimsType, CommIn_kl> mpiLayout(cartesianComm, perProcessExtent,
+                                                            GHOST_ZONE, skin2d);
 
-  if(rank == 0) {
-      std::cout << "Brick decomposition setup complete. Beginning coefficient setup..." << std::endl;
+  if (rank == 0) {
+    std::cout << "Brick decomposition setup complete. Beginning coefficient setup..." << std::endl;
   }
   // initialize my coefficients to random data, and receive coefficients for ghost-zones
   realArray6D coeffs{realArray6D::random(coeffExtentWithGZ)};
-  if(rank == 0) {
-      std::cout << "Beginning coefficient exchange" << std::endl;
+  if (rank == 0) {
+    std::cout << "Beginning coefficient exchange" << std::endl;
   }
-  brick::MPILayout<ArakawaCoeffBrickDimsType, CommIn_kl> coeffMpiLayout(
-      cartesianComm, coeffExtent, coeffGhostDepth, skin2d
-      );
+  brick::MPILayout<ArakawaCoeffBrickDimsType, CommIn_kl> coeffMpiLayout(cartesianComm, coeffExtent,
+                                                                        coeffGhostDepth, skin2d);
 #if defined(USE_TYPES)
   auto coeffMPIArrayTypesHandle = coeffMpiLayout.buildArrayTypesHandle(coeffs);
   coeffMpiLayout.exchangeArray(coeffs, coeffMPIArrayTypesHandle);
@@ -717,38 +666,32 @@ int main(int argc, char **argv) {
   coeffMpiLayout.exchangeArray(coeffs);
 #endif
 
-  if(rank == 0) {
-      std::cout << "Coefficient exchange complete. Beginning array computation" << std::endl;
+  if (rank == 0) {
+    std::cout << "Coefficient exchange complete. Beginning array computation" << std::endl;
   }
   // run array computation
-  semiArakawaDistributedArray(array_out, in, coeffs, mpiLayout);
-  if(rank == 0) {
-      std::cout << "Array computation complete. Beginning bricks computation" << std::endl;
+  semiArakawaDistributedGTensor(array_out, in, coeffs, mpiLayout);
+  if (rank == 0) {
+    std::cout << "Array computation complete. Beginning bricks computation" << std::endl;
   }
   semiArakawaDistributedBrick(brick_out, in, coeffs, mpiLayout);
 
-  // check for correctness
-  #pragma omp parallel for collapse(5)
-  for(unsigned n = GHOST_ZONE[5]; n < GHOST_ZONE[5] + perProcessExtent[5]; ++n) {
-    for (unsigned m = GHOST_ZONE[4]; m < GHOST_ZONE[4] + perProcessExtent[4];
-         ++m) {
-      for (unsigned l = GHOST_ZONE[3]; l < GHOST_ZONE[3] + perProcessExtent[3];
-           ++l) {
-        for (unsigned k = GHOST_ZONE[2];
-             k < GHOST_ZONE[2] + perProcessExtent[2]; ++k) {
-          for (unsigned j = GHOST_ZONE[1];
-               j < GHOST_ZONE[1] + perProcessExtent[1]; ++j) {
+// check for correctness
+#pragma omp parallel for collapse(5)
+  for (unsigned n = GHOST_ZONE[5]; n < GHOST_ZONE[5] + perProcessExtent[5]; ++n) {
+    for (unsigned m = GHOST_ZONE[4]; m < GHOST_ZONE[4] + perProcessExtent[4]; ++m) {
+      for (unsigned l = GHOST_ZONE[3]; l < GHOST_ZONE[3] + perProcessExtent[3]; ++l) {
+        for (unsigned k = GHOST_ZONE[2]; k < GHOST_ZONE[2] + perProcessExtent[2]; ++k) {
+          for (unsigned j = GHOST_ZONE[1]; j < GHOST_ZONE[1] + perProcessExtent[1]; ++j) {
             // #pragma omp simd
-            for (unsigned i = GHOST_ZONE[0];
-                 i < GHOST_ZONE[0] + perProcessExtent[0]; ++i) {
+            for (unsigned i = GHOST_ZONE[0]; i < GHOST_ZONE[0] + perProcessExtent[0]; ++i) {
               std::complex<bElem> arr = array_out(i, j, k, l, m, n);
               std::complex<bElem> bri = brick_out(i, j, k, l, m, n);
               if (std::abs(arr - bri) >= 1e-7) {
                 std::ostringstream error_stream;
-                error_stream << "Mismatch at [" << n << "," << m << "," << l
-                             << "," << k << "," << j << "," << i << "]: "
-                             << "(array) " << arr << " != " << bri << "(brick)"
-                             << std::endl;
+                error_stream << "Mismatch at [" << n << "," << m << "," << l << "," << k << "," << j
+                             << "," << i << "]: "
+                             << "(array) " << arr << " != " << bri << "(brick)" << std::endl;
                 throw std::runtime_error(error_stream.str());
               }
             }

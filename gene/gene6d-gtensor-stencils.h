@@ -16,7 +16,8 @@
  */
 template <int N, typename E> inline auto stencil(E &&e, std::array<int, N> shift) {
   static_assert(N <= RANK);
-  constexpr int bnd[RANK] = {GHOST_ZONE[0], GHOST_ZONE[1], GHOST_ZONE[2], GHOST_ZONE[3], GHOST_ZONE[4], GHOST_ZONE[5]};
+  constexpr int bnd[RANK] = {(int) GHOST_ZONE[0], (int) GHOST_ZONE[1], (int) GHOST_ZONE[2],
+                             (int) GHOST_ZONE[3], (int) GHOST_ZONE[4], (int) GHOST_ZONE[5]};
 
   std::vector<gt::gdesc> slices;
   slices.reserve(N);
@@ -66,9 +67,9 @@ void ij_deriv_gtensor(gt::gtensor<gt::complex<bElem>, 6, Space> in,
  * @brief Compute the k-l 13-point arakawa stencil
  */
 template <typename Space>
-void arakawa_gtensor(gt::gtensor<gt::complex<bElem>, 6, Space> in,
-                     gt::gtensor<gt::complex<bElem>, 6, Space> out,
-                     gt::gtensor<bElem, 5, Space> arakawaCoeff) {
+void arakawaGTensor(gt::gtensor<gt::complex<bElem>, 6UL, Space> in,
+                    gt::gtensor<gt::complex<bElem>, 6UL, Space> out,
+                    gt::gtensor<bElem, 6UL, Space> arakawaCoeff) {
   using namespace gt::placeholders;
   auto _si = _s(GHOST_ZONE[0] + PADDING[0], -GHOST_ZONE[0] - PADDING[0]),
        _sj = _s(GHOST_ZONE[1] + PADDING[1], -GHOST_ZONE[1] - PADDING[1]),
@@ -78,20 +79,19 @@ void arakawa_gtensor(gt::gtensor<gt::complex<bElem>, 6, Space> in,
        _sn = _s(GHOST_ZONE[5] + PADDING[5], -GHOST_ZONE[5] - PADDING[5]);
 
   auto coeff = [&](int s) { return arakawaCoeff.view(_all, s, _newaxis, _all, _all, _all, _all); };
-  out.view(_si, _sj, _sk, _sl, _sm, _sn) =
-      coeff( 0) * stencil<RANK>(in, {0, 0, +0, -2, 0, 0}) +
-      coeff( 1) * stencil<RANK>(in, {0, 0, -1, -1, 0, 0}) +
-      coeff( 2) * stencil<RANK>(in, {0, 0, +0, -1, 0, 0}) +
-      coeff( 3) * stencil<RANK>(in, {0, 0, +1, -1, 0, 0}) +
-      coeff( 4) * stencil<RANK>(in, {0, 0, -2, +0, 0, 0}) +
-      coeff( 5) * stencil<RANK>(in, {0, 0, -1, +0, 0, 0}) +
-      coeff( 6) * stencil<RANK>(in, {0, 0, +0, +0, 0, 0}) +
-      coeff( 7) * stencil<RANK>(in, {0, 0, +1, +0, 0, 0}) +
-      coeff( 8) * stencil<RANK>(in, {0, 0, +2, +0, 0, 0}) +
-      coeff( 9) * stencil<RANK>(in, {0, 0, -1, +1, 0, 0}) +
-      coeff(10) * stencil<RANK>(in, {0, 0, +0, +1, 0, 0}) +
-      coeff(11) * stencil<RANK>(in, {0, 0, +1, +1, 0, 0}) +
-      coeff(12) * stencil<RANK>(in, {0, 0, +0, +2, 0, 0});
+  out.view(_si, _sj, _sk, _sl, _sm, _sn) = coeff(0) * stencil<RANK>(in, {0, 0, +0, -2, 0, 0}) +
+                                           coeff(1) * stencil<RANK>(in, {0, 0, -1, -1, 0, 0}) +
+                                           coeff(2) * stencil<RANK>(in, {0, 0, +0, -1, 0, 0}) +
+                                           coeff(3) * stencil<RANK>(in, {0, 0, +1, -1, 0, 0}) +
+                                           coeff(4) * stencil<RANK>(in, {0, 0, -2, +0, 0, 0}) +
+                                           coeff(5) * stencil<RANK>(in, {0, 0, -1, +0, 0, 0}) +
+                                           coeff(6) * stencil<RANK>(in, {0, 0, +0, +0, 0, 0}) +
+                                           coeff(7) * stencil<RANK>(in, {0, 0, +1, +0, 0, 0}) +
+                                           coeff(8) * stencil<RANK>(in, {0, 0, +2, +0, 0, 0}) +
+                                           coeff(9) * stencil<RANK>(in, {0, 0, -1, +1, 0, 0}) +
+                                           coeff(10) * stencil<RANK>(in, {0, 0, +0, +1, 0, 0}) +
+                                           coeff(11) * stencil<RANK>(in, {0, 0, +1, +1, 0, 0}) +
+                                           coeff(12) * stencil<RANK>(in, {0, 0, +0, +2, 0, 0});
 
   // actually compute the result
   gt::synchronize();

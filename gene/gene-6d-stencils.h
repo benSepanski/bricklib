@@ -22,7 +22,7 @@ constexpr std::array<unsigned, RANK> BRICK_DIM = {2, 16, 2, 2, 1, 1};
 constexpr std::array<unsigned, RANK> ARAKAWA_COEFF_BRICK_DIM = {
     1, BRICK_DIM[0], BRICK_DIM[2], BRICK_DIM[3], BRICK_DIM[4], BRICK_DIM[5]};
 constexpr unsigned NUM_GHOST_ZONES = 1;
-constexpr std::array<unsigned, RANK> GHOST_ZONE = {2 * NUM_GHOST_ZONES, 0, 2 * NUM_GHOST_ZONES,
+constexpr std::array<unsigned, RANK> GHOST_ZONE = {0, 0, 2 * NUM_GHOST_ZONES,
                                                    2 * NUM_GHOST_ZONES, 0, 0};
 constexpr std::array<unsigned, RANK> PADDING = {
     GHOST_ZONE[0] > 0 ? 2 : 0, GHOST_ZONE[1] > 0 ? 2 : 0, GHOST_ZONE[2] > 0 ? 2 : 0,
@@ -94,10 +94,6 @@ constexpr unsigned max_blocks_per_sm(unsigned max_block_size) {
 // used to copy i derivative coefficients into constant memory
 void copy_i_deriv_coeff(const bElem i_deriv_coeff_host[5]);
 
-// used to copy the iteration order of the grid (for the semi-arakawa kernel (vec))
-void copy_grid_iteration_order(const char * grid_iteration_order_host);
-
-
 // declare cuda kernels
 /**
  * @brief Compute on the non-ghost bricks
@@ -107,10 +103,10 @@ void copy_grid_iteration_order(const char * grid_iteration_order_host);
  * @see copy_i_deriv_coeff
  */
 __global__ void
-ij_deriv_brick_kernel(brick::Array<unsigned, RANK, brick::Padding<>, unsigned> grid,
-                      brick::Array<unsigned, RANK, brick::Padding<>, unsigned> coeffGrid,
-                      FieldBrick_i bIn, FieldBrick_i bOut, PreCoeffBrick bP1, PreCoeffBrick bP2,
-                      bComplexElem *ikj);
+ijDerivBrickKernel(brick::Array<unsigned, RANK, brick::Padding<>, unsigned> grid,
+                   brick::Array<unsigned, RANK, brick::Padding<>, unsigned> coeffGrid,
+                   FieldBrick_i bIn, FieldBrick_i bOut, PreCoeffBrick bP1, PreCoeffBrick bP2,
+                   bComplexElem *ikj);
 
 /**
  * @brief Compute on the non-ghost bricks
@@ -119,8 +115,8 @@ ij_deriv_brick_kernel(brick::Array<unsigned, RANK, brick::Padding<>, unsigned> g
  * @see copy_grid_iteration_order
  */
 __global__ void
-semi_arakawa_brick_kernel(brick::Array<unsigned, RANK, brick::Padding<>, unsigned> grid,
-                          brick::Array<unsigned, RANK, brick::Padding<>, unsigned> coeffGrid,
-                          FieldBrick_kl bIn, FieldBrick_kl bOut, ArakawaCoeffBrick coeff);
+semiArakawaBrickKernel(brick::Array<unsigned, RANK, brick::Padding<>, unsigned> grid,
+                       brick::Array<unsigned, RANK, brick::Padding<>, unsigned> coeffGrid,
+                       FieldBrick_kl bIn, FieldBrick_kl bOut, ArakawaCoeffBrick coeff);
 
 #endif // BRICK_GENE_6D_STENCILS_H

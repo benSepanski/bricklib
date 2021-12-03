@@ -17,7 +17,7 @@ endif()
 find_package(gtensor)
 if(gtensor_FOUND)
     message(STATUS "${PROJECT_NAME}: gtensor found")
-    set(CMAKE_CUDA_FLAGS_DEBUG "-g -G")
+    #set(CMAKE_CUDA_FLAGS_DEBUG "-g -G")
 endif()
 
 include(CheckLanguage)
