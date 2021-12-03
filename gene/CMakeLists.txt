@@ -9,7 +9,7 @@ if(gtensor_FOUND AND CMAKE_CUDA_COMPILER)
                               brick-mpi CUDA::cudart)
 
         set_target_properties(mpi-gene6d
-                PROPERTIES OUTPUT_NAME gene6d)
+                PROPERTIES OUTPUT_NAME mpi-gene6d)
         target_include_directories(mpi-gene6d PUBLIC
                 "${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES}"
                 )
