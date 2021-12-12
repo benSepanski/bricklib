@@ -1,5 +1,5 @@
 #include "assert.h"
-#include "gene-6d-stencils.h"
+#include "gene-6d.h"
 
 constexpr unsigned GB_i = GHOST_ZONE_i / BDIM_i;
 constexpr unsigned GB_j = GHOST_ZONE_j / BDIM_j;
