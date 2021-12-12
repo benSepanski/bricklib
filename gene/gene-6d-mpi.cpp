@@ -24,7 +24,7 @@ typedef brick::MPILayout<FieldBrickDimsType, CommIn_kl> GeneMPILayout;
 
 // global constants set by CLI
 unsigned NUM_EXCHANGES; ///< how many mpi exchanges?
-unsigned NUM_WARMUPS; ///< how many warmup iters?
+unsigned NUM_WARMUPS;   ///< how many warmup iters?
 
 /**
  * @brief build a cartesian communicator
@@ -99,14 +99,19 @@ void timeAndPrintMPIStats(std::function<void(void)> func, GeneMPILayout &mpiLayo
 
   int totalNumIters = NUM_EXCHANGES * NUM_GHOST_ZONES;
   mpi_stats calcTimeStats = mpi_statistics(calctime / totalNumIters, MPI_COMM_WORLD);
-  mpi_stats calcSpeedStats = mpi_statistics(totElems / (double) calctime / 1.0e9 * totalNumIters, MPI_COMM_WORLD);
+  mpi_stats calcSpeedStats =
+      mpi_statistics(totElems / (double)calctime / 1.0e9 * totalNumIters, MPI_COMM_WORLD);
   mpi_stats packTimeStats = mpi_statistics(packtime / totalNumIters, MPI_COMM_WORLD);
-  mpi_stats packSpeedStats = mpi_statistics(totalExchangeSize / 1.0e9 / packtime * totalNumIters, MPI_COMM_WORLD);
+  mpi_stats packSpeedStats =
+      mpi_statistics(totalExchangeSize / 1.0e9 / packtime * totalNumIters, MPI_COMM_WORLD);
   mpi_stats mpiCallTimeStats = mpi_statistics(calltime / totalNumIters, MPI_COMM_WORLD);
   mpi_stats mpiWaitTimeStats = mpi_statistics(waittime / totalNumIters, MPI_COMM_WORLD);
-  mpi_stats mpiSpeedStats = mpi_statistics(totalExchangeSize / 1.0e9 / (calltime + waittime) * totalNumIters, MPI_COMM_WORLD);
-  mpi_stats mpiExchangeSizeStats = mpi_statistics((double)totalExchangeSize * 1.0e-6, MPI_COMM_WORLD);
-  double total = calcTimeStats.avg + mpiWaitTimeStats.avg + mpiCallTimeStats.avg + packTimeStats.avg;
+  mpi_stats mpiSpeedStats = mpi_statistics(
+      totalExchangeSize / 1.0e9 / (calltime + waittime) * totalNumIters, MPI_COMM_WORLD);
+  mpi_stats mpiExchangeSizeStats =
+      mpi_statistics((double)totalExchangeSize * 1.0e-6, MPI_COMM_WORLD);
+  double total =
+      calcTimeStats.avg + mpiWaitTimeStats.avg + mpiCallTimeStats.avg + packTimeStats.avg;
 
   int rank;
   check_MPI(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
@@ -160,53 +165,40 @@ void validateLaunchConfig(dim3 grid, dim3 block) {
  * @param[in] coeffs input coefficients (has ghost-zones)
  * @param[in] mpiLayout the mpi layout
  */
-void semiArakawaDistributedGTensor(complexArray6D out, const complexArray6D in, realArray6D coeffs,
-                                   GeneMPILayout &mpiLayout) {
-  brick::Array<bComplexElem, 6> inWithPadding(
-      {in.extent[0] + 2 * in.PADDING(0), in.extent[1] + 2 * in.PADDING(1),
-       in.extent[2] + 2 * in.PADDING(2), in.extent[3] + 2 * in.PADDING(3),
-       in.extent[4] + 2 * in.PADDING(4), in.extent[5] + 2 * in.PADDING(4)},
-      in.getData());
-  brick::Array<bElem, 6> coeffsWithPadding(
-      {coeffs.extent[1] + 2 * coeffs.PADDING(1), coeffs.extent[0] + 2 * coeffs.PADDING(0),
-       coeffs.extent[2] + 2 * coeffs.PADDING(2), coeffs.extent[3] + 2 * coeffs.PADDING(3),
-       coeffs.extent[4] + 2 * coeffs.PADDING(4), coeffs.extent[5] + 2 * coeffs.PADDING(5)},
-      coeffs.getData());
-  auto shape6D =
-      gt::shape(inWithPadding.extent[0], inWithPadding.extent[1], inWithPadding.extent[2],
-                inWithPadding.extent[3], inWithPadding.extent[4], inWithPadding.extent[5]);
-  auto coeffShape = gt::shape(coeffsWithPadding.extent[1], coeffsWithPadding.extent[0],
-                              coeffsWithPadding.extent[2], coeffsWithPadding.extent[3],
-                              coeffsWithPadding.extent[4], coeffsWithPadding.extent[5]);
-
-  // copy in-arrays to gtensor (stripping off the padding)
-  auto gt_in = gt::empty<gt::complex<bElem>>(shape6D);
-  auto gt_coeff = gt::empty<bElem>(coeffShape);
-#pragma omp parallel for collapse(5)
-  for (unsigned n = 0; n < inWithPadding.extent[5]; ++n) {
-    for (unsigned m = 0; m < inWithPadding.extent[4]; ++m) {
-      for (unsigned l = 0; l < inWithPadding.extent[3]; ++l) {
-        for (unsigned k = 0; k < inWithPadding.extent[2]; ++k) {
-          for (unsigned j = 0; j < inWithPadding.extent[1]; ++j) {
-#pragma omp simd
-            for (unsigned i = 0; i < inWithPadding.extent[0]; ++i) {
-              gt_in(i, j, k, l, m, n) = inWithPadding(i, j, k, l, m, n);
-            }
-          }
-        }
-      }
-    }
-  }
-
-#pragma omp parallel for collapse(5)
-  for (unsigned n = 0; n < coeffsWithPadding.extent[5]; ++n) {
-    for (unsigned m = 0; m < coeffsWithPadding.extent[4]; ++m) {
-      for (unsigned l = 0; l < coeffsWithPadding.extent[3]; ++l) {
-        for (unsigned k = 0; k < coeffsWithPadding.extent[2]; ++k) {
-          for (unsigned j = 0; j < coeffsWithPadding.extent[1]; ++j) {
-#pragma omp simd
-            for (unsigned i = 0; i < coeffsWithPadding.extent[0]; ++i) {
-              gt_coeff(j, i, k, l, m, n) = coeffsWithPadding(i, j, k, l, m, n);
+void semiArakawaDistributedGTensor(complexArray6D out, const complexArray6D in,
+                                   const realArray6D coeffs, GeneMPILayout &mpiLayout) {
+  complexArray6D inCopy(
+      {in.extent[0], in.extent[1], in.extent[2], in.extent[3], in.extent[4], in.extent[5]});
+  inCopy.loadFrom(in);
+  auto shape6D = gt::shape(in.extent[0] + 2 * in.PADDING(0), in.extent[1] + 2 * in.PADDING(1),
+                           in.extent[2] + 2 * in.PADDING(2), in.extent[3] + 2 * in.PADDING(3),
+                           in.extent[4] + 2 * in.PADDING(4), in.extent[5] + 2 * in.PADDING(5));
+  auto coeffShapeWithStencilAxisFirst =
+      gt::shape(coeffs.extent[0] + 2 * in.PADDING(0), coeffs.extent[1] + 2 * in.PADDING(1),
+                coeffs.extent[2] + 2 * in.PADDING(2), coeffs.extent[3] + 2 * in.PADDING(3),
+                coeffs.extent[4] + 2 * in.PADDING(4), coeffs.extent[5] + 2 * in.PADDING(5));
+  auto gt_in = gt::adapt(inCopy.getData().get(), shape6D);
+  auto gt_coeffWithStencilAxisFirst =
+      gt::adapt(coeffs.getData().get(), coeffShapeWithStencilAxisFirst);
+  // reorder axes of coefficients
+  auto coeffShape = gt::shape(coeffShapeWithStencilAxisFirst[1], coeffShapeWithStencilAxisFirst[0],
+                              coeffShapeWithStencilAxisFirst[2], coeffShapeWithStencilAxisFirst[3],
+                              coeffShapeWithStencilAxisFirst[4], coeffShapeWithStencilAxisFirst[5]);
+  gt::gtensor<bElem, 6, gt::space::host> gt_coeff(coeffShape);
+  {
+    using namespace gt::placeholders;
+    gt_coeff.view(_all, _all, _all, _all, _all, _all) =
+        gt::transpose(gt_coeffWithStencilAxisFirst, gt::shape(1, 0, 2, 3, 4, 5));
+    gt::synchronize();
+    // sanity check
+    for(unsigned n =0 ; n < gt_coeff.shape(5); ++n) {
+      for (unsigned m = 0; m < gt_coeff.shape(4); ++m) {
+        for (unsigned l = 0; l < gt_coeff.shape(3); ++l) {
+          for (unsigned k = 0; k < gt_coeff.shape(2); ++k) {
+            for (unsigned j = 0; j < gt_coeff.shape(1); ++j) {
+              for (unsigned i = 0; i < gt_coeff.shape(0); ++i) {
+                assert(gt_coeff(i, j, k, l, m, n) = gt_coeffWithStencilAxisFirst(j, i, k, l, m, n));
+              }
             }
           }
         }
@@ -215,21 +207,20 @@ void semiArakawaDistributedGTensor(complexArray6D out, const complexArray6D in, 
   }
 
   // copy the in-arrays to device
-  auto in_dev = in.allocateOnDevice();
-  gt::gtensor<gt::complex<bElem>, 6, gt::space::device>
-      gt_in_dev = gt::adapt_device((gt::complex<bElem>*) in_dev.getData().get(), shape6D);
-  gt::gtensor<bElem, 6, gt::space::device> gt_coeff_dev = gt::empty_device<bElem>(coeffShape);
-  gt::copy(gt_in, gt_in_dev);
+  auto in_dev = inCopy.allocateOnDevice();
+  inCopy.copyToDevice(in_dev);
+  auto gt_in_dev = gt::adapt_device((gt::complex<bElem> *)in_dev.getData().get(), shape6D);
+  auto gt_coeff_dev = gt::empty_device<bElem>(coeffShape);
   gt::copy(gt_coeff, gt_coeff_dev);
   // declare our out-array
   auto out_dev = out.allocateOnDevice();
-  gt::gtensor<gt::complex<bElem>, 6, gt::space::device>
-      gt_out_dev = gt::adapt_device((gt::complex<bElem>*) out_dev.getData().get(), shape6D);
+  auto gt_out_dev = gt::adapt_device((gt::complex<bElem> *)out_dev.getData().get(), shape6D);
   // set up MPI types for transfer
-  auto complexFieldMPIArrayTypesHandle = mpiLayout.buildArrayTypesHandle(in);
+  auto complexFieldMPIArrayTypesHandle = mpiLayout.buildArrayTypesHandle(inCopy);
 
   // get the gtensor kernel
-  auto gtensorKernel = buildArakawaGTensorKernel<gt::space::device>(gt_in_dev, gt_out_dev, gt_coeff_dev);
+  auto gtensorKernel =
+      buildArakawaGTensorKernel<gt::space::device>(gt_in_dev, gt_out_dev, gt_coeff_dev);
 
   // build a function which computes our stencil
   auto gtensorFunc = [&]() -> void {
@@ -238,13 +229,12 @@ void semiArakawaDistributedGTensor(complexArray6D out, const complexArray6D in, 
     gpuCheck(cudaEventCreate(&c_0));
     gpuCheck(cudaEventCreate(&c_1));
 #if !defined(CUDA_AWARE) || !defined(USE_TYPES)
-    // Copy everything back from device
     double st = omp_get_wtime();
-    gt::copy(gt_in_dev, gt_in);
+    inCopy.copyFromDevice(in_dev); ///< Copy device -> host
     movetime += omp_get_wtime() - st;
-    mpiLayout.exchangeArray(in);
+    mpiLayout.exchangeArray(inCopy); ///< Exchange on host
     st = omp_get_wtime();
-    in.copyToDevice(in_dev);
+    inCopy.copyToDevice(in_dev); ///< Copy host -> device
     movetime += omp_get_wtime() - st;
 #else
     mpiCheckCudaAware();
@@ -259,9 +249,9 @@ void semiArakawaDistributedGTensor(complexArray6D out, const complexArray6D in, 
       if (i + 1 < NUM_GHOST_ZONES) {
         std::cout << "Swapping!" << std::endl;
         // TODO:
-//        std::swap(outWithPaddingPtr_dev, inWithPaddingPtr_dev);
-//        std::swap(inPtr_dev, outPtr_dev);
-//        std::swap(inPtr, outPtr);
+        //        std::swap(outWithPaddingPtr_dev, inWithPaddingPtr_dev);
+        //        std::swap(inPtr_dev, outPtr_dev);
+        //        std::swap(inPtr, outPtr);
       }
     }
     gpuCheck(cudaEventRecord(c_1));
@@ -275,23 +265,31 @@ void semiArakawaDistributedGTensor(complexArray6D out, const complexArray6D in, 
   if (rank == 0)
     std::cout << "gtensor MPI decomp" << std::endl;
   double numNonGhostElements = 1.0;
-  for(unsigned d = 0; d < RANK; ++d) {
+  for (unsigned d = 0; d < RANK; ++d) {
     numNonGhostElements *= in.extent[d] - 2 * GHOST_ZONE[d];
   }
   timeAndPrintMPIStats(gtensorFunc, mpiLayout, numNonGhostElements);
 
   // copy output data back to host
-  auto gt_out = gt::empty<gt::complex<bElem>>(shape6D);
-  gt::copy(gt_out_dev, gt_out);
+  auto gt_out = gt::adapt(out.getData().get(), shape6D);
+  out.copyFromDevice(out_dev);
   // copy data from gtensor back to padded array
-#pragma omp parallel for collapse(5)
+  //#pragma omp parallel for collapse(5)
   for (long n = 0; n < out.extent[5]; ++n) {
     for (long m = 0; m < out.extent[4]; ++m) {
       for (long l = 0; l < out.extent[3]; ++l) {
         for (long k = 0; k < out.extent[2]; ++k) {
           for (long j = 0; j < out.extent[1]; ++j) {
-#pragma omp simd
+            //#pragma omp simd
             for (long i = 0; i < out.extent[0]; ++i) {
+              auto o = out(i, j, k, l, m, n);
+              auto g = gt_out(i + out.PADDING(0), j + out.PADDING(1), k + out.PADDING(2),
+                              l + out.PADDING(3), m + out.PADDING(4), n + out.PADDING(5));
+              assert(o == reinterpret_cast<bComplexElem &>(g));
+              assert(out(i, j, k, l, m, n) ==
+                     reinterpret_cast<bComplexElem &>(
+                         gt_out(i + out.PADDING(0), j + out.PADDING(1), k + out.PADDING(2),
+                                l + out.PADDING(3), m + out.PADDING(4), n + out.PADDING(5))));
               out(i, j, k, l, m, n) = reinterpret_cast<bComplexElem &>(
                   gt_out(i + out.PADDING(0), j + out.PADDING(1), k + out.PADDING(2),
                          l + out.PADDING(3), m + out.PADDING(4), n + out.PADDING(5)));
@@ -453,9 +451,7 @@ trial_iter_count parse_args(std::array<int, RANK> *per_process_domain_size,
   iter_count.num_iters = 100;
   iter_count.num_warmups = 5;
   std::vector<unsigned> tuple;
-  bool read_dom_size = false,
-       read_num_iters = false,
-       read_num_procs_per_dim = false,
+  bool read_dom_size = false, read_num_iters = false, read_num_procs_per_dim = false,
        read_num_warmups = false;
   std::string help_string = "Program options\n"
                             "  -h: show help (this message)\n"
@@ -692,6 +688,20 @@ int main(int argc, char **argv) {
   }
   // initialize my coefficients to random data, and receive coefficients for ghost-zones
   realArray6D coeffs{realArray6D::random(coeffExtentWithGZ)};
+  for(unsigned n =0 ; n < coeffs.extent[5]; ++n) {
+    for(unsigned m = 0; m < coeffs.extent[4]; ++m) {
+      for(unsigned l = 0; l < coeffs.extent[3]; ++l) {
+        for(unsigned k = 0; k < coeffs.extent[2]; ++k) {
+          for(unsigned j = 0; j < coeffs.extent[1]; ++j) {
+            for(unsigned i = 0; i < coeffs.extent[0]; ++i) {
+              coeffs(i, j, k, l, m, n) = k;
+            }
+          }
+        }
+      }
+    }
+  }
+
   if (rank == 0) {
     std::cout << "Beginning coefficient exchange" << std::endl;
   }
@@ -708,6 +718,7 @@ int main(int argc, char **argv) {
     std::cout << "Coefficient exchange complete. Beginning array computation" << std::endl;
   }
   // run array computation
+  mpiLayout.exchangeArray(in);
   semiArakawaDistributedGTensor(array_out, in, coeffs, mpiLayout);
   if (rank == 0) {
     std::cout << "Array computation complete. Beginning bricks computation" << std::endl;
@@ -715,20 +726,24 @@ int main(int argc, char **argv) {
   semiArakawaDistributedBrick(brick_out, in, coeffs, mpiLayout);
 
 // check for correctness
+#ifdef NDEBUG
 #pragma omp parallel for collapse(5)
+#endif
   for (unsigned n = GHOST_ZONE[5]; n < GHOST_ZONE[5] + perProcessExtent[5]; ++n) {
     for (unsigned m = GHOST_ZONE[4]; m < GHOST_ZONE[4] + perProcessExtent[4]; ++m) {
       for (unsigned l = GHOST_ZONE[3]; l < GHOST_ZONE[3] + perProcessExtent[3]; ++l) {
         for (unsigned k = GHOST_ZONE[2]; k < GHOST_ZONE[2] + perProcessExtent[2]; ++k) {
           for (unsigned j = GHOST_ZONE[1]; j < GHOST_ZONE[1] + perProcessExtent[1]; ++j) {
-            // #pragma omp simd
+#ifdef NDEBUG
+#pragma omp simd
+#endif
             for (unsigned i = GHOST_ZONE[0]; i < GHOST_ZONE[0] + perProcessExtent[0]; ++i) {
               std::complex<bElem> arr = array_out(i, j, k, l, m, n);
               std::complex<bElem> bri = brick_out(i, j, k, l, m, n);
               if (std::abs(arr - bri) >= 1e-7) {
                 std::ostringstream error_stream;
-                error_stream << "Mismatch at [" << n << "," << m << "," << l << "," << k << "," << j
-                             << "," << i << "]: "
+                error_stream << "Mismatch at [n,m,l,k,j,i] = [" << n << "," << m << "," << l << ","
+                             << k << "," << j << "," << i << "]: "
                              << "(array) " << arr << " != " << bri << "(brick)" << std::endl;
                 throw std::runtime_error(error_stream.str());
               }

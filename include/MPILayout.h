@@ -379,7 +379,7 @@ public:
   template <typename DataType, typename ArrPadding, typename ArrSizeType,
             typename ArrIndexType>
   void exchangeArray(
-      Array<DataType, RANK, ArrPadding, ArrSizeType, ArrIndexType> arr) {
+      Array<DataType, RANK, ArrPadding, ArrSizeType, ArrIndexType> &arr) {
     validateExtentsMatch(arr);
     std::vector<long> padding;
     padding.reserve(RANK);
