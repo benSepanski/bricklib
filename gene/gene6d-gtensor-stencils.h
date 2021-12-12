@@ -64,37 +64,42 @@ void ij_deriv_gtensor(gt::gtensor<gt::complex<bElem>, 6, Space> in,
 }
 
 /**
- * @brief Compute the k-l 13-point arakawa stencil
+ * @brief Return a function that compute the k-l 13-point arakawa stencil
  */
 template <typename Space>
-void arakawaGTensor(gt::gtensor<gt::complex<bElem>, 6UL, Space> in,
-                    gt::gtensor<gt::complex<bElem>, 6UL, Space> out,
-                    gt::gtensor<bElem, 6UL, Space> arakawaCoeff) {
+auto buildArakawaGTensorKernel(const gt::gtensor<gt::complex<bElem>, 6UL, Space> &in,
+                               gt::gtensor<gt::complex<bElem>, 6UL, Space> &out,
+                               const gt::gtensor<bElem, 6UL, Space> &arakawaCoeff) {
   using namespace gt::placeholders;
-  auto _si = _s(GHOST_ZONE[0] + PADDING[0], -GHOST_ZONE[0] - PADDING[0]),
-       _sj = _s(GHOST_ZONE[1] + PADDING[1], -GHOST_ZONE[1] - PADDING[1]),
-       _sk = _s(GHOST_ZONE[2] + PADDING[2], -GHOST_ZONE[2] - PADDING[2]),
-       _sl = _s(GHOST_ZONE[3] + PADDING[3], -GHOST_ZONE[3] - PADDING[3]),
-       _sm = _s(GHOST_ZONE[4] + PADDING[4], -GHOST_ZONE[4] - PADDING[4]),
-       _sn = _s(GHOST_ZONE[5] + PADDING[5], -GHOST_ZONE[5] - PADDING[5]);
+  auto _si = _s(GHOST_ZONE[0] + PADDING[0], in.shape(0) - GHOST_ZONE[0] - PADDING[0]),
+       _sj = _s(GHOST_ZONE[1] + PADDING[1], in.shape(1) - GHOST_ZONE[1] - PADDING[1]),
+       _sk = _s(GHOST_ZONE[2] + PADDING[2], in.shape(2) - GHOST_ZONE[2] - PADDING[2]),
+       _sl = _s(GHOST_ZONE[3] + PADDING[3], in.shape(3) - GHOST_ZONE[3] - PADDING[3]),
+       _sm = _s(GHOST_ZONE[4] + PADDING[4], in.shape(4) - GHOST_ZONE[4] - PADDING[4]),
+       _sn = _s(GHOST_ZONE[5] + PADDING[5], in.shape(5) - GHOST_ZONE[5] - PADDING[5]);
 
-  auto coeff = [&](int s) { return arakawaCoeff.view(_all, s, _newaxis, _all, _all, _all, _all); };
-  out.view(_si, _sj, _sk, _sl, _sm, _sn) = coeff(0) * stencil<RANK>(in, {0, 0, +0, -2, 0, 0}) +
-                                           coeff(1) * stencil<RANK>(in, {0, 0, -1, -1, 0, 0}) +
-                                           coeff(2) * stencil<RANK>(in, {0, 0, +0, -1, 0, 0}) +
-                                           coeff(3) * stencil<RANK>(in, {0, 0, +1, -1, 0, 0}) +
-                                           coeff(4) * stencil<RANK>(in, {0, 0, -2, +0, 0, 0}) +
-                                           coeff(5) * stencil<RANK>(in, {0, 0, -1, +0, 0, 0}) +
-                                           coeff(6) * stencil<RANK>(in, {0, 0, +0, +0, 0, 0}) +
-                                           coeff(7) * stencil<RANK>(in, {0, 0, +1, +0, 0, 0}) +
-                                           coeff(8) * stencil<RANK>(in, {0, 0, +2, +0, 0, 0}) +
-                                           coeff(9) * stencil<RANK>(in, {0, 0, -1, +1, 0, 0}) +
-                                           coeff(10) * stencil<RANK>(in, {0, 0, +0, +1, 0, 0}) +
-                                           coeff(11) * stencil<RANK>(in, {0, 0, +1, +1, 0, 0}) +
-                                           coeff(12) * stencil<RANK>(in, {0, 0, +0, +2, 0, 0});
+  auto coeff = [&arakawaCoeff](int s) {
+    return arakawaCoeff.view(_all, s, _newaxis, _all, _all, _all, _all);
+  };
+  auto arakawaComputation = [&out, _si, _sj, _sk, _sl, _sm, _sn, coeff, &in]() -> void {
+    out.view(_si, _sj, _sk, _sl, _sm, _sn) = coeff(0) * stencil<RANK>(in, {0, 0, +0, -2, 0, 0}) +
+                                             coeff(1) * stencil<RANK>(in, {0, 0, -1, -1, 0, 0}) +
+                                             coeff(2) * stencil<RANK>(in, {0, 0, +0, -1, 0, 0}) +
+                                             coeff(3) * stencil<RANK>(in, {0, 0, +1, -1, 0, 0}) +
+                                             coeff(4) * stencil<RANK>(in, {0, 0, -2, +0, 0, 0}) +
+                                             coeff(5) * stencil<RANK>(in, {0, 0, -1, +0, 0, 0}) +
+                                             coeff(6) * stencil<RANK>(in, {0, 0, +0, +0, 0, 0}) +
+                                             coeff(7) * stencil<RANK>(in, {0, 0, +1, +0, 0, 0}) +
+                                             coeff(8) * stencil<RANK>(in, {0, 0, +2, +0, 0, 0}) +
+                                             coeff(9) * stencil<RANK>(in, {0, 0, -1, +1, 0, 0}) +
+                                             coeff(10) * stencil<RANK>(in, {0, 0, +0, +1, 0, 0}) +
+                                             coeff(11) * stencil<RANK>(in, {0, 0, +1, +1, 0, 0}) +
+                                             coeff(12) * stencil<RANK>(in, {0, 0, +0, +2, 0, 0});
 
-  // actually compute the result
-  gt::synchronize();
+    // actually compute the result
+    gt::synchronize();
+  };
+  return arakawaComputation;
 }
 
 #endif // BRICK_GENE6D_GTENSOR_STENCILS_H

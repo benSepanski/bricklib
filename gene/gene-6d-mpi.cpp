@@ -24,6 +24,7 @@ typedef brick::MPILayout<FieldBrickDimsType, CommIn_kl> GeneMPILayout;
 
 // global constants set by CLI
 unsigned NUM_EXCHANGES; ///< how many mpi exchanges?
+unsigned NUM_WARMUPS; ///< how many warmup iters?
 
 /**
  * @brief build a cartesian communicator
@@ -80,44 +81,47 @@ MPI_Comm buildCartesianComm(std::array<int, RANK> numProcsPerDim,
  */
 void timeAndPrintMPIStats(std::function<void(void)> func, GeneMPILayout &mpiLayout,
                           double totElems) {
-  // time function
-  int warmup = 5; //<  TODO: read from cmdline
-  int cnt = NUM_EXCHANGES * NUM_GHOST_ZONES;
-  for (int i = 0; i < warmup; ++i)
+  // warmup function
+  for (int i = 0; i < NUM_WARMUPS; ++i) {
     func();
+  }
+
+  // Reset mpi statistics and time the function
   packtime = calltime = waittime = movetime = calctime = 0;
-  double start = omp_get_wtime(), end;
-  for (int i = 0; i < NUM_EXCHANGES; ++i)
+  for (int i = 0; i < NUM_EXCHANGES; ++i) {
     func();
-  end = omp_get_wtime();
+  }
 
-  size_t tsize = 0;
-  for (auto g : mpiLayout.getBrickDecompPtr()->ghost)
-    tsize += g.len * FieldBrick_kl::BRICKSIZE * sizeof(bElem);
+  size_t totalExchangeSize = 0;
+  for (const auto g : mpiLayout.getBrickDecompPtr()->ghost) {
+    totalExchangeSize += g.len * FieldBrick_kl::BRICKSIZE * sizeof(bElem);
+  }
 
-  double total = (end - start) / cnt;
-  mpi_stats calc_s = mpi_statistics(calctime / cnt, MPI_COMM_WORLD);
-  mpi_stats pack_s = mpi_statistics(packtime / cnt, MPI_COMM_WORLD);
-  mpi_stats pspd_s = mpi_statistics(tsize / 1.0e9 / packtime * cnt, MPI_COMM_WORLD);
-  mpi_stats call_s = mpi_statistics(calltime / cnt, MPI_COMM_WORLD);
-  mpi_stats wait_s = mpi_statistics(waittime / cnt, MPI_COMM_WORLD);
-  mpi_stats mspd_s = mpi_statistics(tsize / 1.0e9 / (calltime + waittime) * cnt, MPI_COMM_WORLD);
-  mpi_stats size_s = mpi_statistics((double)tsize * 1.0e-6, MPI_COMM_WORLD);
-  total = calc_s.avg + wait_s.avg + call_s.avg + pack_s.avg;
+  int totalNumIters = NUM_EXCHANGES * NUM_GHOST_ZONES;
+  mpi_stats calcTimeStats = mpi_statistics(calctime / totalNumIters, MPI_COMM_WORLD);
+  mpi_stats calcSpeedStats = mpi_statistics(totElems / (double) calctime / 1.0e9 * totalNumIters, MPI_COMM_WORLD);
+  mpi_stats packTimeStats = mpi_statistics(packtime / totalNumIters, MPI_COMM_WORLD);
+  mpi_stats packSpeedStats = mpi_statistics(totalExchangeSize / 1.0e9 / packtime * totalNumIters, MPI_COMM_WORLD);
+  mpi_stats mpiCallTimeStats = mpi_statistics(calltime / totalNumIters, MPI_COMM_WORLD);
+  mpi_stats mpiWaitTimeStats = mpi_statistics(waittime / totalNumIters, MPI_COMM_WORLD);
+  mpi_stats mpiSpeedStats = mpi_statistics(totalExchangeSize / 1.0e9 / (calltime + waittime) * totalNumIters, MPI_COMM_WORLD);
+  mpi_stats mpiExchangeSizeStats = mpi_statistics((double)totalExchangeSize * 1.0e-6, MPI_COMM_WORLD);
+  double total = calcTimeStats.avg + mpiWaitTimeStats.avg + mpiCallTimeStats.avg + packTimeStats.avg;
 
   int rank;
   check_MPI(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
 
   if (rank == 0) {
-    std::cout << "Arr: " << total << std::endl;
+    std::cout << "Average Per-Process Total Time: " << total << std::endl;
 
-    std::cout << "calc " << calc_s << std::endl;
-    std::cout << "pack " << pack_s << std::endl;
-    std::cout << "  | Pack speed (GB/s): " << pspd_s << std::endl;
-    std::cout << "call " << call_s << std::endl;
-    std::cout << "wait " << wait_s << std::endl;
-    std::cout << "  | MPI size (MB): " << size_s << std::endl;
-    std::cout << "  | MPI speed (GB/s): " << mspd_s << std::endl;
+    std::cout << "calc " << calcTimeStats << std::endl;
+    std::cout << "  | Calc speed (GStencil/s): " << calcSpeedStats << std::endl;
+    std::cout << "pack " << packTimeStats << std::endl;
+    std::cout << "  | Pack speed (GB/s): " << packSpeedStats << std::endl;
+    std::cout << "call " << mpiCallTimeStats << std::endl;
+    std::cout << "wait " << mpiWaitTimeStats << std::endl;
+    std::cout << "  | MPI size (MB): " << mpiExchangeSizeStats << std::endl;
+    std::cout << "  | MPI speed (GB/s): " << mpiSpeedStats << std::endl;
 
     double perf = (double)totElems * 1.0e-9;
     perf = perf / total;
@@ -212,15 +216,20 @@ void semiArakawaDistributedGTensor(complexArray6D out, const complexArray6D in, 
 
   // copy the in-arrays to device
   auto in_dev = in.allocateOnDevice();
-  auto gt_in_dev = gt::adapt_device((gt::complex<bElem>*) in_dev.getData().get(), shape6D);
-  auto gt_coeff_dev = gt::empty_device<bElem>(coeffShape);
+  gt::gtensor<gt::complex<bElem>, 6, gt::space::device>
+      gt_in_dev = gt::adapt_device((gt::complex<bElem>*) in_dev.getData().get(), shape6D);
+  gt::gtensor<bElem, 6, gt::space::device> gt_coeff_dev = gt::empty_device<bElem>(coeffShape);
   gt::copy(gt_in, gt_in_dev);
   gt::copy(gt_coeff, gt_coeff_dev);
   // declare our out-array
   auto out_dev = out.allocateOnDevice();
-  auto gt_out_dev = gt::adapt_device((gt::complex<bElem>*) out_dev.getData().get(), shape6D);
+  gt::gtensor<gt::complex<bElem>, 6, gt::space::device>
+      gt_out_dev = gt::adapt_device((gt::complex<bElem>*) out_dev.getData().get(), shape6D);
   // set up MPI types for transfer
   auto complexFieldMPIArrayTypesHandle = mpiLayout.buildArrayTypesHandle(in);
+
+  // get the gtensor kernel
+  auto gtensorKernel = buildArakawaGTensorKernel<gt::space::device>(gt_in_dev, gt_out_dev, gt_coeff_dev);
 
   // build a function which computes our stencil
   auto gtensorFunc = [&]() -> void {
@@ -243,8 +252,10 @@ void semiArakawaDistributedGTensor(complexArray6D out, const complexArray6D in, 
 #endif
     gpuCheck(cudaEventRecord(c_0));
     for (int i = 0; i < NUM_GHOST_ZONES; ++i) {
-      arakawaGTensor<gt::space::device>(gt_in_dev, gt_out_dev, gt_coeff_dev);
+      gtensorKernel();
+#ifndef NDEBUG
       gpuCheck(cudaPeekAtLastError());
+#endif
       if (i + 1 < NUM_GHOST_ZONES) {
         std::cout << "Swapping!" << std::endl;
         // TODO:
@@ -262,8 +273,12 @@ void semiArakawaDistributedGTensor(complexArray6D out, const complexArray6D in, 
   int rank;
   check_MPI(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
   if (rank == 0)
-    std::cout << "array MPI decomp" << std::endl;
-  timeAndPrintMPIStats(gtensorFunc, mpiLayout, (double)in.numElements);
+    std::cout << "gtensor MPI decomp" << std::endl;
+  double numNonGhostElements = 1.0;
+  for(unsigned d = 0; d < RANK; ++d) {
+    numNonGhostElements *= in.extent[d] - 2 * GHOST_ZONE[d];
+  }
+  timeAndPrintMPIStats(gtensorFunc, mpiLayout, numNonGhostElements);
 
   // copy output data back to host
   auto gt_out = gt::empty<gt::complex<bElem>>(shape6D);
@@ -373,8 +388,10 @@ void semiArakawaDistributedBrick(complexArray6D out, const complexArray6D in, re
     gpuCheck(cudaEventRecord(c_0));
     for (int i = 0; i < NUM_GHOST_ZONES; ++i) {
       semiArakawaBrickKernel<<<cuda_grid_size, cuda_block_size>>>(
-          fieldIndexInStorage_dev, coeffIndexInStorage_dev, bOut_dev, bIn_dev, bCoeff_dev);
+          fieldIndexInStorage_dev, coeffIndexInStorage_dev, bIn_dev, bOut_dev, bCoeff_dev);
+#ifndef NDEBUG
       gpuCheck(cudaPeekAtLastError());
+#endif
       if (i + 1 < NUM_GHOST_ZONES) {
         std::cout << "Swapping!" << std::endl;
         std::swap(bOut_dev, bIn_dev);
@@ -417,6 +434,10 @@ std::vector<unsigned> read_uint_tuple(std::istream &in, char delim = ',') {
   return tuple;
 }
 
+struct trial_iter_count {
+  int num_warmups, num_iters;
+};
+
 /**
  * @brief parse args
  * @param[out] per_process_domain_size the extent in each dimension of the domain
@@ -425,12 +446,17 @@ std::vector<unsigned> read_uint_tuple(std::istream &in, char delim = ',') {
  *
  * @return the number of iterations, with default 100
  */
-unsigned parse_args(std::array<int, RANK> *per_process_domain_size,
-                    std::array<int, RANK> *num_procs_per_dim, std::istream &in) {
+trial_iter_count parse_args(std::array<int, RANK> *per_process_domain_size,
+                            std::array<int, RANK> *num_procs_per_dim, std::istream &in) {
   std::string option_string;
-  unsigned num_iters = 100;
+  trial_iter_count iter_count;
+  iter_count.num_iters = 100;
+  iter_count.num_warmups = 5;
   std::vector<unsigned> tuple;
-  bool read_dom_size = false, read_num_iters = false, read_num_procs_per_dim = false;
+  bool read_dom_size = false,
+       read_num_iters = false,
+       read_num_procs_per_dim = false,
+       read_num_warmups = false;
   std::string help_string = "Program options\n"
                             "  -h: show help (this message)\n"
                             "  Domain size,  in array order contiguous first\n"
@@ -439,6 +465,7 @@ unsigned parse_args(std::array<int, RANK> *per_process_domain_size,
                             "  -p: comma separated Int[6], num process per dimension"
                             "  Benchmark control:\n"
                             "  -I: number of iterations, default 100 \n"
+                            "  -W: number of warmup iterations, default 5\n"
                             "Example usage:\n"
                             "  weak/gene6d -d 70,16,24,48,32,2 -p 1,1,3,1,2,1\n";
   std::ostringstream error_stream;
@@ -477,9 +504,17 @@ unsigned parse_args(std::array<int, RANK> *per_process_domain_size,
       if (read_num_iters) {
         error_stream << "-I option should only be passed once" << std::endl;
       } else {
-        in >> num_iters;
+        in >> iter_count.num_iters;
       }
       read_num_iters = true;
+      break;
+    case 'W':
+      if (read_num_warmups) {
+        error_stream << "-W option should only be passed once" << std::endl;
+      } else {
+        in >> iter_count.num_warmups;
+      }
+      read_num_warmups = true;
       break;
     default:
       error_stream << "Unrecognized option " << option_string << std::endl;
@@ -493,7 +528,7 @@ unsigned parse_args(std::array<int, RANK> *per_process_domain_size,
     error_stream << "Missing -d option" << std::endl << help_string;
     throw std::runtime_error(error_stream.str());
   }
-  return num_iters;
+  return iter_count;
 }
 
 /**
@@ -514,7 +549,9 @@ int main(int argc, char **argv) {
   for (int i = 1; i < argc; ++i) {
     input_stream << argv[i] << " ";
   }
-  NUM_EXCHANGES = parse_args(&perProcessExtent, &numProcsPerDim, input_stream);
+  trial_iter_count iter_count = parse_args(&perProcessExtent, &numProcsPerDim, input_stream);
+  NUM_EXCHANGES = iter_count.num_iters;
+  NUM_WARMUPS = iter_count.num_warmups;
   for (int i = 0; i < RANK; ++i) {
     globalExtent[i] = perProcessExtent[i] * numProcsPerDim[i];
   }
@@ -572,6 +609,7 @@ int main(int argc, char **argv) {
     }
     std::cout << "\n"
               << "Iters Between exchanges : " << NUM_GHOST_ZONES << "\n"
+              << "Num Warmup Exchanges: " << NUM_WARMUPS << "\n"
               << "Num Exchanges : " << NUM_EXCHANGES << std::endl;
   }
 
