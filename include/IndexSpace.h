@@ -325,9 +325,6 @@ public:
     }
 
     inline Iterator operator+(size_t n) const {
-      if(n < 0) {
-        return *this - n;
-      }
       Iterator incremented{*this};
       unsigned d = 0;
       while(n > 0 && d < Rank) {

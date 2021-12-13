@@ -159,9 +159,10 @@ void semiArakawaDistributedGTensor(complexArray6D out, const complexArray6D in,
  * @param[in] in_ptr input data (has ghost-zones and padding)
  * @param[in] coeffs input coefficients (has ghost-zones but no padding)
  * @param[in] mpiLayout the mpi-layout
+ * @param[in] kernelType the kernel type to use
  */
 void semiArakawaDistributedBrick(complexArray6D out, const complexArray6D in, realArray6D coeffs,
-                                 GeneMPILayout &mpiLayout) {
+                                 GeneMPILayout &mpiLayout, BricksArakawaKernelType kernelType) {
   // set up brick-info and storage on host
   brick::BrickLayout<RANK> fieldLayout = mpiLayout.getBrickLayout();
 #ifdef DECOMP_PAGEUNALIGN
@@ -183,7 +184,7 @@ void semiArakawaDistributedBrick(complexArray6D out, const complexArray6D in, re
   BrickedArakawaCoeffArray bCoeffArray(coeffLayout);
   bCoeffArray.loadFrom(coeffs);
 
-  auto arakawaBrickKernel = buildBricksArakawaKernel(fieldLayout, bCoeffArray);
+  auto arakawaBrickKernel = buildBricksArakawaKernel(fieldLayout, bCoeffArray, kernelType);
 
   // set up on device
   bInArray.copyToDevice();
@@ -543,35 +544,21 @@ int main(int argc, char **argv) {
   if (rank == 0) {
     std::cout << "Array computation complete. Beginning bricks computation" << std::endl;
   }
-  semiArakawaDistributedBrick(brick_out, in, coeffs, mpiLayout);
-
-// check for correctness
-#ifdef NDEBUG
-#pragma omp parallel for collapse(5)
-#endif
-  for (unsigned n = GHOST_ZONE[5]; n < GHOST_ZONE[5] + perProcessExtent[5]; ++n) {
-    for (unsigned m = GHOST_ZONE[4]; m < GHOST_ZONE[4] + perProcessExtent[4]; ++m) {
-      for (unsigned l = GHOST_ZONE[3]; l < GHOST_ZONE[3] + perProcessExtent[3]; ++l) {
-        for (unsigned k = GHOST_ZONE[2]; k < GHOST_ZONE[2] + perProcessExtent[2]; ++k) {
-          for (unsigned j = GHOST_ZONE[1]; j < GHOST_ZONE[1] + perProcessExtent[1]; ++j) {
-#ifdef NDEBUG
-#pragma omp simd
-#endif
-            for (unsigned i = GHOST_ZONE[0]; i < GHOST_ZONE[0] + perProcessExtent[0]; ++i) {
-              std::complex<bElem> arr = array_out(i, j, k, l, m, n);
-              std::complex<bElem> bri = brick_out(i, j, k, l, m, n);
-              if (std::abs(arr - bri) >= 1e-7) {
-                std::ostringstream error_stream;
-                error_stream << "Mismatch at [n,m,l,k,j,i] = [" << n << "," << m << "," << l << ","
-                             << k << "," << j << "," << i << "]: "
-                             << "(array) " << arr << " != " << bri << "(brick)" << std::endl;
-                throw std::runtime_error(error_stream.str());
-              }
-            }
-          }
-        }
-      }
-    }
+  std::array<BricksArakawaKernelType, 7> kernelTypes = {  SIMPLE_KLIJMN,
+      OPT_IJKLMN,
+      OPT_IKJLMN,
+      OPT_IKLJMN,
+      OPT_KIJLMN,
+      OPT_KILJMN,
+      OPT_KLIJMN };
+  for(auto kernelType : kernelTypes) {
+    std::cout << "Beginning bricks computation for kernel type " << kernelType << std::endl;
+    semiArakawaDistributedBrick(brick_out, in, coeffs, mpiLayout, kernelType);
+    checkClose(
+        brick_out, array_out,
+        {GHOST_ZONE[0], GHOST_ZONE[1], GHOST_ZONE[2], GHOST_ZONE[3], GHOST_ZONE[4], GHOST_ZONE[5]});
+    // clear out brick to be sure correct values don't propagate through loop
+    brick_out.set(0.0);
   }
 
   check_MPI(MPI_Finalize());

@@ -8,9 +8,11 @@
 #include <iomanip>
 #include <iostream>
 #include <functional>
+#include <string.h>
 
 #include "Array.h"
 #include "BrickedArray.h"
+#include "IndexSpace.h"
 #include "array-mpi.h"
 #include "brick-cuda.h"
 #include "brickcompare.h"
@@ -109,14 +111,86 @@ ijDerivBrickKernel(brick::Array<unsigned, RANK, brick::Padding<>, unsigned> grid
                    FieldBrick_i bIn, FieldBrick_i bOut, PreCoeffBrick bP1, PreCoeffBrick bP2,
                    bComplexElem *ikj);
 
+enum BricksArakawaKernelType {
+  SIMPLE_KLIJMN,
+  OPT_IJKLMN,
+  OPT_IKJLMN,
+  OPT_IKLJMN,
+  OPT_KIJLMN,
+  OPT_KILJMN,
+  OPT_KLIJMN
+};
+
+/**
+ * Easy printing for arakawa kernel type
+ */
+inline std::ostream& operator<<(std::ostream& out, BricksArakawaKernelType kernelType) {
+  switch(kernelType) {
+  case SIMPLE_KLIJMN:
+    out << "Simple KLIJMN";
+    break;
+  case OPT_KLIJMN:
+    out << "Optimized klijmn";
+    break;
+  case OPT_IJKLMN:
+    out << "Optimized ijklmn";
+    break;
+  case OPT_IKJLMN:
+    out << "Optimized ikjlmn";
+    break;
+  case OPT_IKLJMN:
+    out << "Optimized ikljmn";
+    break;
+  case OPT_KIJLMN:
+    out << "Optimized kijlmn";
+    break;
+  case OPT_KILJMN:
+    out << "Optimized kiljmn";
+    break;
+  default:
+    throw std::runtime_error("Unrecognized kernelType");
+  }
+  return out;
+}
+
 /**
  * Build and return a function which, given bricks (bIn_dev, bOut_dev)
  * on the device, computes the arakawa stencil on bIn_dev and stores the
  * result into bOut_dev
  *
+ * @param fieldLayout the layout of field bricks
+ * @param bCoeff the coefficients to use
+ * @param kernelType which kernel to use
+ *
  * @return the function which invokes the kernel
  */
 typedef std::function<void(FieldBrick_kl,FieldBrick_kl)> ArakawaBrickKernel;
-ArakawaBrickKernel buildBricksArakawaKernel(brick::BrickLayout<RANK> fieldLayout, BrickedArakawaCoeffArray bCoeff);
+ArakawaBrickKernel buildBricksArakawaKernel(brick::BrickLayout<RANK> fieldLayout, BrickedArakawaCoeffArray bCoeff, BricksArakawaKernelType kernelType);
+
+// Utility function to check closeness between arrays
+template<typename ArrType1, typename ArrType2>
+void checkClose(ArrType1 arr1, ArrType2 arr2, std::array<unsigned, RANK> ghostZone, double tol = 1.0e-6) {
+  std::array<brick::Interval<unsigned>, RANK> bounds{};
+  static_assert(ArrType1::RANK == RANK, "Mismatch in rank of ArrType1");
+  static_assert(ArrType2::RANK == RANK, "Mismatch in rank of ArrType2");
+  for(unsigned d = 0; d < RANK; ++d) {
+    if(arr1.extent[d] != arr2.extent[d]) {
+      throw std::runtime_error("Extents of arr1 and arr2 don't match");
+    }
+    bounds[d].low = ghostZone[d];
+    bounds[d].high = arr1.extent[d] - ghostZone[d];
+  }
+  brick::IndexSpace<RANK> indexSpace(bounds);
+  for(brick::Index<RANK, unsigned> idx : indexSpace) {
+    auto val1 = arr1(idx.i(), idx.j(), idx.k(), idx.l(), idx.m(), idx.n());
+    auto val2 = arr2(idx.i(), idx.j(), idx.k(), idx.l(), idx.m(), idx.n());
+    auto diff = std::abs((std::complex<bElem>) val1 - (std::complex<bElem>) val2);
+    if(diff >= tol) {
+      std::cerr << "Mismatch at " << idx << ": "
+        << "val1 = " << val1 << " != " << val2 << " = val2" << std::endl;
+      exit(1);
+    }
+  }
+}
 
 #endif // BRICK_GENE_6D_STENCILS_H

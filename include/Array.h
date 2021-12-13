@@ -162,33 +162,38 @@ namespace brick {
     private:
       // private methods
       /**
-       * Computes index. Use getIndex instead since it does extra checks
+       * Computes index. Use getFlatIndex
+       xinstead since it does extra checks
        * when in debug mode.
        *
        * @return index into a 0-rank array
-       * @see getIndex
+       * @see getFlatIndex
+       x
        */
       FORCUDA INLINE
-      SizeType getIndexImpl() const {
+      SizeType getFlatIndexImpl() const {
         return 0;
       }
 
       /**
-       * Computes index. Use getIndex instead since it does extra checks
+       * Computes index. Use getFlatIndex
+       xinstead since it does extra checks
        * when in debug mode.
        *
        * @param headIndex the index
        * @return the true index into the (possibly padded) rank-1 array
-       * @see getIndex
+       * @see getFlatIndex
+       x
        */
       FORCUDA INLINE
-      SizeType getIndexImpl(IndexType headIndex) const {
+      SizeType getFlatIndexImpl(IndexType headIndex) const {
         assert(headIndex < extent[RANK - 1]);
         return PADDING(RANK - 1) + headIndex;
       }
 
       /**
-       * Computes index. Use getIndex instead since it does extra checks
+       * Computes index. Use getFlatIndex
+       xinstead since it does extra checks
        * when in debug mode.
        *
        * @tparam ConvertibleToIndexType a type convertible to IndexType
@@ -196,38 +201,20 @@ namespace brick {
        * @param headOfTailIndices the second index
        * @param tailOfTailIndices remaining indices
        * @return the flat index into the array
-       * @see getIndex
+       * @see getFlatIndex
+       x
        */
       template<typename ... ConvertibleToIndexType>
       FORCUDA INLINE
-      SizeType getIndexImpl(IndexType headIndex,
+      SizeType getFlatIndexImpl(IndexType headIndex,
                             IndexType headOfTailIndices,
                             ConvertibleToIndexType... tailOfTailIndices) const {
         constexpr unsigned d = RANK - (sizeof...(tailOfTailIndices) + 2);
         assert(headIndex < extent[d]);
 
-        SizeType tailOffset = getIndexImpl(headOfTailIndices, tailOfTailIndices...);
+        SizeType tailOffset = getFlatIndexImpl(headOfTailIndices, tailOfTailIndices...);
         return tailOffset * (extent[d] + 2 * PADDING(d)) +
                (PADDING(d) + headIndex);
-      }
-
-      /**
-       * @tparam ConvertibleToIndexType Parameter pack
-       *   convertible to IndexType and of size RANK
-       * @param indices the indices into the array
-       * @return the flat index into the array in memory
-       */
-      template<typename ... ConvertibleToIndexType>
-      FORCUDA INLINE
-      SizeType getIndex(ConvertibleToIndexType... indices) const {
-        static_assert(sizeof...(ConvertibleToIndexType) == RANK,
-                      "Number of indices must match Rank");
-        static_assert(brick::templateutils::All<std::is_convertible<
-                          ConvertibleToIndexType, IndexType>::value...>::value,
-                      "Indices must be convertible to IndexType");
-        SizeType index = getIndexImpl(indices...);
-        assert(index < numElementsWithPadding);
-        return index;
       }
 
       /**
@@ -339,6 +326,25 @@ namespace brick {
         return sharedDataPtr;
       }
 
+      /**
+       * @tparam ConvertibleToIndexType Parameter pack
+       *   convertible to IndexType and of size RANK
+       * @param indices the indices into the array
+       * @return the flat index into the array in memory
+       */
+      template<typename ... ConvertibleToIndexType>
+      FORCUDA INLINE
+      SizeType getFlatIndex(ConvertibleToIndexType... indices) const {
+        static_assert(sizeof...(ConvertibleToIndexType) == RANK,
+                      "Number of indices must match Rank");
+        static_assert(brick::templateutils::All<std::is_convertible<
+                          ConvertibleToIndexType, IndexType>::value...>::value,
+                      "Indices must be convertible to IndexType");
+        SizeType index = getFlatIndexImpl(indices...);
+        assert(index < numElementsWithPadding);
+        return index;
+      }
+
       FORCUDA INLINE
       DataType & atFlatIndex(SizeType flatIndex) {
         return dataPtr[flatIndex];
@@ -352,7 +358,7 @@ namespace brick {
       template<typename ... I>
       FORCUDA INLINE
       DataType& operator()(I ... indices) {
-        SizeType flatIndex = this->getIndex(indices...);
+        SizeType flatIndex = this->getFlatIndex(indices...);
         return this->dataPtr[flatIndex];
       }
 
@@ -364,7 +370,7 @@ namespace brick {
       template<typename ... I>
       FORCUDA INLINE
       DataType get(I ... indices) const {
-        SizeType flatIndex = this->getIndex(indices...);
+        SizeType flatIndex = this->getFlatIndex(indices...);
         return this->dataPtr[flatIndex];
       }
 
