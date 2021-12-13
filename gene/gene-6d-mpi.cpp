@@ -14,10 +14,9 @@
 #include "mpi-cuda-util.h"
 #include <numeric>
 
+#include "gene-6d-gtensor-stencils.h"
 #include "gene-6d-stencils.h"
-#include "gene6d-gtensor-stencils.h"
 #include "mpi-util.h"
-
 
 /**
  * @brief perform semi-arakawa k-l derivative kernel weak-scaling benchmark

@@ -2,8 +2,8 @@
 // Created by Benjamin Sepanski on 12/2/21.
 //
 
-#ifndef BRICK_GENE6D_GTENSOR_STENCILS_H
-#define BRICK_GENE6D_GTENSOR_STENCILS_H
+#ifndef BRICK_GENE_6D_GTENSOR_STENCILS_H
+#define BRICK_GENE_6D_GTENSOR_STENCILS_H
 
 #include "gene-6d-stencils.h"
 #define GTENSOR_DEFAULT_DEVICE_ALLOCATOR(T) gt::device_allocator<T>
@@ -126,4 +126,4 @@ auto buildArakawaGTensorKernel(const gt::gtensor_span<gt::complex<bElem>, 6UL, S
   return arakawaComputation;
 }
 
-#endif // BRICK_GENE6D_GTENSOR_STENCILS_H
+#endif // BRICK_GENE_6D_GTENSOR_STENCILS_H
