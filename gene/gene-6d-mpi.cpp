@@ -372,8 +372,6 @@ int main(int argc, char **argv) {
     check_MPI(MPI_Finalize());
     return 1;
   }
-  // TODO: get per-process extent and number of processors per-dimension from
-  //       cmdline
   std::array<int, RANK> numProcsPerDim{}, globalExtent{}, perProcessExtent{};
   std::stringstream input_stream;
   for (int i = 1; i < argc; ++i) {
