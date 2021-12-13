@@ -140,6 +140,9 @@ void semiArakawaBrickKernelSimple(brick::Array<unsigned, RANK, brick::Padding<>,
 
 
 __constant__ unsigned optimizedSemiArakawaGridIterationOrder[RANK];
+__constant__ unsigned optimizedSemiArakawaFieldBrickGridExtent[RANK];
+__constant__ unsigned optimizedSemiArakawaFieldBrickGridStride[RANK];
+
 
 /**
  * Compute arakawa on all bricks.
@@ -169,27 +172,30 @@ semiArakawaBrickKernelOptimized(brick::Array<unsigned, RANK, brick::Padding<>, u
   {
     // alias the const memory
     const unsigned *const gridIterationOrder = optimizedSemiArakawaGridIterationOrder;
+    const unsigned * const extent = optimizedSemiArakawaFieldBrickGridExtent;
+    const unsigned * const stride = optimizedSemiArakawaFieldBrickGridStride;
 
-    unsigned brickMultiIdx[RANK];
+    unsigned bFieldGridIndex = 0;
+
     const unsigned d0 = gridIterationOrder[0];
-    assert(blockIdx.x < grid.extent[d0]);
-    brickMultiIdx[d0] = blockIdx.x;
+    assert(blockIdx.x < extent[d0]);
+    bFieldGridIndex = blockIdx.x * stride[d0];
     const unsigned d1 = gridIterationOrder[1];
-    assert(blockIdx.y < grid.extent[d1]);
-    brickMultiIdx[d1] = blockIdx.y;
+    assert(blockIdx.y < extent[d1]);
+    bFieldGridIndex += blockIdx.y * stride[d1];
 
     unsigned blockIdxZ = blockIdx.z;
     for (unsigned axis = 2; axis < RANK; ++axis) {
       const unsigned dAxis = gridIterationOrder[axis];
-      brickMultiIdx[dAxis] = (blockIdxZ % grid.extent[dAxis]);
-      blockIdxZ /= grid.extent[dAxis];
+      bFieldGridIndex += (blockIdxZ % extent[dAxis]) * stride[dAxis];
+      blockIdxZ /= extent[dAxis];
     }
     assert(blockIdxZ == 0);
-
-    bFieldIndex = grid.get(brickMultiIdx[0], brickMultiIdx[1], brickMultiIdx[2], brickMultiIdx[3],
-                           brickMultiIdx[4], brickMultiIdx[5]);
-    bCoeffGridIndex = coeffGrid.getFlatIndex(0, brickMultiIdx[0], brickMultiIdx[2], brickMultiIdx[3],
-                                        brickMultiIdx[4], brickMultiIdx[5]);
+    bFieldIndex = grid.atFlatIndex(bFieldGridIndex);
+    // IJKLMN -> IKLMN -> CoefficientAxisIKLMN
+    bCoeffGridIndex =
+        ((bFieldGridIndex % extent[0]) + extent[0] * (bFieldGridIndex / (extent[0] * extent[1]))) *
+        ARAKAWA_STENCIL_SIZE;
   }
 
   unsigned *neighbors = bIn.bInfo->adj[bFieldIndex];
@@ -363,7 +369,16 @@ ArakawaBrickKernel buildBricksArakawaKernel(brick::BrickLayout<RANK> fieldLayout
     };
   }
   else {
+    unsigned fieldBrickGridStride[RANK];
+    fieldBrickGridStride[0] = 1;
+    for(size_t d = 1; d < RANK; ++d) {
+      fieldBrickGridStride[d] = fieldBrickGridStride[d-1] * fieldLayout.indexInStorage.extent[d-1];
+    }
+
     gpuCheck(cudaMemcpyToSymbol(optimizedSemiArakawaGridIterationOrder, iterationOrder.data(), RANK * sizeof(unsigned)));
+    gpuCheck(cudaMemcpyToSymbol(optimizedSemiArakawaFieldBrickGridExtent, fieldLayout.indexInStorage.extent, RANK * sizeof(unsigned)));
+    gpuCheck(cudaMemcpyToSymbol(optimizedSemiArakawaFieldBrickGridStride, fieldBrickGridStride, RANK * sizeof(unsigned)));
+
     arakawaComputation = [=](FieldBrick_kl bIn_dev, FieldBrick_kl bOut_dev) -> void {
       semiArakawaBrickKernelOptimized<< <cuda_grid_size, cuda_block_size>> >(
           fieldIndexInStorage_dev, coeffIndexInStorage_dev, bIn_dev, bOut_dev, bCoeff_dev);
