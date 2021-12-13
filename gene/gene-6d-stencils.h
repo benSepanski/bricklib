@@ -7,6 +7,7 @@
 
 #include <iomanip>
 #include <iostream>
+#include <functional>
 
 #include "Array.h"
 #include "BrickedArray.h"
@@ -109,14 +110,13 @@ ijDerivBrickKernel(brick::Array<unsigned, RANK, brick::Padding<>, unsigned> grid
                    bComplexElem *ikj);
 
 /**
- * @brief Compute on the non-ghost bricks
+ * Build and return a function which, given bricks (bIn_dev, bOut_dev)
+ * on the device, computes the arakawa stencil on bIn_dev and stores the
+ * result into bOut_dev
  *
- * Assumes that grid-size is determined by grid-iteration order
- * @see copy_grid_iteration_order
+ * @return the function which invokes the kernel
  */
-__global__ void
-semiArakawaBrickKernel(brick::Array<unsigned, RANK, brick::Padding<>, unsigned> grid,
-                       brick::Array<unsigned, RANK, brick::Padding<>, unsigned> coeffGrid,
-                       FieldBrick_kl bIn, FieldBrick_kl bOut, ArakawaCoeffBrick coeff);
+typedef std::function<void(FieldBrick_kl,FieldBrick_kl)> ArakawaBrickKernel;
+ArakawaBrickKernel buildBricksArakawaKernel(brick::BrickLayout<RANK> fieldLayout, BrickedArakawaCoeffArray bCoeff);
 
 #endif // BRICK_GENE_6D_STENCILS_H

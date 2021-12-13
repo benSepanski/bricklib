@@ -326,6 +326,13 @@ namespace brick {
         return brickStorage.getHostStorage();
       }
 
+      /**
+       * @return the layout of bricks for this object
+       */
+      const BrickLayout<RANK>& getLayout() const {
+        return this->layout;
+      }
+
 #ifdef __CUDACC__
       /**
        * (non-const b/c the first call may allocate storage on the cuda device)

@@ -130,3 +130,50 @@ void semiArakawaBrickKernel(brick::Array<unsigned, RANK, brick::Padding<>, unsig
        + c(11) * input(1, 1)
        + c(12) * input(0, 2);
 }
+
+void validateLaunchConfig(dim3 grid, dim3 block) {
+  std::ostringstream gridErrorStream;
+  // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#features-and-technical-specifications__technical-specifications-per-compute-capability
+  if (grid.z > 65535) {
+    gridErrorStream << "grid.z = " << grid.z << " should be at most 65535" << std::endl;
+  }
+  if (grid.x > (1U << 31) - 1) {
+    gridErrorStream << "grid.x = " << grid.x << " should be at most " << (1U << 31) - 1
+                    << std::endl;
+  }
+  if (block.x > 1024 || block.y > 1024 || block.z > 64) {
+    gridErrorStream << "block (.x = " << block.x << ", .y = " << block.y << ", .z = " << block.z
+                    << ")"
+                    << " is too large in one or more dimensions." << std::endl;
+  }
+  if (!gridErrorStream.str().empty()) {
+    throw std::runtime_error(gridErrorStream.str());
+  }
+}
+
+
+ArakawaBrickKernel buildBricksArakawaKernel(brick::BrickLayout<RANK> fieldLayout, BrickedArakawaCoeffArray bCoeff) {
+  const unsigned *const brickExtentWithGZ = fieldLayout.indexInStorage.extent;
+  dim3 cuda_grid_size(brickExtentWithGZ[2], brickExtentWithGZ[3],
+                      brickExtentWithGZ[0] * brickExtentWithGZ[1] * brickExtentWithGZ[4] *
+                          brickExtentWithGZ[5]),
+      cuda_block_size(BRICK_DIM[0], BRICK_DIM[1],
+                      FieldBrick_kl::BRICKLEN / BRICK_DIM[0] / BRICK_DIM[1]);
+  validateLaunchConfig(cuda_grid_size, cuda_block_size);
+
+  // Get known parameters to kernel
+  auto fieldIndexInStorage_dev = fieldLayout.indexInStorage.allocateOnDevice();
+  fieldLayout.indexInStorage.copyToDevice(fieldIndexInStorage_dev);
+  auto coeffIndexInStorage_dev = bCoeff.getLayout().indexInStorage.allocateOnDevice();
+  bCoeff.getLayout().indexInStorage.copyToDevice(coeffIndexInStorage_dev);
+  ArakawaCoeffBrick bCoeff_dev = bCoeff.viewBricksOnDevice<NoComm>();
+
+  auto arakawaComputation = [=](FieldBrick_kl bIn_dev, FieldBrick_kl bOut_dev) -> void {
+    semiArakawaBrickKernel<< <cuda_grid_size, cuda_block_size>> >(
+        fieldIndexInStorage_dev, coeffIndexInStorage_dev, bIn_dev, bOut_dev, bCoeff_dev);
+#ifndef NDEBUG
+    gpuCheck(cudaPeekAtLastError());
+#endif
+  };
+  return arakawaComputation;
+}
