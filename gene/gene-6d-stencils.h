@@ -24,9 +24,9 @@ constexpr std::array<unsigned, RANK> ARAKAWA_COEFF_BRICK_DIM = {
 constexpr unsigned NUM_GHOST_ZONES = 1;
 constexpr std::array<unsigned, RANK> GHOST_ZONE = {0, 0, 2 * NUM_GHOST_ZONES,
                                                    2 * NUM_GHOST_ZONES, 0, 0};
-constexpr std::array<unsigned, RANK> PADDING = {0,0,0,0,0,0};
-//    GHOST_ZONE[0] > 0 ? 2 : 0, GHOST_ZONE[1] > 0 ? 2 : 0, GHOST_ZONE[2] > 0 ? 2 : 0,
-//    GHOST_ZONE[3] > 0 ? 2 : 0, GHOST_ZONE[4] > 0 ? 2 : 0, GHOST_ZONE[5] > 0 ? 2 : 0};
+constexpr std::array<unsigned, RANK> PADDING = {
+    GHOST_ZONE[0] > 0 ? 2 : 0, GHOST_ZONE[1] > 0 ? 2 : 0, GHOST_ZONE[2] > 0 ? 2 : 0,
+    GHOST_ZONE[3] > 0 ? 2 : 0, GHOST_ZONE[4] > 0 ? 2 : 0, GHOST_ZONE[5] > 0 ? 2 : 0};
 constexpr unsigned TILE_SIZE = 8;
 constexpr unsigned ARAKAWA_STENCIL_SIZE = 13;
 constexpr unsigned NUM_ELEMENTS_PER_FIELD_BRICK =

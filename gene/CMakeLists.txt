@@ -1,6 +1,6 @@
 if(gtensor_FOUND AND CMAKE_CUDA_COMPILER)
     if(MPI_FOUND)
-        add_executable(mpi-gene6d gene-6d-mpi.cpp gene-6d-stencils.cu)
+        add_executable(mpi-gene6d gene-6d-mpi.cpp gene-6d-stencils.cu mpi-util.cpp)
         target_gtensor_sources(mpi-gene6d PRIVATE gene-6d-mpi.cpp gene6d-gtensor-stencils.h)
         target_link_libraries(mpi-gene6d
                               brick brickhelper

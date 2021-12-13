@@ -2,8 +2,8 @@
 // Created by Benjamin Sepanski on 12/1/21.
 //
 
-#ifndef BRICK_MPI_UTIL_H
-#define BRICK_MPI_UTIL_H
+#ifndef BRICK_CUDA_MPI_UTIL_H
+#define BRICK_CUDA_MPI_UTIL_H
 
 #ifdef NDEBUG
 #define mpiCheckCudaAware()
@@ -30,4 +30,4 @@ void _mpiCheckCudaAware() {
 }
 #endif // NDEBUG
 
-#endif // BRICK_MPI_UTIL_H
+#endif // BRICK_CUDA_MPI_UTIL_H

@@ -12,128 +12,11 @@
  */
 
 #include "mpi-cuda-util.h"
-#include <mpi.h>
 #include <numeric>
 
-#include "MPILayout.h"
 #include "gene-6d-stencils.h"
 #include "gene6d-gtensor-stencils.h"
-
-// useful types
-typedef brick::MPILayout<FieldBrickDimsType, CommIn_kl> GeneMPILayout;
-
-// global constants set by CLI
-unsigned NUM_EXCHANGES; ///< how many mpi exchanges?
-unsigned NUM_WARMUPS;   ///< how many warmup iters?
-
-/**
- * @brief build a cartesian communicator
- *
- * Assumes MPI_Init_thread has already been called.
- *
- * Prints some useful information about the MPI setup.
- *
- * @param[in] numProcsPerDim the number of MPI processes to put in each dimension.
- *                                  Product must match the number of MPI processes.
- * @param[in] perProcessExtent extent in each dimension for each individual MPI processes.
- * @return MPI_comm a cartesian communicator built from MPI_COMM_WORLD
- */
-MPI_Comm buildCartesianComm(std::array<int, RANK> numProcsPerDim,
-                            std::array<int, RANK> perProcessExtent) {
-  // get number of MPI processes and my rank
-  int size, rank;
-  check_MPI(MPI_Comm_size(MPI_COMM_WORLD, &size));
-  check_MPI(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
-
-  // make sure num_procs_per_dim has product to number of processes
-  int prodOfProcsPerDim =
-      std::accumulate(numProcsPerDim.begin(), numProcsPerDim.end(), 1, std::multiplies<size_t>());
-  if (prodOfProcsPerDim != size) {
-    std::ostringstream error_stream;
-    error_stream << "Product of number of processes per dimension is " << prodOfProcsPerDim
-                 << " which does not match number of MPI processes (" << size << ")\n";
-    throw std::runtime_error(error_stream.str());
-  }
-
-  // set up processes on a cartesian communication grid
-  std::array<int, RANK> periodic{};
-  for (int i = 0; i < RANK; ++i) {
-    periodic[i] = true;
-  }
-  bool allowRankReordering = true;
-  MPI_Comm cartesianComm;
-  check_MPI(MPI_Cart_create(MPI_COMM_WORLD, RANK, numProcsPerDim.data(), periodic.data(),
-                            allowRankReordering, &cartesianComm));
-  if (cartesianComm == MPI_COMM_NULL) {
-    throw std::runtime_error("Failure in cartesian comm setup");
-  }
-
-  // return the communicator
-  return cartesianComm;
-}
-
-/**
- * @brief times func and prints stats
- *
- * @param func the func to run
- * @param mpiLayout the MPI layout used
- * @param totElems the number of elements
- */
-void timeAndPrintMPIStats(std::function<void(void)> func, GeneMPILayout &mpiLayout,
-                          double totElems) {
-  // warmup function
-  for (int i = 0; i < NUM_WARMUPS; ++i) {
-    func();
-  }
-
-  // Reset mpi statistics and time the function
-  packtime = calltime = waittime = movetime = calctime = 0;
-  for (int i = 0; i < NUM_EXCHANGES; ++i) {
-    func();
-  }
-
-  size_t totalExchangeSize = 0;
-  for (const auto g : mpiLayout.getBrickDecompPtr()->ghost) {
-    totalExchangeSize += g.len * FieldBrick_kl::BRICKSIZE * sizeof(bElem);
-  }
-
-  int totalNumIters = NUM_EXCHANGES * NUM_GHOST_ZONES;
-  mpi_stats calcTimeStats = mpi_statistics(calctime / totalNumIters, MPI_COMM_WORLD);
-  mpi_stats calcSpeedStats =
-      mpi_statistics(totElems / (double)calctime / 1.0e9 * totalNumIters, MPI_COMM_WORLD);
-  mpi_stats packTimeStats = mpi_statistics(packtime / totalNumIters, MPI_COMM_WORLD);
-  mpi_stats packSpeedStats =
-      mpi_statistics(totalExchangeSize / 1.0e9 / packtime * totalNumIters, MPI_COMM_WORLD);
-  mpi_stats mpiCallTimeStats = mpi_statistics(calltime / totalNumIters, MPI_COMM_WORLD);
-  mpi_stats mpiWaitTimeStats = mpi_statistics(waittime / totalNumIters, MPI_COMM_WORLD);
-  mpi_stats mpiSpeedStats = mpi_statistics(
-      totalExchangeSize / 1.0e9 / (calltime + waittime) * totalNumIters, MPI_COMM_WORLD);
-  mpi_stats mpiExchangeSizeStats =
-      mpi_statistics((double)totalExchangeSize * 1.0e-6, MPI_COMM_WORLD);
-  double total =
-      calcTimeStats.avg + mpiWaitTimeStats.avg + mpiCallTimeStats.avg + packTimeStats.avg;
-
-  int rank;
-  check_MPI(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
-
-  if (rank == 0) {
-    std::cout << "Average Per-Process Total Time: " << total << std::endl;
-
-    std::cout << "calc " << calcTimeStats << std::endl;
-    std::cout << "  | Calc speed (GStencil/s): " << calcSpeedStats << std::endl;
-    std::cout << "pack " << packTimeStats << std::endl;
-    std::cout << "  | Pack speed (GB/s): " << packSpeedStats << std::endl;
-    std::cout << "call " << mpiCallTimeStats << std::endl;
-    std::cout << "wait " << mpiWaitTimeStats << std::endl;
-    std::cout << "  | MPI size (MB): " << mpiExchangeSizeStats << std::endl;
-    std::cout << "  | MPI speed (GB/s): " << mpiSpeedStats << std::endl;
-
-    double perf = (double)totElems * 1.0e-9;
-    perf = perf / total;
-    std::cout << "perf " << perf << " GStencil/s" << std::endl;
-    std::cout << std::endl;
-  }
-}
+#include "mpi-util.h"
 
 void validateLaunchConfig(dim3 grid, dim3 block) {
   std::ostringstream gridErrorStream;
@@ -170,13 +53,13 @@ void semiArakawaDistributedGTensor(complexArray6D out, const complexArray6D in,
   complexArray6D inCopy(
       {in.extent[0], in.extent[1], in.extent[2], in.extent[3], in.extent[4], in.extent[5]});
   inCopy.loadFrom(in);
-  auto shape6D = gt::shape(in.extent[0] + 2 * in.PADDING(0), in.extent[1] + 2 * in.PADDING(1),
-                           in.extent[2] + 2 * in.PADDING(2), in.extent[3] + 2 * in.PADDING(3),
-                           in.extent[4] + 2 * in.PADDING(4), in.extent[5] + 2 * in.PADDING(5));
+  auto shape6D = gt::shape(in.extent[0] + 2 * complexArray6D::PADDING(0), in.extent[1] + 2 * complexArray6D::PADDING(1),
+                           in.extent[2] + 2 * complexArray6D::PADDING(2), in.extent[3] + 2 * complexArray6D::PADDING(3),
+                           in.extent[4] + 2 * complexArray6D::PADDING(4), in.extent[5] + 2 * complexArray6D::PADDING(5));
   auto coeffShapeWithStencilAxisFirst =
-      gt::shape(coeffs.extent[0] + 2 * in.PADDING(0), coeffs.extent[1] + 2 * in.PADDING(1),
-                coeffs.extent[2] + 2 * in.PADDING(2), coeffs.extent[3] + 2 * in.PADDING(3),
-                coeffs.extent[4] + 2 * in.PADDING(4), coeffs.extent[5] + 2 * in.PADDING(5));
+      gt::shape(coeffs.extent[0] + 2 * realArray6D::PADDING(0), coeffs.extent[1] + 2 * realArray6D::PADDING(1),
+                coeffs.extent[2] + 2 * realArray6D::PADDING(2), coeffs.extent[3] + 2 * realArray6D::PADDING(3),
+                coeffs.extent[4] + 2 * realArray6D::PADDING(4), coeffs.extent[5] + 2 * realArray6D::PADDING(5));
   auto gt_in = gt::adapt(inCopy.getData().get(), shape6D);
   auto gt_coeffWithStencilAxisFirst =
       gt::adapt(coeffs.getData().get(), coeffShapeWithStencilAxisFirst);
@@ -190,20 +73,6 @@ void semiArakawaDistributedGTensor(complexArray6D out, const complexArray6D in,
     gt_coeff.view(_all, _all, _all, _all, _all, _all) =
         gt::transpose(gt_coeffWithStencilAxisFirst, gt::shape(1, 0, 2, 3, 4, 5));
     gt::synchronize();
-    // sanity check
-    for(unsigned n =0 ; n < gt_coeff.shape(5); ++n) {
-      for (unsigned m = 0; m < gt_coeff.shape(4); ++m) {
-        for (unsigned l = 0; l < gt_coeff.shape(3); ++l) {
-          for (unsigned k = 0; k < gt_coeff.shape(2); ++k) {
-            for (unsigned j = 0; j < gt_coeff.shape(1); ++j) {
-              for (unsigned i = 0; i < gt_coeff.shape(0); ++i) {
-                assert(gt_coeff(i, j, k, l, m, n) = gt_coeffWithStencilAxisFirst(j, i, k, l, m, n));
-              }
-            }
-          }
-        }
-      }
-    }
   }
 
   // copy the in-arrays to device
@@ -688,19 +557,6 @@ int main(int argc, char **argv) {
   }
   // initialize my coefficients to random data, and receive coefficients for ghost-zones
   realArray6D coeffs{realArray6D::random(coeffExtentWithGZ)};
-  for(unsigned n =0 ; n < coeffs.extent[5]; ++n) {
-    for(unsigned m = 0; m < coeffs.extent[4]; ++m) {
-      for(unsigned l = 0; l < coeffs.extent[3]; ++l) {
-        for(unsigned k = 0; k < coeffs.extent[2]; ++k) {
-          for(unsigned j = 0; j < coeffs.extent[1]; ++j) {
-            for(unsigned i = 0; i < coeffs.extent[0]; ++i) {
-              coeffs(i, j, k, l, m, n) = k;
-            }
-          }
-        }
-      }
-    }
-  }
 
   if (rank == 0) {
     std::cout << "Beginning coefficient exchange" << std::endl;
