@@ -12,6 +12,7 @@
 #include "bricksetup.h"
 #include "template-utils.h"
 
+#include <algorithm>
 #include <tuple>
 #include <utility>
 
@@ -29,8 +30,8 @@ namespace brick {
    *                     until its length is the same as that of BrickDims.
    */
   template<typename DataType, typename BrickDims, typename VectorFolds = Dim<1>,
-           typename = typename brick::templateutils::UnsignedIndexSequence<BrickDims::NUM_DIMS>::type >
-  class BrickedArray;
+          typename = std::make_integer_sequence<unsigned, BrickDims::NUM_DIMS>>
+class BrickedArray;
 
   /**
    * An array stored in bricks
@@ -40,26 +41,22 @@ namespace brick {
    */
   template<typename DataType, unsigned ... BDim, unsigned ... VFold, unsigned ... Range0ToRank>
   class BrickedArray<DataType, Dim<BDim...>, Dim<VFold...>,
-                     brick::templateutils::ParameterPackManipulator<unsigned>::Pack<Range0ToRank...> > {
+                     std::integer_sequence<unsigned, Range0ToRank...> > {
 
     /// Static constants and typedefs
     private:
-      // used to manipulate unsigned template parameter packs
-      using UnsignedPackManip = brick::templateutils::ParameterPackManipulator<unsigned>;
-      template<unsigned ... PackValues>
-      using UnsignedPack = UnsignedPackManip::Pack<PackValues...>;
       static constexpr std::array<bool, sizeof...(BDim)> allFalse{}; //< all false
 
     public:
       // public static constants
       static constexpr unsigned RANK = sizeof...(BDim);
       static constexpr unsigned BRICK_DIMS[sizeof...(BDim)] = {
-        UnsignedPackManip::get<UnsignedPack<BDim...> >(RANK - 1 - Range0ToRank)...
+        std::get<RANK - 1 - Range0ToRank>(std::make_tuple(BDim...))...
       };
       static constexpr unsigned VECTOR_FOLDS[sizeof...(BDim)] = {
-        UnsignedPackManip::getOrDefault<UnsignedPack<VFold...>, 1>(
-              sizeof...(VFold) - 1 - Range0ToRank
-        )...
+          std::get<std::min<unsigned>(RANK - 1 - Range0ToRank, (unsigned) sizeof...(VFold))>(
+              std::make_tuple(VFold..., 1U)
+          )...
       };
       static constexpr unsigned NUM_ELEMENTS_PER_BRICK = brick::templateutils::reduce(std::multiplies<>(), 1U, BDim...);
       static constexpr bool isComplex = std::is_same<DataType, bComplexElem>::value;
@@ -380,8 +377,8 @@ namespace brick {
       }
       static_assert(vfoldDividesBDim<RANK-1>(), "Vector folds must divide brick dimensions");
       // Make sure _Range0ToRank is correct
-      static_assert(std::is_same<brick::templateutils::ParameterPackManipulator<unsigned>::Pack<Range0ToRank...>,
-                                 typename brick::templateutils::UnsignedIndexSequence<sizeof...(BDim)>::type
+      static_assert(std::is_same<std::integer_sequence<unsigned, Range0ToRank...>,
+                                 std::make_integer_sequence<unsigned, sizeof...(BDim)>
                                  >::value,
                     "User should not supply _Range0ToRank template argument");
   };
@@ -391,13 +388,13 @@ namespace brick {
   constexpr unsigned BrickedArray<DataType,
                                   Dim<BDim...>,
                                   Dim<VFold...>,
-                                  brick::templateutils::ParameterPackManipulator<unsigned>::Pack<Range0ToRank...>
+                                  std::integer_sequence<unsigned, Range0ToRank...>
                                   >::BRICK_DIMS[sizeof...(BDim)];
   template<typename DataType, unsigned ... BDim, unsigned ... VFold, unsigned ... Range0ToRank>
   constexpr unsigned BrickedArray<DataType,
                                   Dim<BDim...>,
                                   Dim<VFold...>,
-                                  brick::templateutils::ParameterPackManipulator<unsigned>::Pack<Range0ToRank...>
+                                  std::integer_sequence<unsigned, Range0ToRank...>
                                   >::VECTOR_FOLDS[sizeof...(BDim)];
 }
 

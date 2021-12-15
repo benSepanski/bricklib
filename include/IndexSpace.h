@@ -207,8 +207,7 @@ public:
    * @tparam Range0ToRank automatically supplied to build 0,...,Rank-1
    * @see Iterator
    */
-  template <typename Range0ToRank =
-                typename templateutils::UnsignedIndexSequence<Rank>::type>
+  template <typename Range0ToRank = typename std::make_integer_sequence<unsigned, Rank>>
   class Iterator;
 
   /**
@@ -216,14 +215,11 @@ public:
    * @tparam Range0ToRank automatically supplied: 0,...,Rank-1
    */
   template <unsigned... Range0ToRank>
-  class Iterator<templateutils::ParameterPackManipulator<unsigned>::Pack<
-      Range0ToRank...>> {
+  class Iterator<std::integer_sequence<unsigned, Range0ToRank...>> {
   private:
     static_assert(
-        std::is_same<
-            templateutils::ParameterPackManipulator<unsigned>::Pack<
-                Range0ToRank...>,
-            typename templateutils::UnsignedIndexSequence<Rank>::type>::value,
+        std::is_same<std::integer_sequence<unsigned, Range0ToRank...>,
+                     std::make_integer_sequence<unsigned, Rank>>::value,
         "User should not supply Range0ToRank template type");
     Index<Rank, IndexType> index;
     const Interval<IndexType> bounds[Rank];

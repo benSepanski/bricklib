@@ -11,7 +11,7 @@
 // useful type-defs
 typedef Dim<4, 2, 1> BrickDims;
 typedef brick::Array<int, 3> Array3D;
-typedef brick::BrickedArray<double, BrickDims > BrickedArray3D;
+typedef brick::BrickedArray<double, BrickDims> BrickedArray3D;
 
 /**
  * Test suite for consistency with communication in different
@@ -87,14 +87,14 @@ TYPED_TEST(CopyToCudaTests, BrickToCudaTest) {
   std::array<unsigned, 3> brickGridExtent = {2, 2, 2};
   brick::BrickLayout<3> layout(brickGridExtent);
   BrickedArray3D src(layout), dst(layout);
-  testCopyToCuda<TypeParam>(layout, dst, src);
+  testCopyToCuda<TypeParam, bElem, BrickDims>(layout, dst, src);
 }
 
 TYPED_TEST(CopyToCudaTests, BrickToCudaTest_mmap) {
   std::array<unsigned, 3> brickGridExtent = {2, 2, 2};
   brick::BrickLayout<3> layout(brickGridExtent);
   BrickedArray3D src(layout, nullptr), dst(layout, nullptr);
-  testCopyToCuda<TypeParam>(layout, dst, src);
+  testCopyToCuda<TypeParam, bElem, BrickDims>(layout, dst, src);
 }
 
 TYPED_TEST(CopyToCudaTests, InterleavedBrickToCudaTest) {
@@ -105,5 +105,5 @@ TYPED_TEST(CopyToCudaTests, InterleavedBrickToCudaTest) {
                                   > srcAndDst(layout, 2);
   BrickedArray3D src = std::get<0>(srcAndDst.fields).front(),
                  dst = std::get<0>(srcAndDst.fields).back();
-  testCopyToCuda<TypeParam>(layout, dst, src);
+  testCopyToCuda<TypeParam, bElem, BrickDims>(layout, dst, src);
 }

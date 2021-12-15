@@ -187,12 +187,11 @@ private:
       std::shared_ptr<BrickDecomp<BrickDims, CommunicatingDims>> bDecompPtr,
       const std::array<ExtentDataType, RANK> &arrayExtent,
       const std::array<GhostDepthDataType, RANK> &ghostDepth) {
-    typedef templateutils::ParameterPackManipulator<unsigned> UnsignedPackManip;
-    typedef UnsignedPackManip::Pack<BDims...> BrickDimsPack;
+    constexpr std::array<unsigned, RANK> brickDimsInReverse = { BDims... };
     // return an array holding the grid
     std::array<unsigned, RANK> brickGridExtent{};
     for (unsigned d = 0; d < RANK; ++d) {
-      unsigned brickDim = UnsignedPackManip::get<BrickDimsPack>(RANK - 1 - d);
+      unsigned brickDim = brickDimsInReverse[sizeof...(BDims) - 1 - d];
       if(arrayExtent[d] % brickDim != 0) {
         throw std::runtime_error("arrayExtent not divisible by brick-dimension");
       }

@@ -68,7 +68,7 @@ TYPED_TEST(MPI_CartesianTest3D, CopyToCuda) {
   brick::BrickedArray<bElem, BrickDims> src(layout), dst(layout);
 
   // test the equality
-  testCopyToCuda<CommunicatingDims>(layout, dst, src);
+  testCopyToCuda<CommunicatingDims, bElem, BrickDims>(layout, dst, src);
 }
 
 #if !defined(MPIX_CUDA_AWARE_SUPPORT) || MPIX_CUDA_AWARE_SUPPORT

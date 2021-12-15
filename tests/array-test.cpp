@@ -160,7 +160,7 @@ TYPED_TEST(BasicArrayConsistencyTests, IteratorTest) {
   unsigned numElements = std::accumulate(extent.begin(),
                                          extent.end(),
                                          1,
-                                         std::multiplies<unsigned>());
+                                         std::multiplies<>());
 
   // Check forwards
   Array3D arr(extent);

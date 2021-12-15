@@ -48,7 +48,7 @@ namespace brick {
    */
   template<typename DataType, unsigned Rank, typename Padding = Padding<>,
            typename SizeType = size_t, typename IndexType = unsigned,
-           typename = typename brick::templateutils::UnsignedIndexSequence<Rank>::type>
+           typename = typename std::make_integer_sequence<unsigned, Rank>>
   class Array;
 
   /**
@@ -64,22 +64,15 @@ namespace brick {
   template<typename DataType, unsigned Rank, typename SizeType, typename IndexType,
            unsigned ... PadInEachDim, unsigned ... Range0ToRank>
   class Array<DataType, Rank, Padding<PadInEachDim...>, SizeType, IndexType,
-              brick::templateutils::ParameterPackManipulator<unsigned>::Pack<Range0ToRank...> > {
+              std::integer_sequence<unsigned, Range0ToRank...>> {
     static_assert(Rank == sizeof...(PadInEachDim) || sizeof...(PadInEachDim) == 0,
                   "Padding must be length 0, or of length Rank");
     // Make sure _Range0ToRank is correct
-    static_assert(std::is_same<brick::templateutils::ParameterPackManipulator<unsigned>::Pack<Range0ToRank...>,
-                               typename brick::templateutils::UnsignedIndexSequence<Rank>::type
-                      >::value,
+    static_assert(std::is_same<std::integer_sequence<unsigned, Range0ToRank...>,
+                               std::make_integer_sequence<unsigned, Rank>>::value,
                   "User should not supply _Range0ToRank template argument");
 
     /// typedefs/static constants
-    private:
-      // private typedefs
-      // used to manipulate unsigned templates
-      using UnsignedPackManip = brick::templateutils::ParameterPackManipulator<unsigned>;
-      template<unsigned ... PackValues>
-      using UnsignedPack = UnsignedPackManip::Pack<PackValues...>;
     public:
       // public constexprs
       static constexpr unsigned RANK = Rank;
@@ -89,10 +82,11 @@ namespace brick {
        * @return the padding
        */
       static constexpr unsigned PADDING(unsigned axis) {
-          typedef UnsignedPack<PadInEachDim...> PaddingPack;
-          return UnsignedPackManip::getOrDefault<PaddingPack, 0>(
-                           sizeof...(PadInEachDim) - 1 - axis
-                           );
+          if(axis + 1 >= sizeof...(PadInEachDim) + 1) {  ///< +1 is a hack to avoid "pointless
+            return 0;                                    /// comparison of unsigned with 0" warning
+          }
+          constexpr std::array<unsigned, RANK> paddingArr = {PadInEachDim...};
+          return paddingArr[sizeof...(PadInEachDim) - 1 - axis];
       };
 
     /// static functions
