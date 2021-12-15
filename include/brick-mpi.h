@@ -14,6 +14,7 @@
 #include <cmath>
 #include <iostream>
 #include <mpi.h>
+#include <numeric>
 #include <omp.h>
 #include <unistd.h>
 #include "brick.h"
@@ -369,6 +370,37 @@ public:
    * @param skinlist the layout of the surface area, recommended: skin3d_good
    */
   void initialize(const std::vector<BitSet> &skinlist) {
+    // validate skinlist
+    BitSet unionOfSkinList = std::accumulate(
+        skinlist.begin(), skinlist.end(), BitSet(), [](auto x, auto y) -> auto { return x | y; });
+
+    std::stringstream errorStream;
+    for(long possibleDim = 1; possibleDim <= 31; ++possibleDim) {
+      // If this dimension is included in the skin, the corresponding ghost-depth should be non-zero
+      if(unionOfSkinList.get(possibleDim) || unionOfSkinList.get(-possibleDim)) {
+        if (possibleDim - 1 >= g_depth.size()) {
+          errorStream << "Skinlist includes dimension " << possibleDim << " which is greater than "
+                      << "the rank of this BrickDecomp (" << sizeof...(BDims) << ")";
+          throw std::runtime_error(errorStream.str());
+        } else if (g_depth[possibleDim - 1] <= 0) {
+          errorStream << "Skinlist includes dimension " << possibleDim
+                      << " which has a ghost-depth of 0.";
+          throw std::runtime_error(errorStream.str());
+        }
+      }
+
+      // If one side or the other of this dimension does not appear in any skin, then
+      // the ghost-depth should be zero
+      if(!(unionOfSkinList.get(possibleDim) && unionOfSkinList.get(-possibleDim))) {
+        if(possibleDim - 1< g_depth.size() && g_depth[possibleDim - 1] > 0) {
+          errorStream << "Dimension " << possibleDim << " has a non-zero ghost-depth, but "
+                      << "either " << possibleDim << " or " << -possibleDim << " fails to "
+                      << " appear in the skinlist.";
+          throw std::runtime_error(errorStream.str());
+        }
+      }
+    }
+
     calltime = waittime = 0;
     this->skinlist = skinlist;
 

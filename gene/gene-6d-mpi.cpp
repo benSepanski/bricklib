@@ -511,9 +511,37 @@ int main(int argc, char **argv) {
       bitset.flip(-4);
     }
   }
+
+  // NOTE: Typically there are Dirichlet BCs in the L-dimension, so communication
+  //       does not need to occur on the "left-most" and "right-most" (w.r.t L)
+  //       MPI ranks. Actually implementing this would require us to allow
+  //       bricks to have separately defined ghost and skin lists, since bricks
+  //       currently assumes that the ghosts we receive are the mirror of our skin.
+  //
+  //       Instead, we approximate this behavior by communicating at every rank in L iff
+  //       there are at least 2 ranks with different coordinates along the L axis
+  std::array<unsigned, RANK> fieldMPIExtent{};
+  std::array<unsigned, RANK> fieldMPIGhostZoneDepth{};
+  std::array<unsigned, RANK> coeffMPIExtent{};
+  std::array<unsigned, RANK> coeffMPIGhostZoneDepth{};
+  for(unsigned d = 0; d < RANK; ++d) {
+    fieldMPIExtent[d] = perProcessExtent[d];
+    fieldMPIGhostZoneDepth[d] = GHOST_ZONE[d];
+    coeffMPIExtent[d] = coeffExtent[d];
+    coeffMPIGhostZoneDepth[d] = coeffGhostDepth[d];
+  }
+  if(numProcsPerDim[3] <= 1) {
+    auto set_contains_four = [](BitSet set) -> bool {return set.get(4) || set.get(-4);};
+    skin2d.erase(std::remove_if(skin2d.begin(), skin2d.end(), set_contains_four), skin2d.end());
+    fieldMPIExtent[3] += 2 * fieldMPIGhostZoneDepth[3];
+    fieldMPIGhostZoneDepth[3] = 0;
+    coeffMPIExtent[3] += 2 * coeffMPIGhostZoneDepth[3];
+    coeffMPIGhostZoneDepth[3] = 0;
+  }
+
   // build brick decomp
-  brick::MPILayout<FieldBrickDimsType, CommIn_kl> mpiLayout(cartesianComm, perProcessExtent,
-                                                            GHOST_ZONE, skin2d);
+  brick::MPILayout<FieldBrickDimsType, CommIn_kl> mpiLayout(cartesianComm, fieldMPIExtent,
+                                                            fieldMPIGhostZoneDepth, skin2d);
 
   if (rank == 0) {
     std::cout << "Brick decomposition setup complete. Beginning coefficient setup..." << std::endl;
@@ -524,8 +552,8 @@ int main(int argc, char **argv) {
   if (rank == 0) {
     std::cout << "Beginning coefficient exchange" << std::endl;
   }
-  brick::MPILayout<ArakawaCoeffBrickDimsType, CommIn_kl> coeffMpiLayout(cartesianComm, coeffExtent,
-                                                                        coeffGhostDepth, skin2d);
+  brick::MPILayout<ArakawaCoeffBrickDimsType, CommIn_kl> coeffMpiLayout(cartesianComm, coeffMPIExtent,
+                                                                        coeffMPIGhostZoneDepth, skin2d);
 #if defined(USE_TYPES)
   auto coeffMPIArrayTypesHandle = coeffMpiLayout.buildArrayTypesHandle(coeffs);
   coeffMpiLayout.exchangeArray(coeffs, coeffMPIArrayTypesHandle);
