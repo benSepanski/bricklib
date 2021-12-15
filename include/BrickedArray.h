@@ -61,7 +61,7 @@ namespace brick {
               sizeof...(VFold) - 1 - Range0ToRank
         )...
       };
-      static constexpr unsigned NUM_ELEMENTS_PER_BRICK = brick::templateutils::reduce(templateutils::multiply<unsigned>, 1U, BDim...);
+      static constexpr unsigned NUM_ELEMENTS_PER_BRICK = brick::templateutils::reduce(std::multiplies<>(), 1U, BDim...);
       static constexpr bool isComplex = std::is_same<DataType, bComplexElem>::value;
       
       // public typedefs

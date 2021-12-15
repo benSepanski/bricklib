@@ -29,7 +29,7 @@ struct InterleavedBrickedArrays<Dim<BDims...>,
 private:
   // private constexprs
   static constexpr unsigned NUM_ELEMENTS_PER_BRICK =
-      templateutils::reduce(templateutils::multiply<unsigned>, 1, BDims...);
+      templateutils::reduce(std::multiplies<>(), 1, BDims...);
 public:
   // public constexpr
   static constexpr unsigned Rank = sizeof...(BDims);

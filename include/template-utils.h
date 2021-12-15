@@ -229,21 +229,13 @@ namespace brick {
       return reduce(f, identity, f(first, second), tail...);
     }
 
-    /**
-     * Constexpr multiply (std::multiplies() isn't constexpr until C++14)
-     */
-    template<typename T>
-    constexpr inline T multiply(T x, T y) {
-      return x * y;
-    }
-
     namespace { // Begin anonymous namespace
       /**
        * Implementation of calling f with reversed arguments based on
        * https://gist.github.com/SephDB/a084c2a8cce378b3cdea502c233d2f4a
        */
       template<typename R, typename F, typename Tuple, unsigned ... Range0ToNumArgs>
-      inline R callOnReversedArgs(F &&f, Tuple && args, ParameterPackManipulator<unsigned>::Pack<Range0ToNumArgs...>) {
+      constexpr inline R callOnReversedArgs(F &&f, Tuple && args, ParameterPackManipulator<unsigned>::Pack<Range0ToNumArgs...>) {
         constexpr size_t N = std::tuple_size<Tuple>::value;
         return f(std::get<N - 1 - Range0ToNumArgs>(args)...);
       }
@@ -259,7 +251,7 @@ namespace brick {
      * @return f(argN-1,argN-2,...,arg1,arg0)
      */
     template<typename R, typename F, typename ... ArgTypes>
-    inline R callOnReversedArgs(F &&f, ArgTypes&& ... args) {
+    constexpr inline R callOnReversedArgs(F &&f, ArgTypes&& ... args) {
       return callOnReversedArgs<R>(f, std::forward_as_tuple(args...),
                                    typename UnsignedIndexSequence<(unsigned) sizeof...(ArgTypes)>::type());
     }
