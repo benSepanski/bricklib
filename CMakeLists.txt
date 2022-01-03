@@ -83,6 +83,8 @@ endif ()
 
 option(BRICK_BUILD_TEST "Include various tests as build target" ON)
 
+option(PERLMUTTER "Handle linking issues with perlmutter" OFF)
+
 option(HAS_HMM "Use ATS/HMM for CUDA (not-used)" OFF)
 
 # MacOS doesn't have librt
@@ -139,8 +141,28 @@ include_directories(
 )
 
 if (MPI_FOUND)
+    if(MPI_CXX_HEADER_DIR )
+        set(BRICKS_MPI_INCLUDE_DIR "${MPI_CXX_HEADER_DIR}")
+    else()
+        # Helpful link:
+        # https://centers.hpc.mil/users/advancedTopics/Build_CUDA_src_with_MPI_when_mpih_not_found.html
+        message(STATUS "MPI_CXX_HEADER_DIR not set. Assuming Cray wrapper in use and trying ENV{MPICH_DIR}")
+        if(DEFINED ENV{MPICH_DIR})
+            set(BRICKS_MPI_INCLUDE_DIR "$ENV{MPICH_DIR}/include")
+        else()
+            message(SEND_ERROR "Neither MPI_CXX_HEADER_DIR nor ENV{MPICH_DIR} is set.")
+        endif()
+    endif()
+    message(STATUS "Including directories ${BRICKS_MPI_INCLUDE_DIR}")
     include_directories(
-        ${MPI_CXX_HEADER_DIR}
+        ${BRICKS_MPI_INCLUDE_DIR}
+    )
+endif()
+
+if(PERLMUTTER)
+    # https://docs.nersc.gov/current/ as of Jan 3, 2022
+    include_directories(
+        "$ENV{CRAY_CUDATOOLKIT_DIR}/../../math_libs/11.0/include"
     )
 endif()
 

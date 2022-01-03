@@ -101,10 +101,10 @@ if(gtensor_FOUND)
             )
 endif ()
 
-if(CMAKE_CUDA_COMPILER)
+if(CMAKE_CUDA_COMPILER AND NOT PERLMUTTER )  # TODO: Get cufft_static on PERLMUTTER
     # sample FFT
     add_executable(single-fft fft.cu)
-    if(${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.17")
+    if(${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.17" )
         set_property(TARGET single-fft PROPERTY CUDA_SEPARABLE_COMPILATION ON)
         target_link_libraries(single-fft brickhelper CUDA::cufft_static)
     else()
@@ -127,7 +127,7 @@ if(CMAKE_CUDA_COMPILER)
     # gene-style FFT
     if(gtensor_FOUND)
         add_executable(single-fft-gene-6d fft-gene-6d.cu)
-        if(${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.17")
+        if(${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.17" )
             set_property(TARGET single-fft-gene-6d PROPERTY CUDA_SEPARABLE_COMPILATION ON)
             target_link_libraries(single-fft-gene-6d brickhelper CUDA::cufft_static gtensor::gtensor CUDA::nvToolsExt)
         else()
