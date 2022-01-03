@@ -8,20 +8,9 @@
 unsigned NUM_EXCHANGES; ///< how many mpi exchanges?
 unsigned NUM_WARMUPS;   ///< how many warmup iters?
 
-/**
- * @brief build a cartesian communicator
- *
- * Assumes MPI_Init_thread has already been called.
- *
- * Prints some useful information about the MPI setup.
- *
- * @param[in] numProcsPerDim the number of MPI processes to put in each dimension.
- *                                  Product must match the number of MPI processes.
- * @param[in] perProcessExtent extent in each dimension for each individual MPI processes.
- * @return MPI_comm a cartesian communicator built from MPI_COMM_WORLD
- */
 MPI_Comm buildCartesianComm(std::array<int, RANK> numProcsPerDim,
-                            std::array<int, RANK> perProcessExtent) {
+                            std::array<int, RANK> perProcessExtent,
+                            bool allowRankReordering) {
   // get number of MPI processes and my rank
   int size, rank;
   check_MPI(MPI_Comm_size(MPI_COMM_WORLD, &size));
@@ -42,11 +31,12 @@ MPI_Comm buildCartesianComm(std::array<int, RANK> numProcsPerDim,
   for (int i = 0; i < RANK; ++i) {
     periodic[i] = true;
   }
-  bool allowRankReordering = true;
   MPI_Comm cartesianComm;
   check_MPI(MPI_Cart_create(MPI_COMM_WORLD, RANK, numProcsPerDim.data(), periodic.data(),
                             allowRankReordering, &cartesianComm));
   if (cartesianComm == MPI_COMM_NULL) {
+    std::cerr << "Rank " << rank << " received MPI_COMM_NULL communicator" << "\n";
+    std::cerr << "MPI_COMM_WORLD Size: " << size << "\n";
     throw std::runtime_error("Failure in cartesian comm setup");
   }
 
@@ -54,13 +44,7 @@ MPI_Comm buildCartesianComm(std::array<int, RANK> numProcsPerDim,
   return cartesianComm;
 }
 
-/**
- * @brief times func and prints stats
- *
- * @param func the func to run
- * @param mpiLayout the MPI layout used
- * @param totElems the number of elements
- */
+
 void timeAndPrintMPIStats(std::function<void(void)> func, GeneMPILayout &mpiLayout,
                           double totElems) {
   // warmup function

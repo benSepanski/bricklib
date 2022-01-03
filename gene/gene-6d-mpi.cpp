@@ -442,7 +442,13 @@ int main(int argc, char **argv) {
   }
 
   // build cartesian communicator and setup MEMFD
-  MPI_Comm cartesianComm = buildCartesianComm(numProcsPerDim, perProcessExtent);
+  bool allowRankReordering = false;
+#if defined(OPEN_MPI) && OPEN_MPI
+  // FIXME: Either b/c of MPICH or my Perlmutter environment, allowing
+  //        rank reordering provokes an error on Perlmutter
+  allowRankReordering = true;
+#endif
+  MPI_Comm cartesianComm = buildCartesianComm(numProcsPerDim, perProcessExtent, allowRankReordering);
   MEMFD::setup_prefix("weak-gene-6d-main", rank);
   // get array/brick extents set up for my MPI process (all include ghost-zones)
   std::array<int, RANK> perProcessExtentWithGZ{}, per_process_extent_with_padding{};
