@@ -11,7 +11,9 @@
 #else
 
 #include <mpi.h>
+#if defined(OPEN_MPI) && OPEN_MPI
 #include "mpi-ext.h"
+#endif
 #include <cuda_runtime.h>
 #define mpiCheckCudaAware() _mpiCheckCudaAware()
 
