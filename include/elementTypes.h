@@ -299,3 +299,4 @@ std::ostream &operator<<(std::ostream &out, const bComplexElem& z)
 }
 
 #endif // BRICK_ELEMENT_TYPES_H
+

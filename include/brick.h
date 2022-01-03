@@ -817,3 +817,4 @@ struct BrickIndex<Brick<Dim<BDims...>, Dim<Folds...>, isComplex, CommDims<CommIn
 };
 
 #endif // BRICK_H
+

@@ -21,3 +21,4 @@
 #include "brick-gpu.h"
 
 #endif // BRICK_BRICK_CUDA_H
+
