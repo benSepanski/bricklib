@@ -22,6 +22,7 @@
 // useful constants
 constexpr unsigned RANK = 6;
 constexpr std::array<unsigned, RANK> BRICK_DIM = {2, 16, 2, 2, 1, 1};
+constexpr std::array<unsigned, RANK> BRICK_VECTOR_DIM = {1,1,1,1,1,1};
 constexpr std::array<unsigned, RANK> ARAKAWA_COEFF_BRICK_DIM = {
     1, BRICK_DIM[0], BRICK_DIM[2], BRICK_DIM[3], BRICK_DIM[4], BRICK_DIM[5]};
 constexpr unsigned NUM_GHOST_ZONES = 1;
@@ -51,7 +52,9 @@ typedef Dim<BRICK_DIM[5], BRICK_DIM[4], BRICK_DIM[3], BRICK_DIM[2], BRICK_DIM[0]
 typedef Dim<ARAKAWA_COEFF_BRICK_DIM[5], ARAKAWA_COEFF_BRICK_DIM[4], ARAKAWA_COEFF_BRICK_DIM[3],
             ARAKAWA_COEFF_BRICK_DIM[2], ARAKAWA_COEFF_BRICK_DIM[1], ARAKAWA_COEFF_BRICK_DIM[0]>
     ArakawaCoeffBrickDimsType;
-typedef Dim<1> VectorFoldType;
+typedef Dim<BRICK_VECTOR_DIM[5], BRICK_VECTOR_DIM[4], BRICK_VECTOR_DIM[3], BRICK_VECTOR_DIM[2],
+            BRICK_VECTOR_DIM[1], BRICK_VECTOR_DIM[0]>
+    VectorFoldType;
 typedef CommDims<false, false, false, false, false, true> CommIn_i;
 typedef CommDims<false, false, true, true, false, false> CommIn_kl;
 typedef CommDims<false, false, false, false, false, false> NoComm;
@@ -120,6 +123,31 @@ enum BricksArakawaKernelType {
   OPT_KILJMN,
   OPT_KLIJMN
 };
+
+/**
+ * return kernelType as a string
+ * @param kernelType the kernel type
+ * @return the string of the axis order
+ */
+inline std::string toString(BricksArakawaKernelType kernelType) {
+  switch(kernelType) {
+  case SIMPLE_KLIJMN:
+  case OPT_KLIJMN:
+    return "klijmn";
+  case OPT_IJKLMN:
+    return "ijklmn";
+  case OPT_IKJLMN:
+    return "ikjlmn";
+  case OPT_IKLJMN:
+    return "ikljmn";
+  case OPT_KIJLMN:
+    return "kijlmn";
+  case OPT_KILJMN:
+    return "kiljmn";
+  default:
+    throw std::runtime_error("Unrecognized kernelType");
+  }
+}
 
 /**
  * Easy printing for arakawa kernel type

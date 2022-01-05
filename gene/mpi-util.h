@@ -5,8 +5,9 @@
 #ifndef BRICK_MPI_UTIL_H
 #define BRICK_MPI_UTIL_H
 
-#include "gene-6d-stencils.h"
 #include "MPILayout.h"
+#include "gene-6d-stencils.h"
+#include "util.h"
 #include <functional>
 
 // useful types
@@ -37,11 +38,12 @@ MPI_Comm buildCartesianComm(std::array<int, RANK> numProcsPerDim,
 /**
  * @brief times func and prints stats
  *
- * @param func the func to run
- * @param mpiLayout the MPI layout used
- * @param totElems the number of elements
+ * @param func[in] the func to run
+ * @param mpiLayout[in] the MPI layout used
+ * @param totElems[in] the number of elements
+ * @param csvDataRecorder[out] csv data recorder to record data in (if rank is 0)
  */
 void timeAndPrintMPIStats(std::function<void(void)> func, GeneMPILayout &mpiLayout,
-                          double totElems);
+                          double totElems, CSVDataRecorder &csvDataRecorder);
 
 #endif // BRICK_MPI_UTIL_H

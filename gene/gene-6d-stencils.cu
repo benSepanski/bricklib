@@ -313,30 +313,7 @@ void validateLaunchConfig(dim3 grid, dim3 block) {
 
 ArakawaBrickKernel buildBricksArakawaKernel(brick::BrickLayout<RANK> fieldLayout, BrickedArakawaCoeffArray bCoeff, BricksArakawaKernelType kernelType) {
 
-  std::string iterationOrderString;
-  switch(kernelType) {
-  case SIMPLE_KLIJMN:
-  case OPT_KLIJMN:
-    iterationOrderString = "klijmn";
-    break;
-  case OPT_IJKLMN:
-    iterationOrderString = "ijklmn";
-    break;
-  case OPT_IKJLMN:
-    iterationOrderString = "ikjlmn";
-    break;
-  case OPT_IKLJMN:
-    iterationOrderString = "ikljmn";
-    break;
-  case OPT_KIJLMN:
-    iterationOrderString = "kijlmn";
-    break;
-  case OPT_KILJMN:
-    iterationOrderString = "kiljmn";
-    break;
-  default:
-    throw std::runtime_error("Unrecognized kernelType");
-  }
+  std::string iterationOrderString = toString(kernelType);
   std::array<unsigned, RANK> iterationOrder{};
   for(unsigned d = 0; d < RANK; ++d) {
     iterationOrder[d] = iterationOrderString[d] - 'i';

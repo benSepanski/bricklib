@@ -17,6 +17,7 @@
 #include "gene-6d-gtensor-stencils.h"
 #include "gene-6d-stencils.h"
 #include "mpi-util.h"
+#include "util.h"
 
 /**
  * @brief perform semi-arakawa k-l derivative kernel weak-scaling benchmark
@@ -27,9 +28,11 @@
  * @param[in] in input data (has ghost-zones)
  * @param[in] coeffs input coefficients (has ghost-zones)
  * @param[in] mpiLayout the mpi layout
+ * @param[out] csvDataRecorder records data for CSV output if rank is zero
  */
 void semiArakawaDistributedGTensor(complexArray6D out, const complexArray6D in,
-                                   const realArray6D coeffs, GeneMPILayout &mpiLayout) {
+                                   const realArray6D coeffs, GeneMPILayout &mpiLayout,
+                                   CSVDataRecorder &csvDataRecorder) {
   complexArray6D inCopy(
       {in.extent[0], in.extent[1], in.extent[2], in.extent[3], in.extent[4], in.extent[5]});
   inCopy.loadFrom(in);
@@ -117,7 +120,7 @@ void semiArakawaDistributedGTensor(complexArray6D out, const complexArray6D in,
   for (unsigned d = 0; d < RANK; ++d) {
     numNonGhostElements *= in.extent[d] - 2 * GHOST_ZONE[d];
   }
-  timeAndPrintMPIStats(gtensorFunc, mpiLayout, numNonGhostElements);
+  timeAndPrintMPIStats(gtensorFunc, mpiLayout, numNonGhostElements, csvDataRecorder);
 
   // copy output data back to host
   auto gt_out = gt::adapt(out.getData().get(), shape6D);
@@ -132,16 +135,18 @@ void semiArakawaDistributedGTensor(complexArray6D out, const complexArray6D in,
             //#pragma omp simd
             for (long i = 0; i < out.extent[0]; ++i) {
               auto o = out(i, j, k, l, m, n);
-              auto g = gt_out(i + out.PADDING(0), j + out.PADDING(1), k + out.PADDING(2),
-                              l + out.PADDING(3), m + out.PADDING(4), n + out.PADDING(5));
+              auto g = gt_out(i + complexArray6D::PADDING(0), j + complexArray6D::PADDING(1),
+                              k + complexArray6D::PADDING(2), l + complexArray6D::PADDING(3),
+                              m + complexArray6D::PADDING(4), n + complexArray6D::PADDING(5));
               assert(o == reinterpret_cast<bComplexElem &>(g));
               assert(out(i, j, k, l, m, n) ==
                      reinterpret_cast<bComplexElem &>(
                          gt_out(i + out.PADDING(0), j + out.PADDING(1), k + out.PADDING(2),
                                 l + out.PADDING(3), m + out.PADDING(4), n + out.PADDING(5))));
               out(i, j, k, l, m, n) = reinterpret_cast<bComplexElem &>(
-                  gt_out(i + out.PADDING(0), j + out.PADDING(1), k + out.PADDING(2),
-                         l + out.PADDING(3), m + out.PADDING(4), n + out.PADDING(5)));
+                  gt_out(i + complexArray6D::PADDING(0), j + complexArray6D::PADDING(1),
+                         k + complexArray6D::PADDING(2), l + complexArray6D::PADDING(3),
+                         m + complexArray6D::PADDING(4), n + complexArray6D::PADDING(5)));
             }
           }
         }
@@ -160,9 +165,11 @@ void semiArakawaDistributedGTensor(complexArray6D out, const complexArray6D in,
  * @param[in] coeffs input coefficients (has ghost-zones but no padding)
  * @param[in] mpiLayout the mpi-layout
  * @param[in] kernelType the kernel type to use
+ * @param[out] csvDataRecorder records data for CSV output if rank is zero
  */
 void semiArakawaDistributedBrick(complexArray6D out, const complexArray6D in, realArray6D coeffs,
-                                 GeneMPILayout &mpiLayout, BricksArakawaKernelType kernelType) {
+                                 GeneMPILayout &mpiLayout, BricksArakawaKernelType kernelType,
+                                 CSVDataRecorder &csvDataRecorder) {
   // set up brick-info and storage on host
   brick::BrickLayout<RANK> fieldLayout = mpiLayout.getBrickLayout();
 #ifdef DECOMP_PAGEUNALIGN
@@ -240,125 +247,11 @@ void semiArakawaDistributedBrick(complexArray6D out, const complexArray6D in, re
   check_MPI(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
   if (rank == 0)
     std::cout << "brick MPI decomp" << std::endl;
-  timeAndPrintMPIStats(brickFunc, mpiLayout, (double)in.numElements);
+  timeAndPrintMPIStats(brickFunc, mpiLayout, (double)in.numElements, csvDataRecorder);
 
   // Copy back
   bOutArray.copyFromDevice();
   bOutArray.storeTo(out);
-}
-
-/**
- * @brief Reads a tuple of unsigneds delimited by delim
- *
- * @param in the input stream to read from
- * @param delim the delimiter between unsigneds
- * @return std::vector<unsigned> of the values read in
- */
-std::vector<unsigned> read_uint_tuple(std::istream &in, char delim = ',') {
-  std::vector<unsigned> tuple;
-  unsigned value;
-  do {
-    if (in.peek() == delim)
-      in.get();
-    in >> value;
-    tuple.push_back(value);
-  } while (in.peek() == delim);
-  return tuple;
-}
-
-struct trial_iter_count {
-  int num_warmups, num_iters;
-};
-
-/**
- * @brief parse args
- * @param[out] per_process_domain_size the extent in each dimension of the domain
- * @param[out] num_procs_per_dim the number of processes per dimension
- * @param[in] in input stream to read from
- *
- * @return the number of iterations, with default 100
- */
-trial_iter_count parse_args(std::array<int, RANK> *per_process_domain_size,
-                            std::array<int, RANK> *num_procs_per_dim, std::istream &in) {
-  std::string option_string;
-  trial_iter_count iter_count;
-  iter_count.num_iters = 100;
-  iter_count.num_warmups = 5;
-  std::vector<unsigned> tuple;
-  bool read_dom_size = false, read_num_iters = false, read_num_procs_per_dim = false,
-       read_num_warmups = false;
-  std::string help_string = "Program options\n"
-                            "  -h: show help (this message)\n"
-                            "  Domain size,  in array order contiguous first\n"
-                            "  -d: comma separated Int[6], per-process domain size\n"
-                            "  Num Tasks per dimension, in array order contiguous first\n"
-                            "  -p: comma separated Int[6], num process per dimension"
-                            "  Benchmark control:\n"
-                            "  -I: number of iterations, default 100 \n"
-                            "  -W: number of warmup iterations, default 5\n"
-                            "Example usage:\n"
-                            "  weak/gene6d -d 70,16,24,48,32,2 -p 1,1,3,1,2,1\n";
-  std::ostringstream error_stream;
-  while (in >> option_string) {
-    if (option_string[0] != '-' || option_string.size() != 2) {
-      error_stream << "Unrecognized option " << option_string << std::endl;
-    }
-    if (error_stream.str().size() != 0) {
-      error_stream << help_string;
-      throw std::runtime_error(error_stream.str());
-    }
-    switch (option_string[1]) {
-    case 'd':
-      tuple = read_uint_tuple(in, ',');
-      if (read_dom_size) {
-        error_stream << "-d option should only be passed once" << std::endl;
-      } else if (tuple.size() != RANK) {
-        error_stream << "Expected extent of length " << RANK << ", not " << tuple.size();
-      } else {
-        std::copy(tuple.begin(), tuple.end(), per_process_domain_size->begin());
-      }
-      read_dom_size = true;
-      break;
-    case 'p':
-      tuple = read_uint_tuple(in, ',');
-      if (read_num_procs_per_dim) {
-        error_stream << "-p option should only be passed once" << std::endl;
-      } else if (tuple.size() != RANK) {
-        error_stream << "Expected num procs per dim of length " << RANK << ", not " << tuple.size();
-      } else {
-        std::copy(tuple.begin(), tuple.end(), num_procs_per_dim->begin());
-      }
-      read_num_procs_per_dim = true;
-      break;
-    case 'I':
-      if (read_num_iters) {
-        error_stream << "-I option should only be passed once" << std::endl;
-      } else {
-        in >> iter_count.num_iters;
-      }
-      read_num_iters = true;
-      break;
-    case 'W':
-      if (read_num_warmups) {
-        error_stream << "-W option should only be passed once" << std::endl;
-      } else {
-        in >> iter_count.num_warmups;
-      }
-      read_num_warmups = true;
-      break;
-    default:
-      error_stream << "Unrecognized option " << option_string << std::endl;
-    }
-  }
-  if (!read_num_procs_per_dim) {
-    error_stream << "Missing -p option" << std::endl << help_string;
-    throw std::runtime_error(error_stream.str());
-  }
-  if (!read_dom_size) {
-    error_stream << "Missing -d option" << std::endl << help_string;
-    throw std::runtime_error(error_stream.str());
-  }
-  return iter_count;
 }
 
 /**
@@ -377,19 +270,32 @@ int main(int argc, char **argv) {
   for (int i = 1; i < argc; ++i) {
     input_stream << argv[i] << " ";
   }
-  trial_iter_count iter_count = parse_args(&perProcessExtent, &numProcsPerDim, input_stream);
+  std::string outputFileName;
+  bool appendToFile;
+  trial_iter_count iter_count =
+      parse_args(&perProcessExtent, &numProcsPerDim, &outputFileName, &appendToFile, input_stream);
+
   NUM_EXCHANGES = iter_count.num_iters;
   NUM_WARMUPS = iter_count.num_warmups;
   for (int i = 0; i < RANK; ++i) {
     globalExtent[i] = perProcessExtent[i] * numProcsPerDim[i];
   }
 
-  // Print information about setup (copied from Tuowen Zhao's args.cpp)
+  // Record setup data in CSV
+  CSVDataRecorder dataRecorder;
+
+  // Print information about setup (copied and modified from Tuowen Zhao's args.cpp)
   // https://github.com/CtopCsUtahEdu/bricklib/blob/ef28a307962fe319cd723a589df4ff6fb4a75d18/weak/args.cpp#L133-L144
   int rank, size;
   check_MPI(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
   check_MPI(MPI_Comm_size(MPI_COMM_WORLD, &size));
+  const char dimNames[RANK] = {'i', 'j', 'k', 'l', 'm', 'n'};
   if (rank == 0) {
+    // go ahead and read data if appending to file
+    if(appendToFile) {
+      dataRecorder.readFromFile(outputFileName);
+    }
+
     int numthreads;
 #pragma omp parallel shared(numthreads) default(none)
     numthreads = omp_get_num_threads();
@@ -397,36 +303,48 @@ int main(int argc, char **argv) {
     size_t totElems =
         std::accumulate(globalExtent.begin(), globalExtent.end(), 1, std::multiplies<size_t>());
     int io_col_width = 30;
+    dataRecorder.setDefaultValue("PageSize", page_size);
+    dataRecorder.setDefaultValue("MPISize", size);
+    dataRecorder.setDefaultValue("OpenMPThreads", numthreads);
     std::cout << std::setw(io_col_width) << "Pagesize :" << page_size << "\n"
               << std::setw(io_col_width) << "MPI Processes :" << size << "\n"
               << std::setw(io_col_width) << "OpenMP threads :" << numthreads << "\n"
               << std::setw(io_col_width) << "Domain size (per-process) of :";
     for (int i = 0; i < RANK; ++i) {
       std::cout << std::setw(2) << perProcessExtent[i];
-      if (i < RANK - 1)
+      if (i < RANK - 1) {
         std::cout << " x ";
+      }
+      dataRecorder.setDefaultValue((std::string) "PerProcessExtent_" + dimNames[i], perProcessExtent[i]);
     }
+    dataRecorder.setDefaultValue("TotalNonGhostElements", totElems);
     std::cout << " for a total of " << totElems << " elements " << std::endl
               << std::setw(io_col_width) << "Ghost Zone :";
     size_t totElemsWithGhosts = 1;
     for (int i = 0; i < RANK; ++i) {
       totElemsWithGhosts *= perProcessExtent[i] + 2 * GHOST_ZONE[i];
       std::cout << std::setw(2) << GHOST_ZONE[i];
-      if (i < RANK - 1)
+      if (i < RANK - 1) {
         std::cout << " x ";
+      }
+      dataRecorder.setDefaultValue((std::string) "GhostSize_" + dimNames[i], GHOST_ZONE[i]);
     }
+    dataRecorder.setDefaultValue("TotalElementsWithGhosts", totElemsWithGhosts);
     std::cout << " for a total of " << totElemsWithGhosts << " elements " << std::endl
               << std::setw(io_col_width) << "Array Padding :";
     for (int i = 0; i < RANK; ++i) {
       std::cout << std::setw(2) << PADDING[i];
-      if (i < RANK - 1)
+      if (i < RANK - 1) {
         std::cout << " x ";
+      }
     }
     std::cout << std::endl << std::setw(io_col_width) << "MPI Processes :";
     for (int i = 0; i < RANK; ++i) {
       std::cout << std::setw(2) << numProcsPerDim[i];
-      if (i < RANK - 1)
+      if (i < RANK - 1) {
         std::cout << " x ";
+      }
+      dataRecorder.setDefaultValue((std::string) "MPIGrid_" + dimNames[i], numProcsPerDim[i]);
     }
     std::cout << " for a total of " << size << " processes" << std::endl
               << std::setw(io_col_width) << "Brick Size :";
@@ -435,11 +353,27 @@ int main(int argc, char **argv) {
       if (i < RANK - 1)
         std::cout << " x ";
     }
+    dataRecorder.setDefaultValue("ItersBetweenExchanges", NUM_GHOST_ZONES);
+    dataRecorder.setDefaultValue("NumWarmupExchanges", NUM_WARMUPS);
+    dataRecorder.setDefaultValue("NumExchanges", NUM_EXCHANGES);
     std::cout << "\n"
               << "Iters Between exchanges : " << NUM_GHOST_ZONES << "\n"
               << "Num Warmup Exchanges: " << NUM_WARMUPS << "\n"
               << "Num Exchanges : " << NUM_EXCHANGES << std::endl;
   }
+  // Set some values so we can record things about CUDA-AWARE/MPI_TYPES
+  bool cudaAware = false;
+#ifdef CUDA_AWARE
+  cudaAware = true;
+#endif
+  bool mpiTypes = false;
+#ifdef MPI_TYPES
+  mpiTypes = true;
+#endif
+  bool gtensorMPITypes = mpiTypes;
+  bool gtensorCudaAware = cudaAware & gtensorMPITypes;
+  bool bricksMPITypes = mpiTypes;
+  bool bricksCudaAware = cudaAware;
 
   // build cartesian communicator and setup MEMFD
   bool allowRankReordering = false;
@@ -569,12 +503,26 @@ int main(int argc, char **argv) {
 
   if (rank == 0) {
     std::cout << "Coefficient exchange complete. Beginning array computation" << std::endl;
+    dataRecorder.setDefaultValue("CUDA_AWARE", gtensorCudaAware);
+    dataRecorder.setDefaultValue("MPI_AWARE", gtensorMPITypes);
+    dataRecorder.setDefaultValue("Layout", "array");
+
+    for(unsigned d = 0; d < RANK; ++d) {
+      dataRecorder.setDefaultValue((std::string) "ArrayPadding_" + dimNames[d], PADDING[d]);
+    }
   }
   // run array computation
-  mpiLayout.exchangeArray(in);
-  semiArakawaDistributedGTensor(array_out, in, coeffs, mpiLayout);
+  semiArakawaDistributedGTensor(array_out, in, coeffs, mpiLayout, dataRecorder);
   if (rank == 0) {
     std::cout << "Array computation complete. Beginning bricks computation" << std::endl;
+    dataRecorder.setDefaultValue("CUDA_AWARE", bricksCudaAware);
+    dataRecorder.setDefaultValue("MPI_AWARE", bricksMPITypes);
+    dataRecorder.setDefaultValue("Layout", "bricks");
+    for(unsigned d = 0; d < RANK; ++d) {
+      dataRecorder.unsetDefaultValue((std::string) "ArrayPadding_" + dimNames[d]);
+      dataRecorder.setDefaultValue((std::string) "BrickDim_" + dimNames[d], BRICK_DIM[d]);
+      dataRecorder.setDefaultValue((std::string) "BrickVecDim_" + dimNames[d], BRICK_VECTOR_DIM[d]);
+    }
   }
   std::array<BricksArakawaKernelType, 7> kernelTypes = {  SIMPLE_KLIJMN,
       OPT_IJKLMN,
@@ -584,13 +532,22 @@ int main(int argc, char **argv) {
       OPT_KILJMN,
       OPT_KLIJMN };
   for(auto kernelType : kernelTypes) {
+    if(rank == 0) {
+      dataRecorder.setDefaultValue("OptimizedBrickKernel",kernelType != SIMPLE_KLIJMN);
+      dataRecorder.setDefaultValue("BrickIterationOrder", toString(kernelType));
+    }
     std::cout << "Beginning bricks computation for kernel type " << kernelType << std::endl;
-    semiArakawaDistributedBrick(brick_out, in, coeffs, mpiLayout, kernelType);
+    semiArakawaDistributedBrick(brick_out, in, coeffs, mpiLayout, kernelType, dataRecorder);
     checkClose(
         brick_out, array_out,
         {GHOST_ZONE[0], GHOST_ZONE[1], GHOST_ZONE[2], GHOST_ZONE[3], GHOST_ZONE[4], GHOST_ZONE[5]});
     // clear out brick to be sure correct values don't propagate through loop
     brick_out.set(0.0);
+  }
+
+  // write data
+  if(rank == 0) {
+    dataRecorder.writeToFile(outputFileName);
   }
 
   check_MPI(MPI_Finalize());

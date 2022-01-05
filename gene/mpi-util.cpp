@@ -46,7 +46,7 @@ MPI_Comm buildCartesianComm(std::array<int, RANK> numProcsPerDim,
 
 
 void timeAndPrintMPIStats(std::function<void(void)> func, GeneMPILayout &mpiLayout,
-                          double totElems) {
+                          double totElems, CSVDataRecorder &dataRecorder) {
   // warmup function
   for (int i = 0; i < NUM_WARMUPS; ++i) {
     func();
@@ -83,20 +83,31 @@ void timeAndPrintMPIStats(std::function<void(void)> func, GeneMPILayout &mpiLayo
   check_MPI(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
 
   if (rank == 0) {
+    dataRecorder.newRow();
     std::cout << "Average Per-Process Total Time: " << total << std::endl;
+    dataRecorder.record("AveragePerProcessTotalTime(s)", total);
 
     std::cout << "calc " << calcTimeStats << std::endl;
+    dataRecorder.recordMPIStats("calculationTime(s)", calcTimeStats);
     std::cout << "  | Calc speed (GStencil/s): " << calcSpeedStats << std::endl;
+    dataRecorder.recordMPIStats("calcSpeed(GStencil/s)", calcSpeedStats);
     std::cout << "pack " << packTimeStats << std::endl;
+    dataRecorder.recordMPIStats("packTime(s)", packTimeStats);
     std::cout << "  | Pack speed (GB/s): " << packSpeedStats << std::endl;
+    dataRecorder.recordMPIStats("PackSpeed(GStencil/s)", packSpeedStats);
     std::cout << "call " << mpiCallTimeStats << std::endl;
+    dataRecorder.recordMPIStats("MPICallTime(s)", mpiCallTimeStats);
     std::cout << "wait " << mpiWaitTimeStats << std::endl;
+    dataRecorder.recordMPIStats("MPIWaitTime(s)", mpiWaitTimeStats);
     std::cout << "  | MPI size (MB): " << mpiExchangeSizeStats << std::endl;
+    dataRecorder.recordMPIStats("MPISize(MB)", mpiExchangeSizeStats);
     std::cout << "  | MPI speed (GB/s): " << mpiSpeedStats << std::endl;
+    dataRecorder.recordMPIStats("MPISpeed(GB/s)", mpiSpeedStats);
 
     double perf = (double)totElems * 1.0e-9;
     perf = perf / total;
     std::cout << "perf " << perf << " GStencil/s" << std::endl;
     std::cout << std::endl;
+    dataRecorder.record("TotalPerformance(GStencil/s)", perf);
   }
 }
