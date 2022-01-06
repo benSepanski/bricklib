@@ -459,8 +459,7 @@ int main(int argc, char **argv) {
   //       currently assumes that the ghosts we receive are the mirror of our skin.
   //
   //       Instead, we approximate this behavior by communicating at every rank in L iff
-  //       there are at least 2 ranks with different coordinates along the L axis.
-  //       We handle the K case similarly
+  //       there are at least 2 ranks with different coordinates along the L axis
   std::array<unsigned, RANK> fieldMPIExtent{};
   std::array<unsigned, RANK> fieldMPIGhostZoneDepth{};
   std::array<unsigned, RANK> coeffMPIExtent{};
@@ -471,15 +470,13 @@ int main(int argc, char **argv) {
     coeffMPIExtent[d] = coeffExtent[d];
     coeffMPIGhostZoneDepth[d] = coeffGhostDepth[d];
   }
-  for(unsigned d = 3; d <= 4; ++d) {
-    if (numProcsPerDim[d] <= 1) {
-      auto set_contains_d = [=](BitSet set) -> bool { return set.get(d) || set.get(-d); };
-      skin2d.erase(std::remove_if(skin2d.begin(), skin2d.end(), set_contains_d), skin2d.end());
-      fieldMPIExtent[d] += 2 * fieldMPIGhostZoneDepth[d];
-      fieldMPIGhostZoneDepth[d] = 0;
-      coeffMPIExtent[d] += 2 * coeffMPIGhostZoneDepth[d];
-      coeffMPIGhostZoneDepth[d] = 0;
-    }
+  if(numProcsPerDim[3] <= 1) {
+    auto set_contains_four = [](BitSet set) -> bool {return set.get(4) || set.get(-4);};
+    skin2d.erase(std::remove_if(skin2d.begin(), skin2d.end(), set_contains_four), skin2d.end());
+    fieldMPIExtent[3] += 2 * fieldMPIGhostZoneDepth[3];
+    fieldMPIGhostZoneDepth[3] = 0;
+    coeffMPIExtent[3] += 2 * coeffMPIGhostZoneDepth[3];
+    coeffMPIGhostZoneDepth[3] = 0;
   }
 
   // build brick decomp
