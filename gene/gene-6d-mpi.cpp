@@ -460,6 +460,10 @@ int main(int argc, char **argv) {
   //
   //       Instead, we approximate this behavior by communicating at every rank in L iff
   //       there are at least 2 ranks with different coordinates along the L axis
+  //
+  //       The K axis usually has periodic BCs, so a copy has to occur even when there
+  //       is only one MPI process along the K axis. Thus, we always communicate over K, and rely
+  //       on MPI to perform the copy without doing communication
   std::array<unsigned, RANK> fieldMPIExtent{};
   std::array<unsigned, RANK> fieldMPIGhostZoneDepth{};
   std::array<unsigned, RANK> coeffMPIExtent{};
