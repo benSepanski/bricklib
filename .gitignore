@@ -28,3 +28,6 @@ compile_commands.json
 
 # VS code stuff
 /.vscode
+
+# Generated slurm
+gene/slurm/mpi-gene-perlmutter-*gpus.sh
