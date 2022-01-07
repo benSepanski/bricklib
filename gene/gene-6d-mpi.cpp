@@ -563,6 +563,7 @@ int main(int argc, char **argv) {
       dataRecorder.setDefaultValue("OptimizedBrickKernel",kernelType != SIMPLE_KLIJMN);
       dataRecorder.setDefaultValue("BrickIterationOrder", toString(kernelType));
     }
+    std::cout << "Trying with iteration order " << toString(kernelType) << std::endl;
     semiArakawaDistributedBrick(brickOut, in, coeffs, mpiLayout, kernelType, dataRecorder, numGhostZones);
     checkClose(brickOut, arrayOut, ghostZoneDepth);
     // clear out brick to be sure correct values don't propagate through loop
