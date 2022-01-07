@@ -112,7 +112,6 @@ struct CommunicatingDimsKeyGenerator<CommDims<CommInDim...>> {
  * @tparam Rank the rank of the layout
  */
 template <unsigned Rank> struct BrickLayout {
-  // constexprs and typedefs
 private:
   // private typedefs
   typedef std::unordered_map<
@@ -224,7 +223,7 @@ public:
    */
   template<typename CommunicatingDims>
   explicit BrickLayout(const ArrayType indexInStorage,
-                       std::shared_ptr<BrickInfo<RANK, CommunicatingDims> > brickInfoPtr)
+                       std::shared_ptr<BrickInfo<RANK, CommunicatingDims>> brickInfoPtr)
       : indexInStorage{indexInStorage}, numBricks{brickInfoPtr->nbricks} {
     if(computeNumBricks() > numBricks) {
       throw std::runtime_error("indexInStorage accesses bricks further than brickInfoPtr->nbricks");

@@ -25,24 +25,11 @@ constexpr std::array<unsigned, RANK> BRICK_DIM = {2, 16, 2, 2, 1, 1};
 constexpr std::array<unsigned, RANK> BRICK_VECTOR_DIM = {1,1,1,1,1,1};
 constexpr std::array<unsigned, RANK> ARAKAWA_COEFF_BRICK_DIM = {
     1, BRICK_DIM[0], BRICK_DIM[2], BRICK_DIM[3], BRICK_DIM[4], BRICK_DIM[5]};
-constexpr unsigned NUM_GHOST_ZONES = 1;
-constexpr std::array<unsigned, RANK> GHOST_ZONE = {0, 0, 2 * NUM_GHOST_ZONES,
-                                                   2 * NUM_GHOST_ZONES, 0, 0};
-constexpr std::array<unsigned, RANK> PADDING = {
-    GHOST_ZONE[0] > 0 ? 2 : 0, GHOST_ZONE[1] > 0 ? 2 : 0, GHOST_ZONE[2] > 0 ? 2 : 0,
-    GHOST_ZONE[3] > 0 ? 2 : 0, GHOST_ZONE[4] > 0 ? 2 : 0, GHOST_ZONE[5] > 0 ? 2 : 0};
+constexpr std::array<unsigned, RANK> PADDING = {0,0,2,2,0,0};
 constexpr unsigned TILE_SIZE = 8;
 constexpr unsigned ARAKAWA_STENCIL_SIZE = 13;
 constexpr unsigned NUM_ELEMENTS_PER_FIELD_BRICK =
     BRICK_DIM[0] * BRICK_DIM[1] * BRICK_DIM[2] * BRICK_DIM[3] * BRICK_DIM[4] * BRICK_DIM[5];
-
-// check constants
-static_assert(GHOST_ZONE[0] % BRICK_DIM[0] == 0, "GHOST_ZONE must be a multiple of BRICK_DIM");
-static_assert(GHOST_ZONE[1] % BRICK_DIM[1] == 0, "GHOST_ZONE must be a multiple of BRICK_DIM");
-static_assert(GHOST_ZONE[2] % BRICK_DIM[2] == 0, "GHOST_ZONE must be a multiple of BRICK_DIM");
-static_assert(GHOST_ZONE[3] % BRICK_DIM[3] == 0, "GHOST_ZONE must be a multiple of BRICK_DIM");
-static_assert(GHOST_ZONE[4] % BRICK_DIM[4] == 0, "GHOST_ZONE must be a multiple of BRICK_DIM");
-static_assert(GHOST_ZONE[5] % BRICK_DIM[5] == 0, "GHOST_ZONE must be a multiple of BRICK_DIM");
 
 // useful types
 typedef Dim<BRICK_DIM[5], BRICK_DIM[4], BRICK_DIM[3], BRICK_DIM[2], BRICK_DIM[1], BRICK_DIM[0]>
@@ -213,10 +200,13 @@ void checkClose(ArrType1 arr1, ArrType2 arr2, std::array<unsigned, RANK> ghostZo
     auto val1 = arr1(idx.i(), idx.j(), idx.k(), idx.l(), idx.m(), idx.n());
     auto val2 = arr2(idx.i(), idx.j(), idx.k(), idx.l(), idx.m(), idx.n());
     auto diff = std::abs((std::complex<bElem>) val1 - (std::complex<bElem>) val2);
-    if(diff >= tol) {
-      std::cerr << "Mismatch at " << idx << ": "
+    auto norm1 = std::abs((std::complex<bElem>) val1);
+    auto norm2 = std::abs((std::complex<bElem>) val2);
+    if(diff / (norm1 + norm2) * 2 >= tol) {
+      std::ostringstream errStream;
+      errStream << "Mismatch at " << idx << ": "
         << "val1 = " << val1 << " != " << val2 << " = val2" << std::endl;
-      exit(1);
+      throw std::runtime_error(errStream.str());
     }
   }
 }

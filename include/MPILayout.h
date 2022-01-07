@@ -124,7 +124,7 @@ private:
     check_MPI(MPI_Comm_size(cartesianComm, &size));
     std::array<int, RANK> coordsOfProc{};
     check_MPI(MPI_Cart_coords(cartesianComm, rank, RANK, coordsOfProc.data()));
-    // build brickdecomp
+    // build brickDecomp
     std::shared_ptr<BrickDecompType> brickDecompPtr(new BrickDecompType(
         std::vector<unsigned>(arrayExtent.cbegin(), arrayExtent.cend()),
         std::vector<unsigned>(ghostDepth.cbegin(), ghostDepth.cend())));
@@ -200,10 +200,9 @@ private:
       }
       brickGridExtent[d] = (arrayExtent[d] + 2 * ghostDepth[d]) / brickDim;
     }
-    Array<unsigned, RANK, Padding<>, unsigned, unsigned> indexInStorage(
-        brickGridExtent);
-    initializeGrid<RANK - 1>(indexInStorage.begin(), *bDecompPtr,
-                             brickGridExtent);
+    GridArray indexInStorage(brickGridExtent);
+    typename GridArray::iterator b = indexInStorage.begin();
+    initializeGrid<RANK - 1>(b, *bDecompPtr, brickGridExtent);
 
     std::shared_ptr<BrickInfo<RANK, CommunicatingDims> > brickInfoPtr(
         new BrickInfo<RANK, CommunicatingDims>(bDecompPtr->getBrickInfo()),

@@ -97,13 +97,13 @@ namespace brick {
        * @return an array holding the stride in each dimension
        */
       template<typename ExtentDataType = IndexType>
-      static std::array<SizeType, Rank> computeStride(const std::array<ExtentDataType, Rank> arrExtent) {
+      static std::array<SizeType, Rank+1> computeStride(const std::array<ExtentDataType, Rank> arrExtent) {
         static_assert(std::is_convertible<ExtentDataType, IndexType>::value,
                       "arrExtent data type must be convertible to IndexType");
         SizeType strideInDim = 1;
-        std::array<SizeType, Rank> stride;
+        std::array<SizeType, Rank+1> stride;
         #pragma unroll
-        for(unsigned d = 0; d < Rank; ++d) {
+        for(unsigned d = 0; d < stride.size(); ++d) {
           stride[d] = strideInDim;
           strideInDim *= ((IndexType) arrExtent[d]) + 2 * PADDING(d);
         }
@@ -117,7 +117,7 @@ namespace brick {
        */
       template<typename ExtentDataType = IndexType>
       static SizeType computeNumElements(const std::array<ExtentDataType, Rank> arrExtent) {
-        return Array<DataType, Rank>::computeNumElementsWithPadding(arrExtent);
+        return Array<DataType, Rank, Padding<>, SizeType, IndexType>::computeNumElementsWithPadding(arrExtent);
       }
 
       /**
@@ -149,15 +149,15 @@ namespace brick {
     public:
       // public members
       const IndexType extent[Rank];
-      const SizeType numElements = computeNumElements({extent[Range0ToRank]...}),
-                     numElementsWithPadding = computeNumElementsWithPadding({extent[Range0ToRank]...});
+      const SizeType numElements = computeNumElements({extent[Range0ToRank]...});
+      const SizeType numElementsWithPadding = computeNumElementsWithPadding({extent[Range0ToRank]...});
 
     /// Member methods
     private:
       // private methods
       /**
        * Computes index. Use getFlatIndex
-       xinstead since it does extra checks
+       * instead since it does extra checks
        * when in debug mode.
        *
        * @return index into a 0-rank array
@@ -171,7 +171,7 @@ namespace brick {
 
       /**
        * Computes index. Use getFlatIndex
-       xinstead since it does extra checks
+       * instead since it does extra checks
        * when in debug mode.
        *
        * @param headIndex the index
@@ -187,7 +187,7 @@ namespace brick {
 
       /**
        * Computes index. Use getFlatIndex
-       xinstead since it does extra checks
+       * instead since it does extra checks
        * when in debug mode.
        *
        * @tparam ConvertibleToIndexType a type convertible to IndexType
@@ -232,9 +232,9 @@ namespace brick {
        * @return the new Array object
        */
       template<typename ExtentDataType = IndexType>
-      explicit Array(const std::array<ExtentDataType, RANK> arrExtent)
+      explicit Array(const std::array<ExtentDataType, Rank> arrExtent)
       : sharedDataPtr{(DataType *)aligned_alloc(ALIGN, computeNumElementsWithPadding(arrExtent) * sizeof(DataType)), free}
-      , stride {computeStride(arrExtent)[Range0ToRank]..., computeNumElementsWithPadding(arrExtent)}
+      , stride {computeStride(arrExtent)[Range0ToRank]..., computeStride(arrExtent)[Rank]}
       , extent {(IndexType) arrExtent[Range0ToRank]...}
       {
         static_assert(std::is_convertible<ExtentDataType, IndexType>::value,
@@ -247,7 +247,7 @@ namespace brick {
        * @return the new Array object
        */
       template<typename ExtentDataType = IndexType>
-      explicit Array(const std::array<ExtentDataType, RANK> arrExtent, DataType defaultValue)
+      explicit Array(const std::array<ExtentDataType, Rank> arrExtent, DataType defaultValue)
       : sharedDataPtr{(DataType *)aligned_alloc(ALIGN, computeNumElementsWithPadding(arrExtent) * sizeof(DataType)), free}
       , stride {computeStride(arrExtent)[Range0ToRank]..., computeNumElementsWithPadding(arrExtent)}
       , extent {(IndexType) arrExtent[Range0ToRank]...}
@@ -263,9 +263,9 @@ namespace brick {
        * @param data the data to use
        */
       template<typename ExtentDataType = IndexType>
-      explicit Array(const std::array<ExtentDataType, RANK> arrExtent, std::shared_ptr<DataType> data)
+      explicit Array(const std::array<ExtentDataType, Rank> arrExtent, std::shared_ptr<DataType> data)
       : sharedDataPtr{data}
-      , stride {computeStride(arrExtent)[Range0ToRank]..., computeNumElementsWithPadding(arrExtent)}
+      , stride {computeStride(arrExtent)[Range0ToRank]..., computeStride(arrExtent)[Rank]}
       , extent {(IndexType) arrExtent[Range0ToRank]...}
       {
         static_assert(std::is_convertible<ExtentDataType, IndexType>::value,
@@ -298,7 +298,7 @@ namespace brick {
         auto r = std::get<std::is_same<bElem, DataType>::value ? 0 : 1>(randomArrayGenerators);
         std::shared_ptr<DataType> randomData(
             r({(((IndexType) arrExtent[Range0ToRank]) + 2 * PADDING(Range0ToRank))...}),
-            free);
+            [](void *p) -> void {free(p);});
         return Array(arrExtent, randomData);
       }
 
@@ -430,8 +430,8 @@ namespace brick {
                                             Array>::type ArrayType;
         /// Attributes and methods
         private:
-          SizeType flatIndex;
           ArrayType *array;
+          SizeType flatIndex;
 
         public:
           using iterator_category IF_CUDA_ELSE( ,__attribute__((unused))) = std::bidirectional_iterator_tag;
@@ -441,7 +441,7 @@ namespace brick {
           using reference = T&;
 
           FORCUDA INLINE
-          explicit Iterator(ArrayType *arr)
+          explicit Iterator(ArrayType * arr)
           : array{arr}
           , flatIndex{arr->computePaddingOnBoundary()}
           { }
@@ -454,9 +454,7 @@ namespace brick {
 
           FORCUDA INLINE
           Iterator(const Iterator &that)
-          {
-            *this = that;
-          }
+              : array{that.array}, flatIndex{that.flatIndex} {}
 
           FORCUDA INLINE
           Iterator& operator=(const Iterator &that) {

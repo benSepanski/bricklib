@@ -21,16 +21,18 @@ struct trial_iter_count {
 
 /**
  * @brief parse args
- * @param[out] per_process_domain_size the extent in each dimension of the domain
- * @param[out] num_procs_per_dim the number of processes per dimension
+ * @param[out] perProcessDomainSize the extent in each dimension of the domain
+ * @param[out] numProcsPerDim the number of processes per dimension
+ * @param[out] numGhostZones the number of ghost zones to use
  * @param[out] outputFileName the output file to write to
  * @param[out] appendToFile true if the file should be appended to
  * @param[in] in input stream to read from
  *
  * @return the number of iterations, with default 100
  */
-trial_iter_count parse_args(std::array<int, RANK> *per_process_domain_size,
-                            std::array<int, RANK> *num_procs_per_dim,
+trial_iter_count parse_args(std::array<int, RANK> *perProcessDomainSize,
+                            std::array<int, RANK> *numProcsPerDim,
+                            int *numGhostZones,
                             std::string *outputFileName,
                             bool *appendToFile,
                             std::istream &in);
@@ -46,7 +48,7 @@ private:
    * @param s the string to conver to lower
    * @return the lowercase string
    */
-  std::string toLower(const std::string &s);
+  static std::string toLower(const std::string &s);
 
   /**
    * Insert value into current row
@@ -118,7 +120,7 @@ public:
    * @param separator the file separator
    * @param naString the string to indicate a missing value
    */
-  void readFromFile(std::string fileName, char separator = ',', std::string naString = "NA");
+  void readFromFile(const std::string& fileName, char separator = ',', const std::string& naString = "NA");
 
   /**
    * Write the CSV out to a file. Overwrites a file if present.
@@ -127,7 +129,7 @@ public:
    * @param separator the separator to use between columns
    * @param naString the string to use for missing values
    */
-  void writeToFile(std::string fileName, char separator = ',', std::string naString = "NA");
+  void writeToFile(const std::string& fileName, char separator = ',', const std::string& naString = "NA");
 };
 
 #endif // BRICK_GENE_UTIL_H

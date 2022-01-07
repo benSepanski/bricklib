@@ -41,9 +41,10 @@ MPI_Comm buildCartesianComm(std::array<int, RANK> numProcsPerDim,
  * @param func[in] the func to run
  * @param mpiLayout[in] the MPI layout used
  * @param totElems[in] the number of elements
+ * @param numGhostZones[in] number of ghost zones
  * @param csvDataRecorder[out] csv data recorder to record data in (if rank is 0)
  */
 void timeAndPrintMPIStats(std::function<void(void)> func, GeneMPILayout &mpiLayout,
-                          double totElems, CSVDataRecorder &csvDataRecorder);
+                          double totElems, unsigned numGhostZones, CSVDataRecorder &csvDataRecorder);
 
 #endif // BRICK_MPI_UTIL_H

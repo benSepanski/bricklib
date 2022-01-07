@@ -311,7 +311,9 @@ void validateLaunchConfig(dim3 grid, dim3 block) {
   }
 }
 
-ArakawaBrickKernel buildBricksArakawaKernel(brick::BrickLayout<RANK> fieldLayout, BrickedArakawaCoeffArray bCoeff, BricksArakawaKernelType kernelType) {
+ArakawaBrickKernel buildBricksArakawaKernel(brick::BrickLayout<RANK> fieldLayout,
+                                            BrickedArakawaCoeffArray bCoeff,
+                                            BricksArakawaKernelType kernelType) {
 
   std::string iterationOrderString = toString(kernelType);
   std::array<unsigned, RANK> iterationOrder{};

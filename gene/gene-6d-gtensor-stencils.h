@@ -27,8 +27,8 @@ template <int N, typename E> inline auto stencil(E &&e, std::array<int, N> shift
 }
 
 /**
- * @brief Compute the i-j derivative using gtensor (and calls gt::sychronize)
- *
+ * @brief Compute the i-j derivative using gtensor (and calls gt::synchronize)
+ * s
  * \fout := p_1 * \frac{\partial}{\partial x} (in_ptr) + p_2 * ikj * in \f$
  */
 template <typename Space>
@@ -38,6 +38,7 @@ void ij_deriv_gtensor(gt::gtensor<gt::complex<bElem>, 6, Space> in,
                       gt::gtensor<gt::complex<bElem>, 6, Space> p2,
                       gt::gtensor<gt::complex<bElem>, 1, Space> ikj,
                       gt::gtensor<bElem, 1, Space> i_deriv_coeff) {
+  constexpr unsigned GHOST_ZONE[6] = {2, 0, 0, 0, 0, 0};
   using namespace gt::placeholders;
   auto _si = _s(GHOST_ZONE[0] + PADDING[0], -GHOST_ZONE[0] - PADDING[0]),
        _sj = _s(GHOST_ZONE[1] + PADDING[1], -GHOST_ZONE[1] - PADDING[1]),
@@ -75,34 +76,36 @@ void ij_deriv_gtensor(gt::gtensor<gt::complex<bElem>, 6, Space> in,
 template <typename Space>
 auto buildArakawaGTensorKernel(const gt::gtensor_span<gt::complex<bElem>, 6UL, Space> &in,
                                gt::gtensor_span<gt::complex<bElem>, 6UL, Space> &out,
-                               const gt::gtensor<bElem, 6UL, Space> &arakawaCoeff) {
+                               const gt::gtensor<bElem, 6UL, Space> &arakawaCoeff,
+                               unsigned numGhostZonesToSkip) {
   using namespace gt::placeholders;
 
-  auto coeff = [&arakawaCoeff](int s) {
-    auto skipGZ = [](int axis) -> auto { return _s(GHOST_ZONE[axis] + realArray6D::PADDING(axis),
-                -GHOST_ZONE[axis] - realArray6D::PADDING(axis));
+  auto coeff = [numGhostZonesToSkip, &arakawaCoeff](int s) {
+    auto skipGZ = [=](int axis) -> auto {
+      auto gz = numGhostZonesToSkip * ((axis == 2) || (axis == 3) ? 2 : 0);
+      return _s(gz + realArray6D::PADDING(axis), -gz - realArray6D::PADDING(axis));
     };
 
     return arakawaCoeff.view(skipGZ(1), s + realArray6D::PADDING(0), _newaxis, skipGZ(2), skipGZ(3), skipGZ(4), skipGZ(5));
   };
 
-  auto input = [&in](int deltaK, int deltaL) -> auto {
-    constexpr std::array<int, RANK> bnd = {
-      GHOST_ZONE[0] + complexArray6D::PADDING(0),
-      GHOST_ZONE[1] + complexArray6D::PADDING(1),
-      GHOST_ZONE[2] + complexArray6D::PADDING(2),
-      GHOST_ZONE[3] + complexArray6D::PADDING(3),
-      GHOST_ZONE[4] + complexArray6D::PADDING(4),
-      GHOST_ZONE[5] + complexArray6D::PADDING(5)
-
+  auto input = [numGhostZonesToSkip, &in](int deltaK, int deltaL) -> auto {
+    auto bndInDim = [=](unsigned axis) -> int {
+      auto gz = numGhostZonesToSkip * ((axis == 2) || (axis == 3) ? 2 : 0);
+      return gz + complexArray6D ::PADDING(axis);
     };
+    std::array<int, RANK> bnd{};
+    for(unsigned d = 0; d < RANK; ++d) {
+      bnd[d] = bndInDim(d);
+    }
     return stencil<RANK>(in, {0, 0, deltaK, deltaL, 0, 0}, bnd);
   };
 
-  auto arakawaComputation = [&out, coeff, input]() -> void {
+  auto arakawaComputation = [&out, coeff, input, numGhostZonesToSkip]() -> void {
 
-    auto skipGZ = [](int axis) -> auto { return _s(GHOST_ZONE[axis] + complexArray6D::PADDING(axis),
-                -GHOST_ZONE[axis] - complexArray6D::PADDING(axis));
+    auto skipGZ = [numGhostZonesToSkip](int axis) -> auto {
+      auto gz = numGhostZonesToSkip * ((axis == 2) || (axis == 3) ? 2 : 0);
+      return _s(gz + complexArray6D::PADDING(axis), -gz- complexArray6D::PADDING(axis));
     };
 
     out.view(skipGZ(0), skipGZ(1), skipGZ(2), skipGZ(3), skipGZ(4), skipGZ(5)) =
