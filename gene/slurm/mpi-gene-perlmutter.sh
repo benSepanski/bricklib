@@ -16,7 +16,7 @@ for use_types in ON OFF ; do
                     --bricks-build-dir ${BRICKS_BUILD_DIR} \
                     -M ${MACHINE} \
                     -e ${EMAIL} \
-                    -J "mpi-gene-${num_gpus}gpus-${num_gz}gz-mpityp${use_types}-cuda_aware${cuda_aware}" \
+                    -J "${scripts_dir}/mpi-gene-${num_gpus}gpus-${num_gz}gz-mpityp${use_types}-cuda_aware${cuda_aware}" \
                     -t "02:00:00" \
                     --num-gz ${num_gz} \
                     > ${scripts_dir}/mpi-gene-perlmutter-${num_gpus}gpus-use_tupes${use_types}-cuda_aware${cuda_aware}-num_gz${num_gz}.sh

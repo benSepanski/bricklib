@@ -100,43 +100,64 @@ export OMP_PROC_BIND=true
 export gtensor_DIR={gtensor_dir}
 export bricks_DIR={bricks_dir}"""
 
-    run_jobs = ""
     num_gz = args["num_gz"]
 
-    def add_job(per_process_extent, procs_per_dim):
-        global run_jobs
-        global num_gz
-        srun_cmd = "srun --cpu-bind=cores"
-        run_jobs += f"\n{srun_cmd} ${{bricks_DIR}}/gene/mpi-gene6d \
-    -d {','.join(map(str,per_process_extent))} \
-    -p {','.join(map(str,procs_per_dim))} \
-    -I 100 -W 5 -a -G {num_gz}"
+
+    class JobDescription:
+        """
+        A description of a job to srun
+        """
+        def __init__(self, per_process_extent, procs_per_dim):
+            global num_gz
+            self.per_process_extent = tuple(per_process_extent)
+            self.procs_per_dim = tuple(procs_per_dim)
+            self.num_gz = num_gz
+
+        def __str__(self):
+            srun_cmd = "srun --cpu-bind=cores"
+            return f"{srun_cmd} ${{bricks_DIR}}/gene/mpi-gene6d \
+        -d {','.join(map(str,self.per_process_extent))} \
+        -p {','.join(map(str,self.procs_per_dim))} \
+        -I 100 -W 5 -a -G {self.num_gz}"
+
+        def __eq__(self, that):
+            return self.per_process_extent == that.per_process_extent \
+                and self.procs_per_dim == that.procs_per_dim \
+                and self.num_gz == that.num_gz
+
+        def __ne__(self, that):
+            return not(self == that)
+
+        def __hash__(self):
+            return hash((self.per_process_extent, self.procs_per_dim, self.num_gz))
 
     per_process_extent = tuple(map(int, args["per_process_domain_size"].split(',')))
     
-    # First do the strong scaling jobs
-    run_jobs += "\n# strong scaling jobs"
+    # Generate the jobs
+    strong_scaling_jobs = []
+    weak_scaling_jobs = []
+    min_extent = [1, 1, 3 * (2 * num_gz), 3 * (2 * num_gz), 1, 1]
     for k in range(1, num_gpus+1):
-        if per_process_extent[2] % k == 0:
-            for ell in range(1, num_gpus+1):
-                if k * ell <= num_gpus and per_process_extent[3] % ell == 0:
-                    for m in range(1, num_gpus+1):
-                        if k * ell * m == num_gpus and per_process_extent[4] % m == 0:
-                            procs_per_dim = [1, 1, k, ell, m, 1]
-                            divided_extent = [p for p in per_process_extent]
-                            for index, divisor in [(2, k), (3, ell), (4, m)]:
-                                divided_extent[index] //= divisor
-                            add_job(divided_extent, procs_per_dim)
+        for ell in filter(lambda x: num_gpus % (x * k) == 0, range(1, num_gpus+1)):
+            m = num_gpus // (k * ell)
+            assert m * k * ell == num_gpus
+            # weak scaling jobs:
+            procs_per_dim = [1, 1, k, ell, m, 1]
+            job = JobDescription(per_process_extent=per_process_extent, procs_per_dim=procs_per_dim)
+            weak_scaling_jobs.append(job)
+            # strong scaling jobs
+            divided_extent = [extent // num_procs for extent, num_procs in zip(per_process_extent, procs_per_dim)]
+            for i, extent in enumerate(divided_extent):
+                divided_extent[i] = max(extent, min_extent[i])
+            job = JobDescription(per_process_extent=divided_extent, procs_per_dim=procs_per_dim)
+            if all([any([x < y for x, y in zip(job.per_process_extent, other_job.per_process_extent)]) for other_job in strong_scaling_jobs]):
+                strong_scaling_jobs.append(job)
 
-    # Next do the weak scaling jobs
-    run_jobs += "\n\n# weak scaling jobs"
-    for k in range(1, num_gpus+1):
-        for ell in range(1, num_gpus+1):
-            if k * ell <= num_gpus:
-                for m in range(1, num_gpus+1):
-                    if k * ell * m == num_gpus:
-                        procs_per_dim = [1, 1, k, ell, m, 1]
-                        add_job(per_process_extent, procs_per_dim)
+    # Record the jobs
+    run_jobs = '\n'.join(
+        ["\n# strong scaling jobs"] + list(map(str, strong_scaling_jobs))
+        + ["\n\n# weak scaling jobs"] + list(map(str, weak_scaling_jobs))
+        )
 
     slurm_script = "\n\n".join([preamble, environment_setup, run_jobs]) + "\n"
 
