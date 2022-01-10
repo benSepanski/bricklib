@@ -66,6 +66,7 @@ if __name__ == "__main__":
     parser.add_argument("-d", "--per-process-domain-size", type=str, 
                         help="Per-process domain extent formatted as I,J,K,L,M,N",
                         default="72,32,24,24,32,2")
+    parser.add_argument("--num-gz", type=int, help="Number of ghost-zones to use", default=1)
 
     args = vars(parser.parse_args())
     
@@ -100,14 +101,16 @@ export gtensor_DIR={gtensor_dir}
 export bricks_DIR={bricks_dir}"""
 
     run_jobs = ""
+    num_gz = args["num_gz"]
 
     def add_job(per_process_extent, procs_per_dim):
         global run_jobs
+        global num_gz
         srun_cmd = "srun --cpu-bind=cores"
         run_jobs += f"\n{srun_cmd} ${{bricks_DIR}}/gene/mpi-gene6d \
     -d {','.join(map(str,per_process_extent))} \
     -p {','.join(map(str,procs_per_dim))} \
-    -I 100 -W 5 -a"
+    -I 100 -W 5 -a -G {num_gz}"
 
     per_process_extent = tuple(map(int, args["per_process_domain_size"].split(',')))
     
