@@ -299,11 +299,6 @@ int main(int argc, char **argv) {
   check_MPI(MPI_Comm_size(MPI_COMM_WORLD, &size));
   const char dimNames[RANK] = {'i', 'j', 'k', 'l', 'm', 'n'};
   if (rank == 0) {
-    // go ahead and read data if appending to file
-    if(appendToFile) {
-      dataRecorder.readFromFile(outputFileName);
-    }
-
     int numThreads;
 #pragma omp parallel shared(numThreads) default(none)
     numThreads = omp_get_num_threads();
@@ -572,6 +567,11 @@ int main(int argc, char **argv) {
 
   // write data
   if(rank == 0) {
+    // go ahead and read data if appending to file
+    if(appendToFile) {
+      dataRecorder.unsetAllDefaultValues();
+      dataRecorder.readFromFile(outputFileName);
+    }
     dataRecorder.writeToFile(outputFileName);
   }
 

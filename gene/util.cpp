@@ -191,6 +191,10 @@ void CSVDataRecorder::unsetDefaultValue(const std::string &defaultColNameToUnset
   defaultValues.erase(defaultValueHandle);
 }
 
+void CSVDataRecorder::unsetAllDefaultValues() {
+  defaultValues.clear();
+}
+
 void CSVDataRecorder::readFromFile(const std::string& fileName, char separator,
                                    const std::string& naString) {
   std::ifstream inFile;

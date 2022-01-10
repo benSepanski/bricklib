@@ -114,6 +114,11 @@ public:
   void unsetDefaultValue(const std::string &defaultColNameToUnset);
 
   /**
+   * Unset all default values
+   */
+  void unsetAllDefaultValues();
+
+  /**
    * Read in data from a file
    *
    * @param fileName the file to read from
