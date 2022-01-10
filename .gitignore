@@ -31,3 +31,8 @@ compile_commands.json
 
 # Generated slurm
 gene/slurm/mpi-gene-perlmutter-*gpus.sh
+/gene/slurm/generated-scripts/
+/gene/slurm/perlmutter_use_types_OFF_cuda_aware_ON/
+/gene/slurm/perlmutter_use_types_OFF_cuda_aware_OFF/
+/gene/slurm/perlmutter_use_types_ON_cuda_aware_OFF/
+/gene/slurm/perlmutter_use_types_ON_cuda_aware_ON/
