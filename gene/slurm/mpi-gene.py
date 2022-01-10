@@ -48,7 +48,7 @@ def build_slurm_preamble(config, num_gpus, job_name, email_address=None, account
         preamble += f"\n#SBATCH -A {account_name}"
     if email_address is not None:
         preamble += f"""\n#SBATCH --mail-user={email_address}
-#SBATCH --mail-type=ALL"""
+#SBATCH --mail-type=FAIL"""
     return preamble
 
 
@@ -67,6 +67,7 @@ if __name__ == "__main__":
                         help="Per-process domain extent formatted as I,J,K,L,M,N",
                         default="72,32,24,24,32,2")
     parser.add_argument("--num-gz", type=int, help="Number of ghost-zones to use", default=1)
+    parser.add_argument("-o", "--output_file", type=str, help="Output file to write to", default=None)
 
     args = vars(parser.parse_args())
     
@@ -101,6 +102,9 @@ export gtensor_DIR={gtensor_dir}
 export bricks_DIR={bricks_dir}"""
 
     num_gz = args["num_gz"]
+    output_file = args["output_file"]
+    if output_file is None:
+        output_file = job_name + ".csv"
 
 
     class JobDescription:
@@ -109,16 +113,19 @@ export bricks_DIR={bricks_dir}"""
         """
         def __init__(self, per_process_extent, procs_per_dim):
             global num_gz
+            global output_file
             self.per_process_extent = tuple(per_process_extent)
             self.procs_per_dim = tuple(procs_per_dim)
             self.num_gz = num_gz
+            self.output_file = output_file
 
         def __str__(self):
             srun_cmd = "srun --cpu-bind=cores"
             return f"{srun_cmd} ${{bricks_DIR}}/gene/mpi-gene6d \
         -d {','.join(map(str,self.per_process_extent))} \
         -p {','.join(map(str,self.procs_per_dim))} \
-        -I 100 -W 5 -a -G {self.num_gz}"
+        -I 100 -W 5 -a -G {self.num_gz} \
+        -o {self.output_file}"
 
         def __eq__(self, that):
             return self.per_process_extent == that.per_process_extent \

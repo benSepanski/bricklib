@@ -12,14 +12,15 @@ for use_types in ON OFF ; do
                 if [ ! -d ${scripts_dir} ] ; then
                     mkdir ${scripts_dir} ;
                 fi
+                job_name=mpi-gene-${num_gpus}gpus-${num_gz}gz-mpitypes${use_types}-cuda_aware${cuda_aware}
                 python3 mpi-gene.py ${num_gpus} \
                     --bricks-build-dir ${BRICKS_BUILD_DIR} \
                     -M ${MACHINE} \
                     -e ${EMAIL} \
-                    -J "${scripts_dir}/mpi-gene-${num_gpus}gpus-${num_gz}gz-mpityp${use_types}-cuda_aware${cuda_aware}" \
+                    -J "${scripts_dir}/${job_name}" \
                     -t "02:00:00" \
                     --num-gz ${num_gz} \
-                    > ${scripts_dir}/mpi-gene-perlmutter-${num_gpus}gpus-use_tupes${use_types}-cuda_aware${cuda_aware}-num_gz${num_gz}.sh
+                    > ${scripts_dir}/${job_name}.sh
             done
         done
     done
