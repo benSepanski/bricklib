@@ -103,10 +103,11 @@ namespace brick {
         SizeType strideInDim = 1;
         std::array<SizeType, Rank+1> stride;
         #pragma unroll
-        for(unsigned d = 0; d < stride.size(); ++d) {
+        for(unsigned d = 0; d < arrExtent.size(); ++d) {
           stride[d] = strideInDim;
           strideInDim *= ((IndexType) arrExtent[d]) + 2 * PADDING(d);
         }
+        stride[stride.size() - 1] = strideInDim;
         return stride;
       }
     public:
