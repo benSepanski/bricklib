@@ -182,9 +182,17 @@ inline std::ostream& operator<<(std::ostream& out, BricksArakawaKernelType kerne
 typedef std::function<void(FieldBrick_kl,FieldBrick_kl)> ArakawaBrickKernel;
 ArakawaBrickKernel buildBricksArakawaKernel(brick::BrickLayout<RANK> fieldLayout, BrickedArakawaCoeffArray bCoeff, BricksArakawaKernelType kernelType);
 
-// Utility function to check closeness between arrays
+/**
+ * Thrown an error if any pair of elements from arr1 and arr2 are
+ * not within the relative tolerance (and also not within the absolute tolerance)
+ *
+ * @param1 arr1 the first array
+ * @param2 arr2 the second array
+ * @param rtol the maximum relative difference between array elements
+ * @param atol the maximum absolute difference between array elements
+ */
 template<typename ArrType1, typename ArrType2>
-void checkClose(ArrType1 arr1, ArrType2 arr2, std::array<unsigned, RANK> ghostZone, double tol = 1.0e-6) {
+void checkClose(ArrType1 arr1, ArrType2 arr2, std::array<unsigned, RANK> ghostZone, double rtol = 1.0e-6, double atol = 1.0e-20) {
   std::array<brick::Interval<unsigned>, RANK> bounds{};
   static_assert(ArrType1::RANK == RANK, "Mismatch in rank of ArrType1");
   static_assert(ArrType2::RANK == RANK, "Mismatch in rank of ArrType2");
@@ -202,7 +210,7 @@ void checkClose(ArrType1 arr1, ArrType2 arr2, std::array<unsigned, RANK> ghostZo
     auto diff = std::abs((std::complex<bElem>) val1 - (std::complex<bElem>) val2);
     auto norm1 = std::abs((std::complex<bElem>) val1);
     auto norm2 = std::abs((std::complex<bElem>) val2);
-    if(diff / (norm1 + norm2) * 2 >= tol) {
+    if(diff / (norm1 + norm2) * 2 >= rtol && diff >= atol) {
       std::ostringstream errStream;
       errStream << "Mismatch at " << idx << ": "
         << "val1 = " << val1 << " != " << val2 << " = val2" << std::endl;
