@@ -277,8 +277,8 @@ int main(int argc, char **argv) {
   std::string outputFileName;
   bool appendToFile;
   int numGhostZones;
-  trial_iter_count iter_count = parse_args(&perProcessExtent, &numProcsPerDim, &numGhostZones,
-                                           &outputFileName, &appendToFile, input_stream);
+  trial_iter_count iter_count = parse_mpi_args(&perProcessExtent, &numProcsPerDim, &numGhostZones,
+                                               &outputFileName, &appendToFile, input_stream);
 
   NUM_EXCHANGES = iter_count.num_iters;
   NUM_WARMUPS = iter_count.num_warmups;
@@ -567,12 +567,7 @@ int main(int argc, char **argv) {
 
   // write data
   if(rank == 0) {
-    // go ahead and read data if appending to file
-    if(appendToFile) {
-      dataRecorder.unsetAllDefaultValues();
-      dataRecorder.readFromFile(outputFileName);
-    }
-    dataRecorder.writeToFile(outputFileName);
+    dataRecorder.writeToFile(outputFileName, appendToFile);
   }
 
   check_MPI(MPI_Finalize());

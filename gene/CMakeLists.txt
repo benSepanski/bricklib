@@ -27,4 +27,18 @@ if(gtensor_FOUND AND CMAKE_CUDA_COMPILER)
             target_compile_definitions(mpi-gene6d PUBLIC USE_TYPES)
         endif()
     endif()
+
+    add_executable(single-gene-6d gene-6d-single.cpp gene-6d-stencils.cu single-util.cpp util.cpp)
+    target_gtensor_sources(single-gene-6d PRIVATE gene-6d-single.cpp gene-6d-gtensor-stencils.h)
+    target_link_libraries(single-gene-6d
+            brick brickhelper
+            gtensor::gtensor
+            ${LIBRT}
+            CUDA::cudart)
+
+    set_target_properties(single-gene-6d
+            PROPERTIES OUTPUT_NAME single-gene6d)
+    target_include_directories(single-gene6d PUBLIC
+            "${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES}"
+            )
 endif ()

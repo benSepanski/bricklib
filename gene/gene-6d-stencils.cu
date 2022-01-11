@@ -321,6 +321,19 @@ ArakawaBrickKernel buildBricksArakawaKernel(brick::BrickLayout<RANK> fieldLayout
     iterationOrder[d] = iterationOrderString[d] - 'i';
   }
 
+  // check input
+  if(bCoeff.getLayout().indexInStorage.extent[0] != ARAKAWA_STENCIL_SIZE) {
+    throw std::runtime_error("bCoeff extent [0] must be ARAKAWA_STENCIL_SIZE");
+  }
+  if(bCoeff.getLayout().indexInStorage.extent[1] != fieldLayout.indexInStorage.extent[0]) {
+    throw std::runtime_error("bCoeff and fieldLayout extents are incompatible");
+  }
+  for(unsigned d = 2; d < RANK; ++d) {
+    if(bCoeff.getLayout().indexInStorage.extent[d] != fieldLayout.indexInStorage.extent[d]) {
+      throw std::runtime_error("bCoeff and fieldLayout extents are incompatible");
+    }
+  }
+
   const unsigned *const brickExtentWithGZ = fieldLayout.indexInStorage.extent;
   dim3 cuda_grid_size(brickExtentWithGZ[iterationOrder[0]], brickExtentWithGZ[iterationOrder[1]],
                       brickExtentWithGZ[iterationOrder[2]] * brickExtentWithGZ[iterationOrder[3]] *
