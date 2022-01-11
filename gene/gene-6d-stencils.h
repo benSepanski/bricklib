@@ -23,6 +23,7 @@
 constexpr unsigned RANK = 6;
 constexpr std::array<unsigned, RANK> BRICK_DIM = {2, 16, 2, 2, 1, 1};
 constexpr std::array<unsigned, RANK> BRICK_VECTOR_DIM = {1,1,1,1,1,1};
+constexpr std::array<unsigned, RANK> PCOEFF_BRICK_DIM = {BRICK_DIM[0], BRICK_DIM[2], BRICK_DIM[3], BRICK_DIM[4], BRICK_DIM[5]};
 constexpr std::array<unsigned, RANK> ARAKAWA_COEFF_BRICK_DIM = {
     1, BRICK_DIM[0], BRICK_DIM[2], BRICK_DIM[3], BRICK_DIM[4], BRICK_DIM[5]};
 constexpr std::array<unsigned, RANK> PADDING = {0,0,2,2,0,0};
@@ -34,7 +35,7 @@ constexpr unsigned NUM_ELEMENTS_PER_FIELD_BRICK =
 // useful types
 typedef Dim<BRICK_DIM[5], BRICK_DIM[4], BRICK_DIM[3], BRICK_DIM[2], BRICK_DIM[1], BRICK_DIM[0]>
     FieldBrickDimsType;
-typedef Dim<BRICK_DIM[5], BRICK_DIM[4], BRICK_DIM[3], BRICK_DIM[2], BRICK_DIM[0]>
+typedef Dim<PCOEFF_BRICK_DIM[4], PCOEFF_BRICK_DIM[3], PCOEFF_BRICK_DIM[2], PCOEFF_BRICK_DIM[1], PCOEFF_BRICK_DIM[0]>
     PreCoeffBrickDimsType;
 typedef Dim<ARAKAWA_COEFF_BRICK_DIM[5], ARAKAWA_COEFF_BRICK_DIM[4], ARAKAWA_COEFF_BRICK_DIM[3],
             ARAKAWA_COEFF_BRICK_DIM[2], ARAKAWA_COEFF_BRICK_DIM[1], ARAKAWA_COEFF_BRICK_DIM[0]>
@@ -52,9 +53,14 @@ typedef Brick<ArakawaCoeffBrickDimsType, VectorFoldType, false, NoComm> ArakawaC
 
 typedef brick::Padding<PADDING[5], PADDING[4], PADDING[3], PADDING[2], PADDING[1], PADDING[0]>
     Padding_kl6D;
+typedef brick::Padding<PADDING[5], PADDING[4], PADDING[3], PADDING[2], PADDING[0]>
+    Padding_kl5D;
 typedef brick::Array<bComplexElem, 6, Padding_kl6D> complexArray6D;
+typedef brick::Array<bComplexElem, 5, Padding_kl5D> complexArray5D;
+typedef brick::Array<bComplexElem, 1, brick::Padding<PADDING[1]> > complexArray1D_J;
 typedef brick::Array<bElem, 6> realArray6D;
 typedef brick::BrickedArray<bComplexElem, FieldBrickDimsType, VectorFoldType> BrickedFieldArray;
+typedef brick::BrickedArray<bComplexElem, PreCoeffBrickDimsType, Dim<1> >BrickedPCoeffArray;
 typedef brick::BrickedArray<bElem, ArakawaCoeffBrickDimsType, VectorFoldType>
     BrickedArakawaCoeffArray;
 

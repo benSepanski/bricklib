@@ -15,8 +15,8 @@
 
 #include "gene-6d-gtensor-stencils.h"
 #include "gene-6d-stencils.h"
-#include "util.h"
 #include "single-util.h"
+#include "util.h"
 
 /**
  * @brief perform semi-arakawa k-l derivative kernel
@@ -86,6 +86,106 @@ void semiArakawaGTensor(complexArray6D out, const complexArray6D &in, const real
 }
 
 /**
+ * Compute i-j derivative kernel using bricks layout
+ *
+ * @param out output array
+ * @param in the input array
+ * @param p1 coefficient to scale i-derivative
+ * @param p2 coefficient to scale j-derivative
+ * @param ikj 2*pi*fourier mode
+ * @param i_deriv_coeff the coefficients
+ * @param dataRecorder the recorder to hold data in
+ */
+void ijderivGTensor(complexArray6D out, const complexArray6D &in, const complexArray5D &p1,
+                    const complexArray5D &p2, const complexArray1D_J &ikj, bElem i_deriv_coeff[5],
+                    CSVDataRecorder &dataRecorder) {
+  auto out_dev = out.allocateOnDevice();
+  out.copyToDevice(out_dev);
+  auto in_dev = in.allocateOnDevice();
+  in.copyToDevice(in_dev);
+  auto p1_dev = p1.allocateOnDevice();
+  p1.copyToDevice(p1_dev);
+  auto p2_dev = p2.allocateOnDevice();
+  p2.copyToDevice(p2_dev);
+  auto ikj_dev = ikj.allocateOnDevice();
+  ikj.copyToDevice(ikj_dev);
+
+  auto shape6D = gt::shape(out.extent[0], out.extent[1], out.extent[2], out.extent[3], out.extent[4], out.extent[5]);
+  auto gt_out = gt::adapt_device(out_dev.getData().get(), shape6D);
+  auto gt_in = gt::adapt_device(in_dev.getData().get(), shape6D);
+  auto shape5D = gt::shape(p1.extent[0], p1.extent[1], p1.extent[2], p1.extent[3], p1.extent[4]);
+  auto gt_p1 = gt::adapt_device(p1_dev.getData().get(), shape5D);
+  auto gt_p2 = gt::adapt_device(p2_dev.getData().get(), shape5D);
+  auto gt_ikj = gt::adapt_device(ikj_dev.getData().get(), gt::shape(ikj.extent[0]));
+
+  auto gtensorKernel = [&]() -> void {
+    computeIJDerivGTensor<gt::space::device>(gt_out, gt_in, gt_p1, gt_p2, gt_ikj, i_deriv_coeff);
+  };
+
+  size_t numNonGhostElements = in.numElements / in.extent[0] * (in.extent[0] - 4);
+  timeAndPrintStats(gtensorKernel, numNonGhostElements, dataRecorder);
+
+  // copy result to out
+  out.copyFromDevice(out_dev);
+}
+
+/**
+ * Compute i-j derivative kernel using bricks layout
+ *
+ * @param out output array
+ * @param in the input array
+ * @param p1 coefficient to scale i-derivative
+ * @param p2 coefficient to scale j-derivative
+ * @param ikj 2*pi*fourier mode
+ * @param i_deriv_coeff the coefficients
+ * @param dataRecorder the recorder to hold data in
+ */
+void ijderivBrick(complexArray6D out, const complexArray6D &in, const complexArray5D &p1,
+                  const complexArray5D &p2, const complexArray1D_J &ikj, bElem ij_deriv_coeffs[5],
+                  CSVDataRecorder &dataRecorder) {
+  // set up brick-info and storage on host
+  std::array<unsigned, RANK> fieldBrickGridExtent{};
+  for(unsigned d = 0; d < RANK; ++d) {
+    fieldBrickGridExtent[d] = in.extent[d] / BRICK_DIM[d];
+  }
+  std::array<unsigned, RANK-1> coeffBrickGridExtent{};
+  for(unsigned d = 0; d < RANK - 1; ++d) {
+    coeffBrickGridExtent[d] = p1.extent[d] / PCOEFF_BRICK_DIM[d];
+  }
+  // build brick layouts
+  brick::BrickLayout<RANK> fieldLayout(fieldBrickGridExtent);
+  brick::BrickLayout<RANK-1> coeffLayout(coeffBrickGridExtent);
+  // build bricked arrays
+  BrickedFieldArray bInArray(fieldLayout);
+  BrickedFieldArray bOutArray(fieldLayout);
+  BrickedPCoeffArray bP1Array(coeffLayout);
+  BrickedPCoeffArray bP2Array(coeffLayout);
+
+  // Move to device
+  bInArray.copyToDevice();
+  bP1Array.copyToDevice();
+  bP2Array.copyToDevice();
+
+  // view bricks on the device
+  FieldBrick_i bIn_dev = bInArray.viewBricksOnDevice<CommIn_i>();
+  FieldBrick_i bOut_dev = bOutArray.viewBricksOnDevice<CommIn_i>();
+  PreCoeffBrick bP1_dev = bP1Array.viewBricksOnDevice<NoComm>();
+  PreCoeffBrick bP2_dev  = bP2Array.viewBricksOnDevice<NoComm>();
+
+  // build kernel
+  auto brickKernel = [&]() -> void {
+    // TODO
+  };
+
+  // time kernel
+  timeAndPrintStats(brickKernel, in.numElements, dataRecorder);
+
+  // copy back from device
+  bOutArray.copyFromDevice();
+  bOutArray.storeTo(bOut);
+}
+
+/**
  * @brief perform semi-arakawa k-l derivative kernel
  *
  * Uses bricks layout
@@ -144,6 +244,122 @@ void semiArakawaBrick(complexArray6D out, const complexArray6D& in, const realAr
   bOutArray.copyFromDevice();
   bOutArray.storeTo(out);
 }
+
+/**
+ * Run bricks and gtensor arakawa benchmarks
+ * @param extent the extent of the arrays to use
+ * @param dataRecorder where to record the data
+ */
+void runArakawa(std::array<unsigned, RANK> extent, CSVDataRecorder &dataRecorder) {
+  std::cout << "Building input arrays..." << std::endl;
+
+  // set up coeffs
+  std::array<unsigned, RANK> coeffExtent{};
+  coeffExtent[0] = ARAKAWA_STENCIL_SIZE;
+  coeffExtent[1] = extent[0];
+  for (unsigned i = 2; i < RANK; ++i) {
+    coeffExtent[i] = extent[i];
+  }
+
+  complexArray6D in{complexArray6D::random(extent)},
+      arrayOut{extent, 0.0}, brickOut{extent, 0.0};
+
+  std::cout << "Brick decomposition setup complete. Beginning coefficient setup..." << std::endl;
+  // initialize my coefficients to random data, and receive coefficients for ghost-zones
+  realArray6D coeffs{realArray6D::random(coeffExtent)};
+
+  std::cout << "Coefficient setup complete. Beginning Arakawa array computation" << std::endl;
+  dataRecorder.setDefaultValue("Layout", "array");
+  dataRecorder.setDefaultValue("Kernel", "arakawa");
+
+  const char dimNames[RANK] = {'i', 'j', 'k', 'l', 'm', 'n'};
+  for(unsigned d = 0; d < RANK; ++d) {
+    dataRecorder.setDefaultValue((std::string) "ArrayPadding_" + dimNames[d], PADDING[d]);
+  }
+  // run array computation
+  semiArakawaGTensor(arrayOut, in, coeffs, dataRecorder);
+  std::cout << "Array computation complete. Beginning Arakawa bricks computation" << std::endl;
+  dataRecorder.setDefaultValue("Layout", "bricks");
+  for(unsigned d = 0; d < RANK; ++d) {
+    dataRecorder.unsetDefaultValue((std::string) "ArrayPadding_" + dimNames[d]);
+    dataRecorder.setDefaultValue((std::string) "BrickDim_" + dimNames[d], BRICK_DIM[d]);
+    dataRecorder.setDefaultValue((std::string) "BrickVecDim_" + dimNames[d], BRICK_VECTOR_DIM[d]);
+  }
+
+  std::array<BricksArakawaKernelType, 7> kernelTypes = {
+      SIMPLE_KLIJMN,
+      OPT_IJKLMN,
+      OPT_IKJLMN,
+      OPT_IKLJMN,
+      OPT_KIJLMN,
+      OPT_KILJMN,
+      OPT_KLIJMN
+  };
+  for(auto kernelType : kernelTypes) {
+    dataRecorder.setDefaultValue("OptimizedBrickKernel",kernelType != SIMPLE_KLIJMN);
+    dataRecorder.setDefaultValue("BrickIterationOrder", toString(kernelType));
+    std::cout << "Bricks " << toString(kernelType) << " ";
+
+    semiArakawaBrick(brickOut, in, coeffs, kernelType, dataRecorder);
+    checkClose(brickOut, arrayOut, {0, 0, 2, 2, 0, 0});
+    // clear out brick to be sure correct values don't propagate through loop
+    brickOut.set(0.0);
+  }
+}
+
+/**
+ * Run bricks and gtensor ij-derivative benchmarks
+ * @param extent the extent of the arrays to use
+ * @param dataRecorder where to record the data
+ */
+void runIJDeriv(std::array<unsigned, RANK> extent, CSVDataRecorder &dataRecorder) {
+  std::cout << "Building input arrays..." << std::endl;
+
+  complexArray6D in{complexArray6D::random(extent)},
+      arrayOut{extent, 0.0}, brickOut{extent, 0.0};
+
+  // set up coeffs
+  std::array<unsigned, RANK - 1> coeffExtent{};
+  coeffExtent[0] = extent[0];
+  for (unsigned i = 2; i < RANK; ++i) {
+    coeffExtent[i-1] = extent[i];
+  }
+  complexArray5D p1{complexArray5D::random(coeffExtent)},
+      p2{complexArray5D::random(coeffExtent)};
+  complexArray1D_J ikj({extent[1]});
+  constexpr double pi = 3.14159265358979323846;
+  for(unsigned j = 0; j < ikj.extent[0]; ++j) {
+    ikj(j) = 2 * pi * j * bComplexElem(0.0, 1.0);
+  }
+  bElem i_deriv_coeff[5] = {1. / 12., -2. / 3., 0., 2. / 3., -1 / 12.};
+
+  std::cout << "Array setup complete. Beginning I-J derivative array computation" << std::endl;
+  dataRecorder.setDefaultValue("Layout", "array");
+  dataRecorder.setDefaultValue("Kernel", "ijderiv");
+
+  const char dimNames[RANK] = {'i', 'j', 'k', 'l', 'm', 'n'};
+  for(unsigned d = 0; d < RANK; ++d) {
+    dataRecorder.setDefaultValue((std::string) "ArrayPadding_" + dimNames[d], PADDING[d]);
+  }
+  // run array computation
+  ijderivGTensor(arrayOut, in, p1, p2, ikj, i_deriv_coeff, dataRecorder);
+
+  std::cout << "Array computation complete. Beginning I-J derivative bricks computation" << std::endl;
+  dataRecorder.setDefaultValue("Layout", "bricks");
+  for(unsigned d = 0; d < RANK; ++d) {
+    dataRecorder.unsetDefaultValue((std::string) "ArrayPadding_" + dimNames[d]);
+    dataRecorder.setDefaultValue((std::string) "BrickDim_" + dimNames[d], BRICK_DIM[d]);
+    dataRecorder.setDefaultValue((std::string) "BrickVecDim_" + dimNames[d], BRICK_VECTOR_DIM[d]);
+  }
+
+  std::cout << "Bricks " << " ";
+
+  ijderivBrick(brickOut, in, p1, p2, ikj, dataRecorder);
+  checkClose(brickOut, arrayOut, {0, 0, 2, 2, 0, 0});
+  // clear out brick to be sure correct values don't propagate through loop
+  brickOut.set(0.0);
+}
+
 
 /**
  * @brief Run weak-scaling gene6d benchmark
@@ -212,58 +428,8 @@ int main(int argc, char **argv) {
       throw std::runtime_error(error_stream.str());
     }
   }
-  std::cout << "Building input arrays..." << std::endl;
-
-  // set up coeffs
-  std::array<unsigned, RANK> coeffExtent{};
-  coeffExtent[0] = ARAKAWA_STENCIL_SIZE;
-  coeffExtent[1] = extent[0];
-  for (unsigned i = 2; i < RANK; ++i) {
-    coeffExtent[i] = extent[i];
-  }
-
-  complexArray6D in{complexArray6D::random(extent)},
-      arrayOut{extent, 0.0}, brickOut{extent, 0.0};
-
-  std::cout << "Brick decomposition setup complete. Beginning coefficient setup..." << std::endl;
-  // initialize my coefficients to random data, and receive coefficients for ghost-zones
-  realArray6D coeffs{realArray6D::random(coeffExtent)};
-
-  std::cout << "Coefficient setup complete. Beginning array computation" << std::endl;
-  dataRecorder.setDefaultValue("Layout", "array");
-
-  for(unsigned d = 0; d < RANK; ++d) {
-    dataRecorder.setDefaultValue((std::string) "ArrayPadding_" + dimNames[d], PADDING[d]);
-  }
-  // run array computation
-  semiArakawaGTensor(arrayOut, in, coeffs, dataRecorder);
-  std::cout << "Array computation complete. Beginning bricks computation" << std::endl;
-  dataRecorder.setDefaultValue("Layout", "bricks");
-  for(unsigned d = 0; d < RANK; ++d) {
-    dataRecorder.unsetDefaultValue((std::string) "ArrayPadding_" + dimNames[d]);
-    dataRecorder.setDefaultValue((std::string) "BrickDim_" + dimNames[d], BRICK_DIM[d]);
-    dataRecorder.setDefaultValue((std::string) "BrickVecDim_" + dimNames[d], BRICK_VECTOR_DIM[d]);
-  }
-
-  std::array<BricksArakawaKernelType, 7> kernelTypes = {
-      SIMPLE_KLIJMN,
-      OPT_IJKLMN,
-      OPT_IKJLMN,
-      OPT_IKLJMN,
-      OPT_KIJLMN,
-      OPT_KILJMN,
-      OPT_KLIJMN
-  };
-  for(auto kernelType : kernelTypes) {
-    dataRecorder.setDefaultValue("OptimizedBrickKernel",kernelType != SIMPLE_KLIJMN);
-    dataRecorder.setDefaultValue("BrickIterationOrder", toString(kernelType));
-    std::cout << "Bricks " << toString(kernelType) << " ";
-
-    semiArakawaBrick(brickOut, in, coeffs, kernelType, dataRecorder);
-    checkClose(brickOut, arrayOut, {0, 0, 2, 2, 0, 0});
-    // clear out brick to be sure correct values don't propagate through loop
-    brickOut.set(0.0);
-  }
+  runArakawa(extent, dataRecorder);
+  runIJDeriv(extent, dataRecorder);
 
   // write data
   dataRecorder.writeToFile(outputFileName, appendToFile);

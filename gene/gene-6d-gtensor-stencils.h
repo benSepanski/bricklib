@@ -32,12 +32,12 @@ template <int N, typename E> inline auto stencil(E &&e, std::array<int, N> shift
  * \fout := p_1 * \frac{\partial}{\partial x} (in_ptr) + p_2 * ikj * in \f$
  */
 template <typename Space>
-void ij_deriv_gtensor(gt::gtensor<gt::complex<bElem>, 6, Space> in,
-                      gt::gtensor<gt::complex<bElem>, 6, Space> out,
-                      gt::gtensor<gt::complex<bElem>, 5, Space> p1,
-                      gt::gtensor<gt::complex<bElem>, 6, Space> p2,
-                      gt::gtensor<gt::complex<bElem>, 1, Space> ikj,
-                      gt::gtensor<bElem, 1, Space> i_deriv_coeff) {
+void computeIJDerivGTensor(gt::gtensor<gt::complex<bElem>, 6, Space> out,
+                           gt::gtensor<gt::complex<bElem>, 6, Space> in,
+                           gt::gtensor<gt::complex<bElem>, 5, Space> p1,
+                           gt::gtensor<gt::complex<bElem>, 5, Space> p2,
+                           gt::gtensor<gt::complex<bElem>, 1, Space> ikj,
+                           const bElem i_deriv_coeff[5]) {
   constexpr unsigned GHOST_ZONE[6] = {2, 0, 0, 0, 0, 0};
   using namespace gt::placeholders;
   auto _si = _s(GHOST_ZONE[0] + PADDING[0], -GHOST_ZONE[0] - PADDING[0]),
@@ -57,11 +57,11 @@ void ij_deriv_gtensor(gt::gtensor<gt::complex<bElem>, 6, Space> in,
   };
   out.view(_si, _sj, _sk, _sl, _sm, _sn) =
       p1.view(_all, _newaxis, _all, _all, _all, _all) *
-          (i_deriv_coeff(0) * stencil<RANK>(in, {-2, 0, 0, 0, 0, 0}, bnd) +
-           i_deriv_coeff(1) * stencil<RANK>(in, {-1, 0, 0, 0, 0, 0}, bnd) +
-           i_deriv_coeff(2) * stencil<RANK>(in, {0, 0, 0, 0, 0, 0}, bnd) +
-           i_deriv_coeff(3) * stencil<RANK>(in, {+1, 0, 0, 0, 0, 0}, bnd) +
-           i_deriv_coeff(4) * stencil<RANK>(in, {+2, 0, 0, 0, 0, 0}), bnd) +
+          (i_deriv_coeff[0] * stencil<RANK>(in, {-2, 0, 0, 0, 0, 0}, bnd) +
+           i_deriv_coeff[1] * stencil<RANK>(in, {-1, 0, 0, 0, 0, 0}, bnd) +
+           i_deriv_coeff[2] * stencil<RANK>(in, {0, 0, 0, 0, 0, 0}, bnd) +
+           i_deriv_coeff[3] * stencil<RANK>(in, {+1, 0, 0, 0, 0, 0}, bnd) +
+           i_deriv_coeff[4] * stencil<RANK>(in, {+2, 0, 0, 0, 0, 0}), bnd) +
       p2.view(_all, _newaxis, _all, _all, _all, _all) *
           ikj.view(_newaxis, _all, _newaxis, _newaxis, _newaxis, _newaxis) *
           in.view(_si, _sj, _sk, _sl, _sm, _sn);
@@ -90,7 +90,7 @@ auto buildArakawaGTensorKernel(const gt::gtensor_span<gt::complex<bElem>, 6UL, S
   };
 
   auto input = [numGhostZonesToSkip, &in](int deltaK, int deltaL) -> auto {
-    auto bndInDim = [=](unsigned axis) -> int {
+    auto bndInDim = [=](unsigned axis) -> unsigned {
       auto gz = numGhostZonesToSkip * ((axis == 2) || (axis == 3) ? 2 : 0);
       return gz + complexArray6D ::PADDING(axis);
     };
