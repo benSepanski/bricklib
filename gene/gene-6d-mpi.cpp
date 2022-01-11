@@ -370,12 +370,11 @@ int main(int argc, char **argv) {
   cudaAware = true;
 #endif
   bool mpiTypes = false;
-#ifdef MPI_TYPES
+#ifdef USE_TYPES
   mpiTypes = true;
 #endif
   bool gtensorMPITypes = mpiTypes;
   bool gtensorCudaAware = cudaAware & gtensorMPITypes;
-  bool bricksMPITypes = mpiTypes;
   bool bricksCudaAware = cudaAware;
 
   // build cartesian communicator and setup MEMFD
@@ -525,7 +524,7 @@ int main(int argc, char **argv) {
   if (rank == 0) {
     std::cout << "Coefficient exchange complete. Beginning array computation" << std::endl;
     dataRecorder.setDefaultValue("CUDA_AWARE", gtensorCudaAware);
-    dataRecorder.setDefaultValue("MPI_AWARE", gtensorMPITypes);
+    dataRecorder.setDefaultValue("MPI_TYPES", gtensorMPITypes);
     dataRecorder.setDefaultValue("Layout", "array");
 
     for(unsigned d = 0; d < RANK; ++d) {
@@ -537,7 +536,7 @@ int main(int argc, char **argv) {
   if (rank == 0) {
     std::cout << "Array computation complete. Beginning bricks computation" << std::endl;
     dataRecorder.setDefaultValue("CUDA_AWARE", bricksCudaAware);
-    dataRecorder.setDefaultValue("MPI_AWARE", bricksMPITypes);
+    dataRecorder.setDefaultValue("MPI_TYPES", false);
     dataRecorder.setDefaultValue("Layout", "bricks");
     for(unsigned d = 0; d < RANK; ++d) {
       dataRecorder.unsetDefaultValue((std::string) "ArrayPadding_" + dimNames[d]);
@@ -545,20 +544,21 @@ int main(int argc, char **argv) {
       dataRecorder.setDefaultValue((std::string) "BrickVecDim_" + dimNames[d], BRICK_VECTOR_DIM[d]);
     }
   }
-  std::array<BricksArakawaKernelType, 7> kernelTypes = {  SIMPLE_KLIJMN,
-      OPT_IJKLMN,
-      OPT_IKJLMN,
-      OPT_IKLJMN,
-      OPT_KIJLMN,
-      OPT_KILJMN,
+  std::array<BricksArakawaKernelType, 1> kernelTypes = {
+      //SIMPLE_KLIJMN,
+//      OPT_IJKLMN,
+//      OPT_IKJLMN,
+//      OPT_IKLJMN,
+//      OPT_KIJLMN,
+//      OPT_KILJMN,
       OPT_KLIJMN
   };
   for(auto kernelType : kernelTypes) {
     if(rank == 0) {
       dataRecorder.setDefaultValue("OptimizedBrickKernel",kernelType != SIMPLE_KLIJMN);
       dataRecorder.setDefaultValue("BrickIterationOrder", toString(kernelType));
+      std::cout << "Trying with iteration order " << toString(kernelType) << std::endl;
     }
-    std::cout << "Trying with iteration order " << toString(kernelType) << std::endl;
     semiArakawaDistributedBrick(brickOut, in, coeffs, mpiLayout, kernelType, dataRecorder, numGhostZones);
     checkClose(brickOut, arrayOut, ghostZoneDepth);
     // clear out brick to be sure correct values don't propagate through loop
