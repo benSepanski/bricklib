@@ -110,6 +110,6 @@ void timeAndPrintStats(std::function<void(void)> func, size_t numStencils,
 
   csvDataRecorder.newRow();
   csvDataRecorder.record("avgTime(s)", avg_time);
-  std::cout << "Average time(s): " << avg_time << "\n"
-            << "Average GStencils/s: " << avg_gstencils_s << std::endl;
+  std::cout << avg_time << "(s)"
+            << " " << avg_gstencils_s << "(GStencil/s)" << std::endl;
 }

@@ -77,7 +77,6 @@ void semiArakawaGTensor(complexArray6D out, const complexArray6D &in, const real
     gpuCheck(cudaPeekAtLastError());
 #endif
   };
-  std::cout << "gtensor layout:" << std::endl;
   size_t numNonGhostElements = in.numElements / (in.extent[2] * in.extent[3])
                                * (in.extent[2] - 4) * (in.extent[3] - 4);
   timeAndPrintStats(gtensorFunc, numNonGhostElements, csvDataRecorder);
@@ -139,7 +138,6 @@ void semiArakawaBrick(complexArray6D out, const complexArray6D& in, const realAr
   };
 
   // time function
-  std::cout << "brick Layout:" << std::endl;
   timeAndPrintStats(brickFunc, in.numElements, csvDataRecorder);
 
   // Copy back
@@ -259,7 +257,7 @@ int main(int argc, char **argv) {
   for(auto kernelType : kernelTypes) {
     dataRecorder.setDefaultValue("OptimizedBrickKernel",kernelType != SIMPLE_KLIJMN);
     dataRecorder.setDefaultValue("BrickIterationOrder", toString(kernelType));
-    std::cout << "Trying with iteration order " << toString(kernelType) << std::endl;
+    std::cout << "Bricks " << toString(kernelType) << " ";
 
     semiArakawaBrick(brickOut, in, coeffs, kernelType, dataRecorder);
     checkClose(brickOut, arrayOut, {0, 0, 2, 2, 0, 0});
