@@ -101,15 +101,27 @@ if(gtensor_FOUND)
             )
 endif ()
 
-if(CMAKE_CUDA_COMPILER AND NOT PERLMUTTER )  # TODO: Get cufft_static on PERLMUTTER
+if(CMAKE_CUDA_COMPILER)
+    if(PERLMUTTER)
+        set(CUFFT_LIBRARIES cuda cudart_static cufft_static culibos)
+    elseif(${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.17")
+        set(CUFFT_LIBRARIES CUDA::cufft_static)
+    else()
+        set(CUFFT_LIBRARIES cufft_static culibos)
+    endif()
     # sample FFT
     add_executable(single-fft fft.cu)
-    if(${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.17" )
+    if(${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.17")
         set_property(TARGET single-fft PROPERTY CUDA_SEPARABLE_COMPILATION ON)
-        target_link_libraries(single-fft brickhelper CUDA::cufft_static)
-    else()
-        target_link_libraries(single-fft brickhelper cufft_static culibos)
     endif()
+    if(PERLMUTTER)
+        if(NOT DEFINED ENV{CUFFT_LINK_DIR} AND NOT DEFINED CUFFT_LINK_DIR)
+            message(FATAL_ERROR "Must pass CUFFT_LINK_DIR option (or set as environment variable) for Perlmutter build")
+        endif()
+        set(CUFFT_LINK_DIR $ENV{CUFFT_LINK_DIR} CACHE PATH "Directory containing libcufft_static.a" )
+        set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -L${CUFFT_LINK_DIR}")
+    endif()
+    target_link_libraries(single-fft brickhelper ${CUFFT_LIBRARIES})
     target_include_directories(single-fft PUBLIC
             "${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES}"
             )
@@ -127,12 +139,10 @@ if(CMAKE_CUDA_COMPILER AND NOT PERLMUTTER )  # TODO: Get cufft_static on PERLMUT
     # gene-style FFT
     if(gtensor_FOUND)
         add_executable(single-fft-gene-6d fft-gene-6d.cu)
-        if(${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.17" )
+        if(${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.17")
             set_property(TARGET single-fft-gene-6d PROPERTY CUDA_SEPARABLE_COMPILATION ON)
-            target_link_libraries(single-fft-gene-6d brickhelper CUDA::cufft_static gtensor::gtensor CUDA::nvToolsExt)
-        else()
-            target_link_libraries(single-fft-gene-6d brickhelper cufft_static culibos gtensor::gtensor nvToolsExt)
         endif()
+        target_link_libraries(single-fft-gene-6d brickhelper ${CUFFT_LIBRARIES} gtensor::gtensor CUDA::nvToolsExt)
         target_include_directories(single-fft-gene-6d PUBLIC
                 "${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES}"
                 )
