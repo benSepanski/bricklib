@@ -32,20 +32,29 @@ template <int N, typename E> inline auto stencil(E &&e, std::array<int, N> shift
  * \fout := p_1 * \frac{\partial}{\partial x} (in_ptr) + p_2 * ikj * in \f$
  */
 template <typename Space>
-void computeIJDerivGTensor(gt::gtensor<gt::complex<bElem>, 6, Space> out,
-                           gt::gtensor<gt::complex<bElem>, 6, Space> in,
-                           gt::gtensor<gt::complex<bElem>, 5, Space> p1,
-                           gt::gtensor<gt::complex<bElem>, 5, Space> p2,
-                           gt::gtensor<gt::complex<bElem>, 1, Space> ikj,
-                           const bElem i_deriv_coeff[5]) {
+void computeIJDerivGTensor(gt::gtensor_span<gt::complex<bElem>, 6, Space> out,
+                           gt::gtensor_span<gt::complex<bElem>, 6, Space> in,
+                           gt::gtensor_span<gt::complex<bElem>, 5, Space> p1,
+                           gt::gtensor_span<gt::complex<bElem>, 5, Space> p2,
+                           gt::gtensor_span<gt::complex<bElem>, 1, Space> ikj,
+                           gt::gtensor_span<bElem, 1, gt::space::host> i_deriv_coeff) {
   constexpr unsigned GHOST_ZONE[6] = {2, 0, 0, 0, 0, 0};
   using namespace gt::placeholders;
-  auto _si = _s(GHOST_ZONE[0] + PADDING[0], -GHOST_ZONE[0] - PADDING[0]),
-       _sj = _s(GHOST_ZONE[1] + PADDING[1], -GHOST_ZONE[1] - PADDING[1]),
-       _sk = _s(GHOST_ZONE[2] + PADDING[2], -GHOST_ZONE[2] - PADDING[2]),
-       _sl = _s(GHOST_ZONE[3] + PADDING[3], -GHOST_ZONE[3] - PADDING[3]),
-       _sm = _s(GHOST_ZONE[4] + PADDING[4], -GHOST_ZONE[4] - PADDING[4]),
-       _sn = _s(GHOST_ZONE[5] + PADDING[5], -GHOST_ZONE[5] - PADDING[5]);
+
+  auto _s6D = [=](char axis) -> auto {
+    auto padAndGhost6D = [=](unsigned d) -> auto {
+      return GHOST_ZONE[d] + complexArray6D::PADDING(d);
+    };
+    return _s(padAndGhost6D(axis - 'i'), -padAndGhost6D(axis - 'i'));
+  };
+  auto _s5D = [=](char axis) -> auto {
+    auto padAndGhost5D = [=](unsigned d) -> auto {
+      return GHOST_ZONE[d] + complexArray5D::PADDING(d > 1 ? d - 1 : d);
+    };
+    return _s(padAndGhost5D(axis - 'i'), -padAndGhost5D(axis - 'i'));
+  };
+  auto _sj1D = _s(GHOST_ZONE[1] + complexArray1D_J::PADDING(0), -GHOST_ZONE[1] - complexArray1D_J::PADDING(0));
+
   constexpr std::array<int, RANK> bnd = {
       GHOST_ZONE[0] + complexArray6D::PADDING(0),
       GHOST_ZONE[1] + complexArray6D::PADDING(1),
@@ -55,17 +64,17 @@ void computeIJDerivGTensor(gt::gtensor<gt::complex<bElem>, 6, Space> out,
       GHOST_ZONE[5] + complexArray6D::PADDING(5)
 
   };
-  out.view(_si, _sj, _sk, _sl, _sm, _sn) =
-      p1.view(_all, _newaxis, _all, _all, _all, _all) *
-          (i_deriv_coeff[0] * stencil<RANK>(in, {-2, 0, 0, 0, 0, 0}, bnd) +
-           i_deriv_coeff[1] * stencil<RANK>(in, {-1, 0, 0, 0, 0, 0}, bnd) +
-           i_deriv_coeff[2] * stencil<RANK>(in, {0, 0, 0, 0, 0, 0}, bnd) +
-           i_deriv_coeff[3] * stencil<RANK>(in, {+1, 0, 0, 0, 0, 0}, bnd) +
-           i_deriv_coeff[4] * stencil<RANK>(in, {+2, 0, 0, 0, 0, 0}, bnd)
+  out.view(_s6D('i'), _s6D('j'), _s6D('k'), _s6D('l'), _s6D('m'), _s6D('n')) =
+      p1.view(_s5D('i'), _newaxis, _s5D('k'), _s5D('l'), _s5D('m'), _s5D('n')) *
+          (i_deriv_coeff(0) * stencil<RANK>(in, {-2, 0, 0, 0, 0, 0}, bnd) +
+           i_deriv_coeff(1) * stencil<RANK>(in, {-1, 0, 0, 0, 0, 0}, bnd) +
+           i_deriv_coeff(2) * stencil<RANK>(in, {0, 0, 0, 0, 0, 0}, bnd) +
+           i_deriv_coeff(3) * stencil<RANK>(in, {+1, 0, 0, 0, 0, 0}, bnd) +
+           i_deriv_coeff(4) * stencil<RANK>(in, {+2, 0, 0, 0, 0, 0}, bnd)
            ) +
-      p2.view(_all, _newaxis, _all, _all, _all, _all) *
-          ikj.view(_newaxis, _all, _newaxis, _newaxis, _newaxis, _newaxis) *
-          in.view(_si, _sj, _sk, _sl, _sm, _sn);
+      p2.view(_s5D('i'), _newaxis, _s5D('k'), _s5D('l'), _s5D('m'), _s5D('n')) *
+          ikj.view(_newaxis, _sj1D, _newaxis, _newaxis, _newaxis, _newaxis) *
+          in.view(_s6D('i'), _s6D('j'), _s6D('k'), _s6D('l'), _s6D('m'), _s6D('n'));
 
   // actually compute the result
   gt::synchronize();

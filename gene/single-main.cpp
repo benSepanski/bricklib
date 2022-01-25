@@ -111,16 +111,27 @@ void ijderivGTensor(complexArray6D out, const complexArray6D &in, const complexA
     return reinterpret_cast<gt::complex<bElem>*>(ptr);
   };
 
-  auto shape6D = gt::shape(out.extent[0], out.extent[1], out.extent[2], out.extent[3], out.extent[4], out.extent[5]);
+  auto shape6D = gt::shape(out.extent[0] + 2 * complexArray6D::PADDING(0),
+                           out.extent[1] + 2 * complexArray6D::PADDING(1),
+                           out.extent[2] + 2 * complexArray6D::PADDING(2),
+                           out.extent[3] + 2 * complexArray6D::PADDING(3),
+                           out.extent[4] + 2 * complexArray6D::PADDING(4),
+                           out.extent[5] + 2 * complexArray6D::PADDING(5));
   auto gt_out = gt::adapt_device(as_gt_complex(out_dev.getData().get()), shape6D);
   auto gt_in = gt::adapt_device(as_gt_complex(in_dev.getData().get()), shape6D);
-  auto shape5D = gt::shape(p1.extent[0], p1.extent[1], p1.extent[2], p1.extent[3], p1.extent[4]);
+  auto shape5D = gt::shape(p1.extent[0] + 2 * complexArray5D::PADDING(0),
+                           p1.extent[1] + 2 * complexArray5D::PADDING(1),
+                           p1.extent[2] + 2 * complexArray5D::PADDING(2),
+                           p1.extent[3] + 2 * complexArray5D::PADDING(3),
+                           p1.extent[4] + 2 * complexArray5D::PADDING(4));
   auto gt_p1 = gt::adapt_device(as_gt_complex(p1_dev.getData().get()), shape5D);
   auto gt_p2 = gt::adapt_device(as_gt_complex(p2_dev.getData().get()), shape5D);
-  auto gt_ikj = gt::adapt_device(as_gt_complex(ikj_dev.getData().get()), gt::shape(ikj.extent[0]));
+  auto gt_ikj = gt::adapt_device(as_gt_complex(ikj_dev.getData().get()),
+                                 gt::shape(ikj.extent[0] + 2 * complexArray1D_J::PADDING(0)));
 
+  auto gt_i_deriv_coeff = gt::adapt(i_deriv_coeff, gt::shape(5));
   auto gtensorKernel = [&]() -> void {
-    computeIJDerivGTensor<gt::space::device>(gt_out, gt_in, gt_p1, gt_p2, gt_ikj, i_deriv_coeff);
+    computeIJDerivGTensor<gt::space::device>(gt_out, gt_in, gt_p1, gt_p2, gt_ikj, gt_i_deriv_coeff);
   };
 
   size_t numNonGhostElements = in.numElements / in.extent[0] * (in.extent[0] - 4);
@@ -161,6 +172,9 @@ void ijderivBrick(complexArray6D out, const complexArray6D &in, const complexArr
   BrickedFieldArray bOutArray(fieldLayout);
   BrickedPCoeffArray bP1Array(coeffLayout);
   BrickedPCoeffArray bP2Array(coeffLayout);
+  bInArray.loadFrom(in);
+  bP1Array.loadFrom(p1);
+  bP2Array.loadFrom(p2);
 
   // view bricks on the device
   bInArray.copyToDevice();
@@ -350,7 +364,7 @@ void runIJDeriv(std::array<unsigned, RANK> extent, CSVDataRecorder &dataRecorder
   std::cout << "Bricks " << " ";
 
   ijderivBrick(brickOut, in, p1, p2, ikj, i_deriv_coeff, dataRecorder);
-  checkClose(brickOut, arrayOut, {0, 0, 2, 2, 0, 0});
+  checkClose(brickOut, arrayOut, {2, 0, 0, 0, 0, 0});
   // clear out brick to be sure correct values don't propagate through loop
   brickOut.set(0.0);
 }
