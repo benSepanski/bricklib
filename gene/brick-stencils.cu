@@ -1,4 +1,3 @@
-#include "assert.h"
 #include "brick-stencils.h"
 
 __constant__ bElem const_i_deriv_coeff_dev[5];
@@ -8,6 +7,22 @@ void copy_i_deriv_coeff(const bElem i_deriv_coeff_host[5]) {
   gpuCheck(cudaMemcpyToSymbol(const_i_deriv_coeff_dev, i_deriv_coeff_host, 5 * sizeof(bElem)));
 }
 
+constexpr unsigned max_blocks_per_sm(unsigned max_block_size) {
+  unsigned max_num_warps_per_block = max_block_size / WARP_SIZE;
+  unsigned max_blocks_per_sm = MAX_WARPS_PER_SM / max_num_warps_per_block;
+  if (max_blocks_per_sm > MAX_BLOCKS_PER_SM) {
+    max_blocks_per_sm = MAX_BLOCKS_PER_SM;
+  }
+  return max_blocks_per_sm;
+}
+
+/**
+ * @brief Compute on the non-ghost bricks
+ *
+ * Assumes that grid-size is I x J x KLMN.
+ * Assumes i-deriv coeff has been copied to constant memory
+ * @see copy_i_deriv_coeff
+ */
 __launch_bounds__(NUM_ELEMENTS_PER_FIELD_BRICK,
                   max_blocks_per_sm(NUM_ELEMENTS_PER_FIELD_BRICK))
 __global__
@@ -311,7 +326,52 @@ void validateLaunchConfig(dim3 grid, dim3 block) {
   }
 }
 
-ArakawaBrickKernel buildBricksArakawaKernel(brick::BrickLayout<RANK> fieldLayout,
+ijDerivBrickKernelType buildBricksIJDerivBrickKernel(brick::BrickLayout<RANK> fieldLayout,
+                                                     BrickedPCoeffArray &p1,
+                                                     BrickedPCoeffArray &p2,
+                                                     const complexArray1D_J &ikj,
+                                                     bElem i_deriv_coeffs[5]) {
+  const unsigned *const brickExtentWithGZ = fieldLayout.indexInStorage.extent;
+  dim3 cuda_grid_size(brickExtentWithGZ[0], brickExtentWithGZ[1],
+                      brickExtentWithGZ[2] * brickExtentWithGZ[3] * brickExtentWithGZ[4] *
+                          brickExtentWithGZ[5]),
+      cuda_block_size(BRICK_DIM[0], BRICK_DIM[1],
+                      FieldBrick_kl::BRICKLEN / BRICK_DIM[0] / BRICK_DIM[1]);
+  validateLaunchConfig(cuda_grid_size, cuda_block_size);
+
+  // Get known parameters to kernel
+  auto fieldIndexInStorage_dev = fieldLayout.indexInStorage.allocateOnDevice();
+  fieldLayout.indexInStorage.copyToDevice(fieldIndexInStorage_dev);
+  if(p1.getLayout().indexInStorage.getData().get() != p2.getLayout().indexInStorage.getData().get()) {
+    throw std::runtime_error("p1 and p2 must use the same layout");
+  }
+  auto pCoeffIndexInStorage_dev = p1.getLayout().indexInStorage.allocateOnDevice();
+  p1.getLayout().indexInStorage.copyToDevice(pCoeffIndexInStorage_dev);
+  p1.copyToDevice();
+  PreCoeffBrick p1_dev = p1.viewBricksOnDevice<NoComm>();
+  p2.copyToDevice();
+  PreCoeffBrick p2_dev = p2.viewBricksOnDevice<NoComm>();
+
+  // copy ikj to device
+  auto ikj_dev = ikj.allocateOnDevice();
+  ikj.copyToDevice(ikj_dev);
+
+  // copy coefficients to constant memory
+  copy_i_deriv_coeff(i_deriv_coeffs);
+
+  // define the computation
+  std::function<void(FieldBrick_kl, FieldBrick_kl)> arakawaComputation;
+  auto ijDerivComputation = [=](const FieldBrick_i& bIn_dev, const FieldBrick_i& bOut_dev) -> void {
+    ijDerivBrickKernel<<<cuda_grid_size, cuda_block_size>>>(
+        fieldIndexInStorage_dev, pCoeffIndexInStorage_dev, bIn_dev, bOut_dev, p1_dev, p2_dev, ikj_dev.getData().get());
+#ifndef NDEBUG
+    gpuCheck(cudaPeekAtLastError());
+#endif
+  };
+  return ijDerivComputation;
+}
+
+ArakawaBrickKernelType buildBricksArakawaKernel(brick::BrickLayout<RANK> fieldLayout,
                                             BrickedArakawaCoeffArray bCoeff,
                                             BricksArakawaKernelType kernelType) {
 
@@ -347,6 +407,7 @@ ArakawaBrickKernel buildBricksArakawaKernel(brick::BrickLayout<RANK> fieldLayout
   fieldLayout.indexInStorage.copyToDevice(fieldIndexInStorage_dev);
   auto coeffIndexInStorage_dev = bCoeff.getLayout().indexInStorage.allocateOnDevice();
   bCoeff.getLayout().indexInStorage.copyToDevice(coeffIndexInStorage_dev);
+  bCoeff.copyToDevice();
   ArakawaCoeffBrick bCoeff_dev = bCoeff.viewBricksOnDevice<NoComm>();
 
   // define the computation

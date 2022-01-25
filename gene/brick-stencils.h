@@ -8,7 +8,10 @@
 #include <iomanip>
 #include <iostream>
 #include <functional>
-#include <string.h>
+#include <cstring>
+#include <utility>
+
+#include <cassert>
 
 #include "Array.h"
 #include "BrickedArray.h"
@@ -81,32 +84,6 @@ constexpr unsigned MAX_WARPS_PER_SM = 48;
 #error Unexpected compute capability #__CUDA_ARCH__
 #endif
 
-constexpr unsigned max_blocks_per_sm(unsigned max_block_size) {
-  unsigned max_num_warps_per_block = max_block_size / WARP_SIZE;
-  unsigned max_blocks_per_sm = MAX_WARPS_PER_SM / max_num_warps_per_block;
-  if (max_blocks_per_sm > MAX_BLOCKS_PER_SM) {
-    max_blocks_per_sm = MAX_BLOCKS_PER_SM;
-  }
-  return max_blocks_per_sm;
-}
-
-// used to copy i derivative coefficients into constant memory
-void copy_i_deriv_coeff(const bElem i_deriv_coeff_host[5]);
-
-// declare cuda kernels
-/**
- * @brief Compute on the non-ghost bricks
- *
- * Assumes that grid-size is I x J x KLMN.
- * Assumes i-deriv coeff has been copied to constant memory
- * @see copy_i_deriv_coeff
- */
-__global__ void
-ijDerivBrickKernel(brick::Array<unsigned, RANK, brick::Padding<>, unsigned> grid,
-                   brick::Array<unsigned, RANK, brick::Padding<>, unsigned> coeffGrid,
-                   FieldBrick_i bIn, FieldBrick_i bOut, PreCoeffBrick bP1, PreCoeffBrick bP2,
-                   bComplexElem *ikj);
-
 enum BricksArakawaKernelType {
   SIMPLE_KLIJMN,
   OPT_IJKLMN,
@@ -176,6 +153,31 @@ inline std::ostream& operator<<(std::ostream& out, BricksArakawaKernelType kerne
 
 /**
  * Build and return a function which, given bricks (bIn_dev, bOut_dev)
+ * on the device, computes the ij-deriv stencil on bIn_dev and stores the
+ * result into bOut_dev
+ *
+ * This function copies the i_deriv_coeffs to a fixed, global constant memory
+ * location on the device, so the produced kernel may become incorrect if
+ * this function is called multiple times
+ *
+ * @param fieldLayout the layout of field bricks
+ * @param p1 the coefficients
+ * @param p2 the coefficients
+ * @param ikj i * 2pi * fourier Mode
+ * @param i_deriv_coeffs the five coefficients for the five-point stencil
+ *
+ * @return the function which invokes the kernel
+ */
+typedef std::function<void(FieldBrick_i,FieldBrick_i)> ijDerivBrickKernelType;
+ijDerivBrickKernelType buildBricksIJDerivBrickKernel(brick::BrickLayout<RANK> fieldLayout,
+                                                     BrickedPCoeffArray &p1,
+                                                     BrickedPCoeffArray &p2,
+                                                     const complexArray1D_J &ikj,
+                                                     bElem i_deriv_coeffs[5]);
+
+
+/**
+ * Build and return a function which, given bricks (bIn_dev, bOut_dev)
  * on the device, computes the arakawa stencil on bIn_dev and stores the
  * result into bOut_dev
  *
@@ -185,8 +187,8 @@ inline std::ostream& operator<<(std::ostream& out, BricksArakawaKernelType kerne
  *
  * @return the function which invokes the kernel
  */
-typedef std::function<void(FieldBrick_kl,FieldBrick_kl)> ArakawaBrickKernel;
-ArakawaBrickKernel buildBricksArakawaKernel(brick::BrickLayout<RANK> fieldLayout, BrickedArakawaCoeffArray bCoeff, BricksArakawaKernelType kernelType);
+typedef std::function<void(FieldBrick_kl,FieldBrick_kl)> ArakawaBrickKernelType;
+ArakawaBrickKernelType buildBricksArakawaKernel(brick::BrickLayout<RANK> fieldLayout, BrickedArakawaCoeffArray bCoeff, BricksArakawaKernelType kernelType);
 
 /**
  * Thrown an error if any pair of elements from arr1 and arr2 are

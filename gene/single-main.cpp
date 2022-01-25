@@ -145,7 +145,7 @@ void ijderivGTensor(complexArray6D out, const complexArray6D &in, const complexA
  * @param dataRecorder the recorder to hold data in
  */
 void ijderivBrick(complexArray6D out, const complexArray6D &in, const complexArray5D &p1,
-                  const complexArray5D &p2, const complexArray1D_J &ikj, bElem ij_deriv_coeffs[5],
+                  const complexArray5D &p2, const complexArray1D_J &ikj, bElem i_deriv_coeffs[5],
                   CSVDataRecorder &dataRecorder) {
   // set up brick-info and storage on host
   std::array<unsigned, RANK> fieldBrickGridExtent{};
@@ -165,24 +165,19 @@ void ijderivBrick(complexArray6D out, const complexArray6D &in, const complexArr
   BrickedPCoeffArray bP1Array(coeffLayout);
   BrickedPCoeffArray bP2Array(coeffLayout);
 
-  // Move to device
-  bInArray.copyToDevice();
-  bP1Array.copyToDevice();
-  bP2Array.copyToDevice();
-
   // view bricks on the device
+  bInArray.copyToDevice();
   FieldBrick_i bIn_dev = bInArray.viewBricksOnDevice<CommIn_i>();
   FieldBrick_i bOut_dev = bOutArray.viewBricksOnDevice<CommIn_i>();
-  PreCoeffBrick bP1_dev = bP1Array.viewBricksOnDevice<NoComm>();
-  PreCoeffBrick bP2_dev  = bP2Array.viewBricksOnDevice<NoComm>();
 
+  auto brickKernel = buildBricksIJDerivBrickKernel(fieldLayout, bP1Array, bP2Array, ikj, i_deriv_coeffs);
   // build kernel
-  auto brickKernel = [&]() -> void {
-    // TODO
+  auto brickComputation = [&]() -> void {
+    brickKernel(bIn_dev, bOut_dev);
   };
 
   // time kernel
-  timeAndPrintStats(brickKernel, in.numElements, dataRecorder);
+  timeAndPrintStats(brickComputation, in.numElements, dataRecorder);
 
   // copy back from device
   bOutArray.copyFromDevice();
@@ -232,7 +227,6 @@ void semiArakawaBrick(complexArray6D out, const complexArray6D& in, const realAr
 
   // set up on device
   bInArray.copyToDevice();
-  bCoeffArray.copyToDevice();
   FieldBrick_kl bIn_dev = bInArray.viewBricksOnDevice<CommIn_kl>();
   FieldBrick_kl bOut_dev = bOutArray.viewBricksOnDevice<CommIn_kl>();
 

@@ -1,3 +1,6 @@
+
+#include <gene/brick-stencils.h>
+
 #include "gene-6d.h"
 #include "assert.h"
 
