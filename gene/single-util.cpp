@@ -29,7 +29,7 @@ trial_iter_count parse_single_args(std::array<unsigned, RANK> *perProcessDomainS
                            "  -o: csv file to write to (default results.csv)\n"
                            "  -a: If passed, will append data to output file (if it already exists)\n"
                            "Example usage:\n"
-                           "  weak/gene6d -d 70,16,24,48,32,2 -p 1,1,3,1,2,1\n";
+                           "  weak/gene6d -d 70,16,24,48,32,2\n";
   std::ostringstream errorStream;
   while (in >> optionString) {
     if (optionString[0] != '-' || optionString.size() != 2) {
