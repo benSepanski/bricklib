@@ -106,7 +106,7 @@ void timeAndPrintStats(std::function<void(void)> func, size_t numStencils,
   gpuCheck(cudaEventSynchronize(stop));
   gpuCheck(cudaEventElapsedTime(&elapsed, start, stop));
   double avg_time = elapsed / (double) NUM_ITERATIONS / 1000.0; ///< in seconds
-  double avg_gstencils_s = (double) numStencils / avg_time;
+  double avg_gstencils_s = (double) numStencils / avg_time / 1000000000;
 
   csvDataRecorder.newRow();
   csvDataRecorder.record("avgTime(s)", avg_time);

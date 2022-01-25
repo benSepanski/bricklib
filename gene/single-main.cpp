@@ -401,7 +401,7 @@ int main(int argc, char **argv) {
   dataRecorder.setDefaultValue("OpenMPThreads", numThreads);
   std::cout << std::setw(io_col_width) << "Pagesize :" << page_size << "\n"
             << std::setw(io_col_width) << "OpenMP threads :" << numThreads << "\n"
-            << std::setw(io_col_width) << "Domain size of :";
+            << std::setw(io_col_width) << "Domain size (including ghost-zones) of :";
   for (int i = 0; i < RANK; ++i) {
     std::cout << std::setw(2) << extent[i];
     if (i < RANK - 1) {
@@ -412,6 +412,12 @@ int main(int argc, char **argv) {
   std::cout << "\n" << std::setw(io_col_width) << "Brick Size :";
   for (int i = 0; i < RANK; ++i) {
     std::cout << std::setw(2) << BRICK_DIM[i];
+    if (i < RANK - 1)
+      std::cout << " x ";
+  }
+  std::cout << "\n" << std::setw(io_col_width) << "Array Padding :";
+  for (int i = 0; i < RANK; ++i) {
+    std::cout << std::setw(2) << PADDING[i];
     if (i < RANK - 1)
       std::cout << " x ";
   }
