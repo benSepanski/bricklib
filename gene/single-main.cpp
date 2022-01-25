@@ -10,9 +10,6 @@
  * Copied and modified from main.cu written by Tuowen Zhao
  *
  */
-
-#include <numeric>
-
 #include "brick-stencils.h"
 #include "gtensor-stencils.h"
 #include "single-util.h"
@@ -385,7 +382,6 @@ int main(int argc, char **argv) {
 #pragma omp parallel shared(numThreads) default(none)
   numThreads = omp_get_num_threads();
   long page_size = sysconf(_SC_PAGESIZE);
-  size_t totElems = std::accumulate(extent.begin(), extent.end(), 1, std::multiplies<>());
   int io_col_width = 30;
   dataRecorder.setDefaultValue("PageSize", page_size);
   dataRecorder.setDefaultValue("OpenMPThreads", numThreads);
