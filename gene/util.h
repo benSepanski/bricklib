@@ -13,7 +13,7 @@
 #include <string>
 #include <utility>
 
-#include "gene-6d-stencils.h"
+#include "brick-stencils.h"
 
 struct trial_iter_count {
   int num_warmups, num_iters;

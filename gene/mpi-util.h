@@ -6,7 +6,7 @@
 #define BRICK_MPI_UTIL_H
 
 #include "MPILayout.h"
-#include "gene-6d-stencils.h"
+#include "brick-stencils.h"
 #include "util.h"
 #include <functional>
 

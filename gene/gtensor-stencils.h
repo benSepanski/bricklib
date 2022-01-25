@@ -2,10 +2,10 @@
 // Created by Benjamin Sepanski on 12/2/21.
 //
 
-#ifndef BRICK_GENE_6D_GTENSOR_STENCILS_H
-#define BRICK_GENE_6D_GTENSOR_STENCILS_H
+#ifndef BRICK_GTENSOR_STENCILS_H
+#define BRICK_GTENSOR_STENCILS_H
 
-#include "gene-6d-stencils.h"
+#include "brick-stencils.h"
 #define GTENSOR_DEFAULT_DEVICE_ALLOCATOR(T) gt::device_allocator<T>
 #include <gtensor/gtensor.h>
 
@@ -61,7 +61,8 @@ void computeIJDerivGTensor(gt::gtensor<gt::complex<bElem>, 6, Space> out,
            i_deriv_coeff[1] * stencil<RANK>(in, {-1, 0, 0, 0, 0, 0}, bnd) +
            i_deriv_coeff[2] * stencil<RANK>(in, {0, 0, 0, 0, 0, 0}, bnd) +
            i_deriv_coeff[3] * stencil<RANK>(in, {+1, 0, 0, 0, 0, 0}, bnd) +
-           i_deriv_coeff[4] * stencil<RANK>(in, {+2, 0, 0, 0, 0, 0}), bnd) +
+           i_deriv_coeff[4] * stencil<RANK>(in, {+2, 0, 0, 0, 0, 0}, bnd)
+           ) +
       p2.view(_all, _newaxis, _all, _all, _all, _all) *
           ikj.view(_newaxis, _all, _newaxis, _newaxis, _newaxis, _newaxis) *
           in.view(_si, _sj, _sk, _sl, _sm, _sn);
@@ -129,4 +130,4 @@ auto buildArakawaGTensorKernel(const gt::gtensor_span<gt::complex<bElem>, 6UL, S
   return arakawaComputation;
 }
 
-#endif // BRICK_GENE_6D_GTENSOR_STENCILS_H
+#endif // BRICK_GTENSOR_STENCILS_H

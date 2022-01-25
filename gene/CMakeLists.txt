@@ -1,7 +1,7 @@
 if(gtensor_FOUND AND CMAKE_CUDA_COMPILER)
     if(MPI_FOUND)
-        add_executable(mpi-gene6d gene-6d-mpi.cpp gene-6d-stencils.cu mpi-util.cpp util.cpp)
-        target_gtensor_sources(mpi-gene6d PRIVATE gene-6d-mpi.cpp gene-6d-gtensor-stencils.h)
+        add_executable(mpi-gene6d mpi-main.cpp brick-stencils.cu mpi-util.cpp util.cpp)
+        target_gtensor_sources(mpi-gene6d PRIVATE mpi-main.cpp gtensor-stencils.h)
         target_link_libraries(mpi-gene6d
                               brick brickhelper
                               gtensor::gtensor
@@ -28,8 +28,8 @@ if(gtensor_FOUND AND CMAKE_CUDA_COMPILER)
         endif()
     endif()
 
-    add_executable(single-gene-6d gene-6d-single.cpp gene-6d-stencils.cu single-util.cpp util.cpp)
-    target_gtensor_sources(single-gene-6d PRIVATE gene-6d-single.cpp gene-6d-gtensor-stencils.h)
+    add_executable(single-gene-6d single-main.cpp brick-stencils.cu single-util.cpp util.cpp)
+    target_gtensor_sources(single-gene-6d PRIVATE single-main.cpp gtensor-stencils.h)
     target_link_libraries(single-gene-6d
             brick brickhelper
             gtensor::gtensor

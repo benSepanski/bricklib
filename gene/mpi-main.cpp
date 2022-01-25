@@ -14,8 +14,8 @@
 #include "mpi-cuda-util.h"
 #include <numeric>
 
-#include "gene-6d-gtensor-stencils.h"
-#include "gene-6d-stencils.h"
+#include "brick-stencils.h"
+#include "gtensor-stencils.h"
 #include "mpi-util.h"
 #include "util.h"
 

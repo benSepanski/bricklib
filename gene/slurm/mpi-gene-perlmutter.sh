@@ -20,6 +20,7 @@ for use_types in ON OFF ; do
                     -J "${scripts_dir}/${job_name}" \
                     -t "02:00:00" \
                     --num-gz ${num_gz} \
+                    -d "60,32,24,24,32,2" \
                     > ${scripts_dir}/${job_name}.sh
             done
         done

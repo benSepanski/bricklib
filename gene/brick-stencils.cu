@@ -1,5 +1,5 @@
 #include "assert.h"
-#include "gene-6d-stencils.h"
+#include "brick-stencils.h"
 
 __constant__ bElem const_i_deriv_coeff_dev[5];
 

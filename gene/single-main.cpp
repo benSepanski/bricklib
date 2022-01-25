@@ -13,8 +13,8 @@
 
 #include <numeric>
 
-#include "gene-6d-gtensor-stencils.h"
-#include "gene-6d-stencils.h"
+#include "brick-stencils.h"
+#include "gtensor-stencils.h"
 #include "single-util.h"
 #include "util.h"
 
@@ -110,13 +110,17 @@ void ijderivGTensor(complexArray6D out, const complexArray6D &in, const complexA
   auto ikj_dev = ikj.allocateOnDevice();
   ikj.copyToDevice(ikj_dev);
 
+  auto as_gt_complex = [](bComplexElem *ptr) -> auto {
+    return reinterpret_cast<gt::complex<bElem>*>(ptr);
+  };
+
   auto shape6D = gt::shape(out.extent[0], out.extent[1], out.extent[2], out.extent[3], out.extent[4], out.extent[5]);
-  auto gt_out = gt::adapt_device(out_dev.getData().get(), shape6D);
-  auto gt_in = gt::adapt_device(in_dev.getData().get(), shape6D);
+  auto gt_out = gt::adapt_device(as_gt_complex(out_dev.getData().get()), shape6D);
+  auto gt_in = gt::adapt_device(as_gt_complex(in_dev.getData().get()), shape6D);
   auto shape5D = gt::shape(p1.extent[0], p1.extent[1], p1.extent[2], p1.extent[3], p1.extent[4]);
-  auto gt_p1 = gt::adapt_device(p1_dev.getData().get(), shape5D);
-  auto gt_p2 = gt::adapt_device(p2_dev.getData().get(), shape5D);
-  auto gt_ikj = gt::adapt_device(ikj_dev.getData().get(), gt::shape(ikj.extent[0]));
+  auto gt_p1 = gt::adapt_device(as_gt_complex(p1_dev.getData().get()), shape5D);
+  auto gt_p2 = gt::adapt_device(as_gt_complex(p2_dev.getData().get()), shape5D);
+  auto gt_ikj = gt::adapt_device(as_gt_complex(ikj_dev.getData().get()), gt::shape(ikj.extent[0]));
 
   auto gtensorKernel = [&]() -> void {
     computeIJDerivGTensor<gt::space::device>(gt_out, gt_in, gt_p1, gt_p2, gt_ikj, i_deriv_coeff);
@@ -182,7 +186,7 @@ void ijderivBrick(complexArray6D out, const complexArray6D &in, const complexArr
 
   // copy back from device
   bOutArray.copyFromDevice();
-  bOutArray.storeTo(bOut);
+  bOutArray.storeTo(out);
 }
 
 /**
@@ -354,7 +358,7 @@ void runIJDeriv(std::array<unsigned, RANK> extent, CSVDataRecorder &dataRecorder
 
   std::cout << "Bricks " << " ";
 
-  ijderivBrick(brickOut, in, p1, p2, ikj, dataRecorder);
+  ijderivBrick(brickOut, in, p1, p2, ikj, i_deriv_coeff, dataRecorder);
   checkClose(brickOut, arrayOut, {0, 0, 2, 2, 0, 0});
   // clear out brick to be sure correct values don't propagate through loop
   brickOut.set(0.0);

@@ -2,8 +2,8 @@
 // Created by Benjamin Sepanski on 12/2/21.
 //
 
-#ifndef BRICK_GENE_6D_STENCILS_H
-#define BRICK_GENE_6D_STENCILS_H
+#ifndef BRICK_BRICK_STENCILS_H
+#define BRICK_BRICK_STENCILS_H
 
 #include <iomanip>
 #include <iostream>
@@ -225,4 +225,4 @@ void checkClose(ArrType1 arr1, ArrType2 arr2, std::array<unsigned, RANK> ghostZo
   }
 }
 
-#endif // BRICK_GENE_6D_STENCILS_H
+#endif // BRICK_BRICK_STENCILS_H
