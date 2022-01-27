@@ -102,13 +102,6 @@ if(gtensor_FOUND)
 endif ()
 
 if(CMAKE_CUDA_COMPILER)
-    if(PERLMUTTER)
-        set(CUFFT_LIBRARIES cuda cudart_static cufft_static culibos)
-    elseif(${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.17")
-        set(CUFFT_LIBRARIES CUDA::cufft_static)
-    else()
-        set(CUFFT_LIBRARIES cufft_static culibos)
-    endif()
     # sample FFT
     add_executable(single-fft fft.cu)
     if(${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.17")
@@ -134,28 +127,5 @@ if(CMAKE_CUDA_COMPILER)
         target_link_options(single-fft PRIVATE -dlto)
     else()
         message(STATUS "No device link-time optimization for cuda with cuda version ${CMAKE_CUDA_COMPILER_VERSION} and cmake version ${CMAKE_VERSION}")
-    endif()
-
-    # gene-style FFT
-    if(gtensor_FOUND)
-        add_executable(single-fft-gene-6d fft-gene-6d.cu)
-        if(${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.17")
-            set_property(TARGET single-fft-gene-6d PROPERTY CUDA_SEPARABLE_COMPILATION ON)
-        endif()
-        target_link_libraries(single-fft-gene-6d brickhelper ${CUFFT_LIBRARIES} gtensor::gtensor CUDA::nvToolsExt)
-        target_include_directories(single-fft-gene-6d PUBLIC
-                "${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES}"
-                )
-        set_target_properties(single-fft-gene-6d PROPERTIES OUTPUT_NAME fft-gene-6d)
-        # https://developer.nvidia.com/blog/cuda-pro-tip-use-cufft-callbacks-custom-data-processing/
-        # need relocatable device code
-        target_compile_options(single-fft-gene-6d PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--device-c>)
-        # link-time optimization https://developer.nvidia.com/blog/improving-gpu-app-performance-with-cuda-11-2-device-lto/
-        if(${CMAKE_CUDA_COMPILER_VERSION} VERSION_GREATER_EQUAL "11.2" AND ${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.18")
-                message(STATUS "Enabling device link-time optimization of single-fft-gene-6d for cuda")
-                target_link_options(single-fft-gene-6d PRIVATE -dlto)
-        else()
-                message(STATUS "No device link-time optimization for cuda with cuda version ${CMAKE_CUDA_COMPILER_VERSION} and cmake version ${CMAKE_VERSION}")
-        endif()
     endif()
 endif()

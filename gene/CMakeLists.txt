@@ -1,4 +1,5 @@
 if(gtensor_FOUND AND CMAKE_CUDA_COMPILER)
+    # mpi computation
     if(MPI_FOUND)
         add_executable(mpi-gene6d mpi-main.cpp brick-stencils.cu mpi-util.cpp util.cpp)
         target_gtensor_sources(mpi-gene6d PRIVATE mpi-main.cpp gtensor-stencils.h)
@@ -28,6 +29,7 @@ if(gtensor_FOUND AND CMAKE_CUDA_COMPILER)
         endif()
     endif()
 
+    # single-device computation
     add_executable(single-gene-6d single-main.cpp brick-stencils.cu single-util.cpp util.cpp)
     target_gtensor_sources(single-gene-6d PRIVATE single-main.cpp gtensor-stencils.h)
     target_link_libraries(single-gene-6d
@@ -41,4 +43,32 @@ if(gtensor_FOUND AND CMAKE_CUDA_COMPILER)
     target_include_directories(single-gene6d PUBLIC
             "${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES}"
             )
+
+    # FFT computation
+    add_executable(single-fft-gene-6d ../gene/fft-gene-6d.cu)
+    if(${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.17")
+        set_property(TARGET single-fft-gene-6d PROPERTY CUDA_SEPARABLE_COMPILATION ON)
+    endif()
+    if(PERLMUTTER)
+        if(NOT DEFINED ENV{CUFFT_LINK_DIR} AND NOT DEFINED CUFFT_LINK_DIR)
+            message(FATAL_ERROR "Must pass CUFFT_LINK_DIR option (or set as environment variable) for Perlmutter build")
+        endif()
+        set(CUFFT_LINK_DIR $ENV{CUFFT_LINK_DIR} CACHE PATH "Directory containing libcufft_static.a" )
+        set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -L${CUFFT_LINK_DIR}")
+    endif()
+    target_link_libraries(single-fft-gene-6d brickhelper ${CUFFT_LIBRARIES} gtensor::gtensor CUDA::nvToolsExt)
+    target_include_directories(single-fft-gene-6d PUBLIC
+            "${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES}"
+            )
+    set_target_properties(single-fft-gene-6d PROPERTIES OUTPUT_NAME fft-gene-6d)
+    # https://developer.nvidia.com/blog/cuda-pro-tip-use-cufft-callbacks-custom-data-processing/
+    # need relocatable device code
+    target_compile_options(single-fft-gene-6d PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--device-c>)
+    # link-time optimization https://developer.nvidia.com/blog/improving-gpu-app-performance-with-cuda-11-2-device-lto/
+    if(${CMAKE_CUDA_COMPILER_VERSION} VERSION_GREATER_EQUAL "11.2" AND ${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.18")
+        message(STATUS "Enabling device link-time optimization of single-fft-gene-6d for cuda")
+        target_link_options(single-fft-gene-6d PRIVATE -dlto)
+    else()
+        message(STATUS "No device link-time optimization for cuda with cuda version ${CMAKE_CUDA_COMPILER_VERSION} and cmake version ${CMAKE_VERSION}")
+    endif()
 endif ()

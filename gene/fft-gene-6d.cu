@@ -1,10 +1,10 @@
-#include <cmath>
-#include <iostream>
-#include <iomanip>
-#include "nvToolsExt.h"
-#include "transpose-cu.h"
 #include "fft.h"
+#include "nvToolsExt.h"
+#include "single/transpose-cu.h"
 #include "stencils/gene-6d.h"
+#include <cmath>
+#include <iomanip>
+#include <iostream>
 
 // NOTE: none of the arrays use padding or ghost-zones
 

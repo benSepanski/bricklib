@@ -37,6 +37,15 @@ if (CMAKE_CUDA_COMPILER)
     endif()
     # allow compile-time evaluation of host constexpr functions in device functions
     set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} --expt-relaxed-constexpr")
+
+    # Figure out which libraries to link for cufft
+    if(PERLMUTTER)
+        set(CUFFT_LIBRARIES cuda cudart_static cufft_static culibos)
+    elseif(${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.17")
+        set(CUFFT_LIBRARIES CUDA::cufft_static)
+    else()
+        set(CUFFT_LIBRARIES cufft_static culibos)
+    endif()
 else()
     message(STATUS "Could NOT find CUDA")
 endif ()
