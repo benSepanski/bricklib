@@ -1,5 +1,3 @@
-add_subdirectory(gene-6d)
-
 VSTARGET(N3AXIS ../stencils/3axis.cpp ../stencils/3axis-out.cpp)
 add_executable(single-cpu cpu.cpp ${VSTARGET_N3AXIS_OUTPUT} ../stencils/copy.cpp)
 target_link_libraries(single-cpu brickhelper)
