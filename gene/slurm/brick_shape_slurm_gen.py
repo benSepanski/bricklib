@@ -38,17 +38,46 @@ if __name__ == "__main__":
 
     per_process_extent = tuple(map(int, args["per_process_domain_size"].split(',')))
 
-    run_jobs = f"""
-for dir in cmake-builds/single-builds/{machine_config.name}/ ; do
-    echo "Running experiment in ${{dir}}"
-    srun -n 1 ${dir}/gene/single-gene6d -d {','.join(map(str,per_process_extent))} \\
+    brick_dims = [(2, 32, 2, 2, 1, 1), (2, 16, 2, 2, 2, 1), (2, 16, 2, 4, 1, 1), (2, 16, 4, 2, 1, 1),
+                  (4, 16, 2, 2, 1, 1), (2, 8, 2, 2, 4, 1), (4, 8, 2, 2, 2, 1), (2, 8, 4, 4, 1, 1), (2, 16, 2, 2, 1, 1),
+                  (2, 8, 2, 2, 2, 1), (2, 8, 2, 4, 1, 1), (2, 8, 4, 2, 1, 1), (4, 8, 2, 2, 1, 1), (2, 4, 2, 2, 4, 1),
+                  (4, 4, 2, 2, 2, 1), (2, 4, 4, 4, 1, 1)]
+
+    build_dir = f"cmake-builds/single/{machine_config.name}"
+    preamble += f"""
+if [[ ! -f "{build_dir}" ]] ; then
+    mkdir -p "{build_dir}"
+fi
+"""
+    brick_dim_var_name = "brick_dim"
+    build_job = f"""cmake -S ../../ \\
+        -B {build_dir} \\
+        -DCMAKE_CUDA_ARCHITECTURES={machine_config.cuda_arch} \\
+        -DCMAKE_INSTALL_PREFIX=bin \\
+        -DGENE6D_USE_TYPES=OFF \\
+        -DGENE6D_CUDA_AWARE=OFF \\
+        -DGENE6D_BRICK_DIM=${{{brick_dim_var_name}}} \\
+        -DCMAKE_CUDA_FLAGS=\"-lineinfo -gencode arch=compute_{machine_config.cuda_arch},code=[sm_{machine_config.cuda_arch},lto_{machine_config.cuda_arch}]\" \\
+        -DCMAKE_BUILD_TYPE=Release \\
+        -DPERLMUTTER={"ON" if machine_config.name == "perlmutter" else "OFF"} \\
+    || exit 1
+    (cd {build_dir} && make -j 20 single-gene-6d) || exit 1
+"""
+    run_job = f"""echo "Running experiment with brick size ${{{brick_dim_var_name}}}"
+    srun -n 1 {build_dir}/gene/single-gene6d -d {','.join(map(str,per_process_extent))} \\
         -o {args["output_file"]} \\
         -a \\
         -I 100 \\
-        -W 10
+        -W 10 \\
+    || exit 1
+"""
+    run_all_jobs = f"""for {brick_dim_var_name} in {' '.join(map(lambda dims: ','.join(map(str, dims)), brick_dims))} ; do
+    {build_job}
+    {run_job}
 done
 """
-    slurm_script = "\n\n".join([preamble, run_jobs]) + "\n"
+
+    slurm_script = "\n\n".join([preamble, run_all_jobs]) + "\n"
 
     print(slurm_script)
 
