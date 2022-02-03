@@ -24,7 +24,10 @@
 
 // useful constants
 constexpr unsigned RANK = 6;
-constexpr std::array<unsigned, RANK> BRICK_DIM = {2, 16, 2, 2, 1, 1};
+#ifndef GENE6D_BRICK_DIM
+#define GENE6D_BRICK_DIM 2,32,2,2,1,1
+#endif
+constexpr std::array<unsigned, RANK> BRICK_DIM = {GENE6D_BRICK_DIM};
 constexpr std::array<unsigned, RANK> BRICK_VECTOR_DIM = {1,1,1,1,1,1};
 constexpr std::array<unsigned, RANK> PCOEFF_BRICK_DIM = {BRICK_DIM[0], BRICK_DIM[2], BRICK_DIM[3], BRICK_DIM[4], BRICK_DIM[5]};
 constexpr std::array<unsigned, RANK> ARAKAWA_COEFF_BRICK_DIM = {

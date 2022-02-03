@@ -1,4 +1,17 @@
 if(gtensor_FOUND AND CMAKE_CUDA_COMPILER)
+    # capture brick-dim if passed
+    function(set_gene6d_brick_dim target_name)
+        if(GENE6D_BRICK_DIM)
+            # Commas need to be escaped for nvcc preprocessor
+            # https://gitlab.kitware.com/cmake/cmake/-/issues/17379
+            string(REPLACE , [[\,]] GENE6D_BRICK_DIM_ESCAPED_COMMA "${GENE6D_BRICK_DIM}" )
+            message(STATUS "${GENE6D_BRICK_DIM_ESCAPED_COMMA}")
+            target_compile_definitions(${target_name}
+                    PUBLIC $<$<COMPILE_LANGUAGE:CXX>:GENE6D_BRICK_DIM=${GENE6D_BRICK_DIM}>
+                           $<$<COMPILE_LANGUAGE:CUDA>:GENE6D_BRICK_DIM=${GENE6D_BRICK_DIM_ESCAPED_COMMA}>)
+        endif()
+    endfunction()
+
     # mpi computation
     if(MPI_FOUND)
         add_executable(mpi-gene6d mpi-main.cpp brick-stencils.cu mpi-util.cpp util.cpp)
@@ -27,6 +40,7 @@ if(gtensor_FOUND AND CMAKE_CUDA_COMPILER)
         if(GENE6D_USE_TYPES)
             target_compile_definitions(mpi-gene6d PUBLIC USE_TYPES)
         endif()
+        set_gene6d_brick_dim(mpi-gene6d)
     endif()
 
     # single-device computation
@@ -43,6 +57,7 @@ if(gtensor_FOUND AND CMAKE_CUDA_COMPILER)
     target_include_directories(single-gene6d PUBLIC
             "${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES}"
             )
+    set_gene6d_brick_dim(single-gene-6d)
 
     # FFT computation
     add_executable(single-fft-gene-6d ../gene/fft-gene-6d.cu)
