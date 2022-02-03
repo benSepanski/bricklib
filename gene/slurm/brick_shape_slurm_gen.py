@@ -13,7 +13,7 @@ if __name__ == "__main__":
     parser.add_argument("-d", "--per-process-domain-size", type=str,
                         help="Per-process domain extent formatted as I,J,K,L,M,N",
                         default="72,32,24,24,32,2")
-    parser.add_argument("-o", "--output_file", type=str, help="Output file to write to", default=None)
+    parser.add_argument("-o", "--output_file", type=str, help="Output file to write to", default="brick_shape_out.csv")
 
     args = vars(parser.parse_args())
 
