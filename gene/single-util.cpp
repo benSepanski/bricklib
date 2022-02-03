@@ -6,7 +6,7 @@
 
 unsigned NUM_ITERATIONS, NUM_WARMUPS;
 
-trial_iter_count parse_single_args(std::array<unsigned, RANK> *perProcessDomainSize,
+trial_iter_count parseSingleArgs(std::array<unsigned, RANK> *perProcessDomainSize,
                                    std::string *outputFileName,
                                    bool *appendToFile,
                                    std::istream &in) {
@@ -102,12 +102,19 @@ double getDevicePeakMemoryBandwidthGBPerS(int device, bool print) {
 }
 
 void printTheoreticalLimits(size_t minNumBytesTransferred, size_t numStencils,
-                              size_t flopsPerStencil, int device) {
+                              size_t flopsPerStencil, CSVDataRecorder &dataRecorder,
+                              int device) {
   // Print AI results
   double maxAI = (double)(numStencils * flopsPerStencil) / (double) minNumBytesTransferred;
   double maxFlopsPerGB = maxAI * (double) (1L << 30);
-  double maxFlopsPerS = maxFlopsPerGB * getDevicePeakMemoryBandwidthGBPerS(device);
+  double peakMemoryBandwidthGBPerS = getDevicePeakMemoryBandwidthGBPerS(device);
+  double maxFlopsPerS = maxFlopsPerGB * peakMemoryBandwidthGBPerS;
   double maxGStencilPerS = (maxFlopsPerS / (double) flopsPerStencil) / 1000000000.0;
+
+  dataRecorder.setDefaultValue("maxAI", maxAI);
+  dataRecorder.setDefaultValue("minNumBytesTransferred", minNumBytesTransferred);
+  dataRecorder.setDefaultValue("numStencils", numStencils);
+  dataRecorder.setDefaultValue("peakMemoryBandwidth(GB/s)", peakMemoryBandwidthGBPerS);
   std::cout << "Minimum number of bytes moved: " << minNumBytesTransferred << "\n"
             << "Maximum theoretical AI (flops/byte): " << maxAI << "\n"
             << "Maximum GStencil/s: " << maxGStencilPerS << "\n";

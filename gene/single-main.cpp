@@ -299,8 +299,23 @@ void runArakawa(std::array<unsigned, RANK> extent, CSVDataRecorder &dataRecorder
   unsigned long flopsPerStencil = ARAKAWA_STENCIL_SIZE * 2 + (ARAKAWA_STENCIL_SIZE - 1) * 2;
   unsigned long numStencils = numNonGhostElements;
   std::cout << "Array Limits (no computation on ghosts):" << std::endl;
-  printTheoreticalLimits(minNumBytesMoved, numStencils, flopsPerStencil);
+  printTheoreticalLimits(minNumBytesMoved, numStencils, flopsPerStencil, dataRecorder);
 
+  const char dimNames[RANK] = {'i', 'j', 'k', 'l', 'm', 'n'};
+  for(unsigned d = 0; d < RANK; ++d) {
+    dataRecorder.setDefaultValue((std::string) "ArrayPadding_" + dimNames[d], PADDING[d]);
+  }
+  // run array computation
+  semiArakawaGTensor(arrayOut, in, coeffs, dataRecorder);
+  std::cout << "Array computation complete. Beginning Arakawa bricks computation" << std::endl;
+
+  // Setup for bricks computation
+  dataRecorder.setDefaultValue("Layout", "bricks");
+  for(unsigned d = 0; d < RANK; ++d) {
+    dataRecorder.unsetDefaultValue((std::string) "ArrayPadding_" + dimNames[d]);
+    dataRecorder.setDefaultValue((std::string) "BrickDim_" + dimNames[d], BRICK_DIM[d]);
+    dataRecorder.setDefaultValue((std::string) "BrickVecDim_" + dimNames[d], BRICK_VECTOR_DIM[d]);
+  }
   static_assert(BRICK_DIM[2] % 2 == 0, "Brick k-extent must be multiple of 2");
   static_assert(BRICK_DIM[3] % 2 == 0, "Brick l-extent must be multiple of 2");
   // can skip ghost bricks if they are *entirely* contained in the ghost-zone
@@ -311,24 +326,10 @@ void runArakawa(std::array<unsigned, RANK> extent, CSVDataRecorder &dataRecorder
     numStencils = arrayOut.numElements;
   }
   std::cout << "Brick Limits (computation " << 1 - numGZBrickToSkip << " ghost bricks):" << std::endl;
-  printTheoreticalLimits(minNumBytesMoved, numStencils, flopsPerStencil);
+  printTheoreticalLimits(minNumBytesMoved, numStencils, flopsPerStencil, dataRecorder);
   std::cout << "Coefficient setup complete. Beginning Arakawa array computation" << std::endl;
   dataRecorder.setDefaultValue("Layout", "array");
   dataRecorder.setDefaultValue("Kernel", "arakawa");
-
-  const char dimNames[RANK] = {'i', 'j', 'k', 'l', 'm', 'n'};
-  for(unsigned d = 0; d < RANK; ++d) {
-    dataRecorder.setDefaultValue((std::string) "ArrayPadding_" + dimNames[d], PADDING[d]);
-  }
-  // run array computation
-  semiArakawaGTensor(arrayOut, in, coeffs, dataRecorder);
-  std::cout << "Array computation complete. Beginning Arakawa bricks computation" << std::endl;
-  dataRecorder.setDefaultValue("Layout", "bricks");
-  for(unsigned d = 0; d < RANK; ++d) {
-    dataRecorder.unsetDefaultValue((std::string) "ArrayPadding_" + dimNames[d]);
-    dataRecorder.setDefaultValue((std::string) "BrickDim_" + dimNames[d], BRICK_DIM[d]);
-    dataRecorder.setDefaultValue((std::string) "BrickVecDim_" + dimNames[d], BRICK_VECTOR_DIM[d]);
-  }
 
   std::array<BricksArakawaKernelType, 7> kernelTypes = {
       SIMPLE_KLIJMN,
@@ -390,7 +391,7 @@ void runIJDeriv(std::array<unsigned, RANK> extent, CSVDataRecorder &dataRecorder
       2 * numComplexRealMultiplies + 2 * numComplexAdds;
   unsigned long numStencils = numNonGhostElements;
   std::cout << "Array Limits (no computation on ghosts):" << std::endl;
-  printTheoreticalLimits(minNumBytesMoved, numStencils, flopsPerStencil);
+  printTheoreticalLimits(minNumBytesMoved, numStencils, flopsPerStencil, dataRecorder);
 
   std::cout << "Array setup complete. Beginning I-J derivative array computation" << std::endl;
   dataRecorder.setDefaultValue("Layout", "array");
@@ -428,7 +429,7 @@ void runIJDeriv(std::array<unsigned, RANK> extent, CSVDataRecorder &dataRecorder
 #pragma clang diagnostic pop
 
   std::cout << "Brick Limits (computation " << 1 - numGZBrickToSkip << " ghost bricks):" << std::endl;
-  printTheoreticalLimits(minNumBytesMoved, numStencils, flopsPerStencil);
+  printTheoreticalLimits(minNumBytesMoved, numStencils, flopsPerStencil, dataRecorder);
 
   std::cout << "Bricks " << " ";
 
@@ -451,7 +452,7 @@ int main(int argc, char **argv) {
   std::string outputFileName;
   bool appendToFile;
   trial_iter_count iter_count =
-      parse_single_args(&extent, &outputFileName, &appendToFile, input_stream);
+      parseSingleArgs(&extent, &outputFileName, &appendToFile, input_stream);
   NUM_WARMUPS = iter_count.num_warmups;
   NUM_ITERATIONS = iter_count.num_iters;
 

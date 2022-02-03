@@ -19,7 +19,7 @@ extern unsigned NUM_WARMUPS;   ///< how many warmup iters?
  *
  * @return the number of iterations, with default 100
  */
-trial_iter_count parse_single_args(std::array<unsigned, RANK> *perProcessDomainSize,
+trial_iter_count parseSingleArgs(std::array<unsigned, RANK> *perProcessDomainSize,
                                    std::string *outputFileName,
                                    bool *appendToFile,
                                    std::istream &in);
@@ -37,8 +37,12 @@ double getDevicePeakMemoryBandwidthGBPerS(int device, bool print = false);
  * @param minNumBytesTransferred minimum number of bytes to be transferrerd
  * @param numStencils number of stencils being computed
  * @param flopsPerStencil number of flops per stencil
+ * @param dataRecorder the recorder to record the limits in
+ * @param device the CUDA device
  */
-void printTheoreticalLimits(size_t minNumBytesTransferred, size_t numStencils, size_t flopsPerStencil, int device = 0);
+void printTheoreticalLimits(size_t minNumBytesTransferred, size_t numStencils,
+                            size_t flopsPerStencil, CSVDataRecorder &dataRecorder,
+                            int device = 0);
 
 /**
  * @brief times func and prints stats
