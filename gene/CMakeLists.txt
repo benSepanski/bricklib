@@ -5,7 +5,6 @@ if(gtensor_FOUND AND CMAKE_CUDA_COMPILER)
             # Commas need to be escaped for nvcc preprocessor
             # https://gitlab.kitware.com/cmake/cmake/-/issues/17379
             string(REPLACE , [[\,]] GENE6D_BRICK_DIM_ESCAPED_COMMA "${GENE6D_BRICK_DIM}" )
-            message(STATUS "${GENE6D_BRICK_DIM_ESCAPED_COMMA}")
             target_compile_definitions(${target_name}
                     PUBLIC $<$<COMPILE_LANGUAGE:CXX>:GENE6D_BRICK_DIM=${GENE6D_BRICK_DIM}>
                            $<$<COMPILE_LANGUAGE:CUDA>:GENE6D_BRICK_DIM=${GENE6D_BRICK_DIM_ESCAPED_COMMA}>)
