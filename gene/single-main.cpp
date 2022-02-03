@@ -150,11 +150,16 @@ void ijderivGTensor(complexArray6D out, const complexArray6D &in, const complexA
  * @param p2 coefficient to scale j-derivative
  * @param ikj 2*pi*fourier mode
  * @param i_deriv_coeff the coefficients
+ * @param numGZToSKip the number of ghost-zones to not compute results on
  * @param dataRecorder the recorder to hold data in
  */
 void ijderivBrick(complexArray6D out, const complexArray6D &in, const complexArray5D &p1,
                   const complexArray5D &p2, const complexArray1D_J &ikj, bElem i_deriv_coeffs[5],
-                  CSVDataRecorder &dataRecorder) {
+                  int numGZToSkip, CSVDataRecorder &dataRecorder) {
+  if(numGZToSkip != 1 && numGZToSkip != 0) {
+    throw std::runtime_error("numGZToSkip must be 0 or 1");
+  }
+
   // set up brick-info and storage on host
   std::array<unsigned, RANK> fieldBrickGridExtent{};
   for(unsigned d = 0; d < RANK; ++d) {
@@ -181,14 +186,15 @@ void ijderivBrick(complexArray6D out, const complexArray6D &in, const complexArr
   FieldBrick_i bIn_dev = bInArray.viewBricksOnDevice<CommIn_i>();
   FieldBrick_i bOut_dev = bOutArray.viewBricksOnDevice<CommIn_i>();
 
-  auto brickKernel = buildBricksIJDerivBrickKernel(fieldLayout, bP1Array, bP2Array, ikj, i_deriv_coeffs);
+  auto brickKernel = buildBricksIJDerivBrickKernel(fieldLayout, bP1Array, bP2Array, ikj, i_deriv_coeffs, numGZToSkip);
   // build kernel
   auto brickComputation = [&]() -> void {
     brickKernel(bIn_dev, bOut_dev);
   };
 
   // time kernel
-  timeAndPrintStats(brickComputation, in.numElements, dataRecorder);
+  size_t numStencils = in.numElements / in.extent[0] * (in.extent[0] - numGZToSkip * 2);
+  timeAndPrintStats(brickComputation, numStencils, dataRecorder);
 
   // copy back from device
   bOutArray.copyFromDevice();
@@ -204,10 +210,16 @@ void ijderivBrick(complexArray6D out, const complexArray6D &in, const complexArr
  * @param[in] in_ptr input data (has ghost-zones and padding)
  * @param[in] coeffs input coefficients (has ghost-zones but no padding)
  * @param[in] kernelType the kernel type to use
+ * @param numGZToSKip the number of ghost-zones to not compute results on
  * @param[out] csvDataRecorder records data for CSV output if rank is zero
  */
 void semiArakawaBrick(complexArray6D out, const complexArray6D& in, const realArray6D& coeffs,
-                      BricksArakawaKernelType kernelType, CSVDataRecorder &csvDataRecorder) {
+                      BricksArakawaKernelType kernelType, int numGZToSkip,
+                      CSVDataRecorder &csvDataRecorder) {
+  if(numGZToSkip != 0 && numGZToSkip != 1) {
+    throw std::runtime_error("numGZToSkip must be 0 or 1");
+  }
+
   // set up brick-info and storage on host
   std::array<unsigned, RANK> gridExtent{};
   for(unsigned d = 0; d < RANK; ++d) {
@@ -234,7 +246,7 @@ void semiArakawaBrick(complexArray6D out, const complexArray6D& in, const realAr
   BrickedArakawaCoeffArray bCoeffArray(coeffLayout);
   bCoeffArray.loadFrom(coeffs);
 
-  auto arakawaBrickKernel = buildBricksArakawaKernel(brickLayout, bCoeffArray, kernelType);
+  auto arakawaBrickKernel = buildBricksArakawaKernel(brickLayout, bCoeffArray, kernelType, numGZToSkip);
 
   // set up on device
   bInArray.copyToDevice();
@@ -247,7 +259,8 @@ void semiArakawaBrick(complexArray6D out, const complexArray6D& in, const realAr
   };
 
   // time function
-  timeAndPrintStats(brickFunc, in.numElements, csvDataRecorder);
+  size_t numStencils = in.numElements / in.extent[0] * (in.extent[0] - numGZToSkip * 2);
+  timeAndPrintStats(brickFunc, numStencils, csvDataRecorder);
 
   // Copy back
   bOutArray.copyFromDevice();
@@ -273,10 +286,32 @@ void runArakawa(std::array<unsigned, RANK> extent, CSVDataRecorder &dataRecorder
   complexArray6D in{complexArray6D::random(extent)},
       arrayOut{extent, 0.0}, brickOut{extent, 0.0};
 
-  std::cout << "Brick decomposition setup complete. Beginning coefficient setup..." << std::endl;
+      std::cout << "Brick decomposition setup complete. Beginning coefficient setup..." << std::endl;
   // initialize my coefficients to random data, and receive coefficients for ghost-zones
   realArray6D coeffs{realArray6D::random(coeffExtent)};
 
+  unsigned long numNonGhostElements = arrayOut.numElements / arrayOut.extent[2] /
+                                      arrayOut.extent[3] * (arrayOut.extent[2] - 2 * 2) *
+                                      (arrayOut.extent[3] - 2 * 2);
+  unsigned long minNumBytesMoved = in.numElements * sizeof(bComplexElem) +
+                                   numNonGhostElements * sizeof(bComplexElem) +
+                                   coeffs.numElements * sizeof(bElem);
+  unsigned long flopsPerStencil = ARAKAWA_STENCIL_SIZE * 2 + (ARAKAWA_STENCIL_SIZE - 1) * 2;
+  unsigned long numStencils = numNonGhostElements;
+  std::cout << "Array Limits (no computation on ghosts):" << std::endl;
+  printTheoreticalLimits(minNumBytesMoved, numStencils, flopsPerStencil);
+
+  static_assert(BRICK_DIM[2] % 2 == 0, "Brick k-extent must be multiple of 2");
+  static_assert(BRICK_DIM[3] % 2 == 0, "Brick l-extent must be multiple of 2");
+  // can skip ghost bricks if they are *entirely* contained in the ghost-zone
+  int numGZBrickToSkip = (BRICK_DIM[2] == 2 && BRICK_DIM[3] == 2) ? 1 : 0;
+  assert(numGZBrickToSkip == 0 || numGZBrickToSkip == 1);
+  if(numGZBrickToSkip == 0) {
+    minNumBytesMoved += (arrayOut.numElements - numNonGhostElements) * sizeof(bComplexElem);
+    numStencils = arrayOut.numElements;
+  }
+  std::cout << "Brick Limits (computation " << 1 - numGZBrickToSkip << " ghost bricks):" << std::endl;
+  printTheoreticalLimits(minNumBytesMoved, numStencils, flopsPerStencil);
   std::cout << "Coefficient setup complete. Beginning Arakawa array computation" << std::endl;
   dataRecorder.setDefaultValue("Layout", "array");
   dataRecorder.setDefaultValue("Kernel", "arakawa");
@@ -309,7 +344,7 @@ void runArakawa(std::array<unsigned, RANK> extent, CSVDataRecorder &dataRecorder
     dataRecorder.setDefaultValue("BrickIterationOrder", toString(kernelType));
     std::cout << "Bricks " << toString(kernelType) << " ";
 
-    semiArakawaBrick(brickOut, in, coeffs, kernelType, dataRecorder);
+    semiArakawaBrick(brickOut, in, coeffs, kernelType, numGZBrickToSkip, dataRecorder);
     checkClose(brickOut, arrayOut, {0, 0, 2, 2, 0, 0});
     // clear out brick to be sure correct values don't propagate through loop
     brickOut.set(0.0);
@@ -342,6 +377,21 @@ void runIJDeriv(std::array<unsigned, RANK> extent, CSVDataRecorder &dataRecorder
   }
   bElem i_deriv_coeff[5] = {1. / 12., -2. / 3., 0., 2. / 3., -1 / 12.};
 
+  unsigned long numNonGhostElements =
+      arrayOut.numElements / arrayOut.extent[0] * (arrayOut.extent[0] - 2 * 2);
+  unsigned long minNumBytesMoved =
+      in.numElements * sizeof(bComplexElem) + numNonGhostElements * sizeof(bComplexElem) +
+      p1.numElements * sizeof(bComplexElem) + p2.numElements * sizeof(bComplexElem) +
+      ikj.numElements + sizeof(bComplexElem);
+  long numComplexMultiplies = 3;
+  long numComplexRealMultiplies = 5;
+  long numComplexAdds = 5;
+  unsigned long flopsPerStencil = 6 * numComplexMultiplies +
+      2 * numComplexRealMultiplies + 2 * numComplexAdds;
+  unsigned long numStencils = numNonGhostElements;
+  std::cout << "Array Limits (no computation on ghosts):" << std::endl;
+  printTheoreticalLimits(minNumBytesMoved, numStencils, flopsPerStencil);
+
   std::cout << "Array setup complete. Beginning I-J derivative array computation" << std::endl;
   dataRecorder.setDefaultValue("Layout", "array");
   dataRecorder.setDefaultValue("Kernel", "ijderiv");
@@ -361,9 +411,28 @@ void runIJDeriv(std::array<unsigned, RANK> extent, CSVDataRecorder &dataRecorder
     dataRecorder.setDefaultValue((std::string) "BrickVecDim_" + dimNames[d], BRICK_VECTOR_DIM[d]);
   }
 
+  static_assert(BRICK_DIM[0] % 2 == 0, "Brick extent on i-axis must be a multiple of 2");
+
+  // If brick is entirely contained in ghost-zone, we can skip computing on it.
+  // Otherwise, we must compute on the non-ghost parts of the brick so cannot skip it
+  int numGZBrickToSkip = (BRICK_DIM[0] == 2) ? 1 : 0;
+  assert(numGZBrickToSkip == 0 || numGZBrickToSkip == 1);
+  // PRAGMAS used to ignore IDE warnings about unreachable code
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "ConstantConditionsOC"
+#pragma ide diagnostic ignored "UnreachableCode"
+  if(numGZBrickToSkip == 0) {
+    minNumBytesMoved += (arrayOut.numElements - numNonGhostElements) * sizeof(bComplexElem);
+    numStencils = arrayOut.numElements;
+  }
+#pragma clang diagnostic pop
+
+  std::cout << "Brick Limits (computation " << 1 - numGZBrickToSkip << " ghost bricks):" << std::endl;
+  printTheoreticalLimits(minNumBytesMoved, numStencils, flopsPerStencil);
+
   std::cout << "Bricks " << " ";
 
-  ijderivBrick(brickOut, in, p1, p2, ikj, i_deriv_coeff, dataRecorder);
+  ijderivBrick(brickOut, in, p1, p2, ikj, i_deriv_coeff, numGZBrickToSkip, dataRecorder);
   checkClose(brickOut, arrayOut, {2, 0, 0, 0, 0, 0});
   // clear out brick to be sure correct values don't propagate through loop
   brickOut.set(0.0);
@@ -397,6 +466,13 @@ int main(int argc, char **argv) {
   numThreads = omp_get_num_threads();
   long page_size = sysconf(_SC_PAGESIZE);
   int io_col_width = 30;
+
+  int device = 0;
+  getDevicePeakMemoryBandwidthGBPerS(device, true);  ///< Print device info
+  cudaDeviceProp prop{};
+  gpuCheck(cudaGetDeviceProperties(&prop, device));
+  dataRecorder.setDefaultValue("DeviceName", prop.name);
+
   dataRecorder.setDefaultValue("PageSize", page_size);
   dataRecorder.setDefaultValue("OpenMPThreads", numThreads);
   std::cout << std::setw(io_col_width) << "Pagesize :" << page_size << "\n"

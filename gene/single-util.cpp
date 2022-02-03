@@ -83,6 +83,36 @@ trial_iter_count parse_single_args(std::array<unsigned, RANK> *perProcessDomainS
   }
   return iterCount;
 }
+
+double getDevicePeakMemoryBandwidthGBPerS(int device, bool print) {
+  // Print cuda bandwidth
+  // https://developer.nvidia.com/blog/how-query-device-properties-and-handle-errors-cuda-cc/
+  cudaDeviceProp prop;
+  gpuCheck(cudaGetDeviceProperties(&prop, device));
+  double peakMemoryBandwidthGiBPerS = 2.0*prop.memoryClockRate*(prop.memoryBusWidth/8)/1.0e6;
+  double peakMemoryBandwidthGBPerS = peakMemoryBandwidthGiBPerS * (1 << 30) / 1000000000;
+  if(print) {
+    printf("Device Number: %d\n", device);
+    printf("  Device name: %s\n", prop.name);
+    printf("  Memory Clock Rate (KHz): %d\n", prop.memoryClockRate);
+    printf("  Memory Bus Width (bits): %d\n", prop.memoryBusWidth);
+    printf("  Peak Memory Bandwidth (GB/s): %f\n\n", peakMemoryBandwidthGBPerS);
+  }
+  return peakMemoryBandwidthGBPerS;
+}
+
+void printTheoreticalLimits(size_t minNumBytesTransferred, size_t numStencils,
+                              size_t flopsPerStencil, int device) {
+  // Print AI results
+  double maxAI = (double)(numStencils * flopsPerStencil) / (double) minNumBytesTransferred;
+  double maxFlopsPerGB = maxAI * (double) (1L << 30);
+  double maxFlopsPerS = maxFlopsPerGB * getDevicePeakMemoryBandwidthGBPerS(device);
+  double maxGStencilPerS = (maxFlopsPerS / (double) flopsPerStencil) / 1000000000.0;
+  std::cout << "Minimum number of bytes moved: " << minNumBytesTransferred << "\n"
+            << "Maximum theoretical AI (flops/byte): " << maxAI << "\n"
+            << "Maximum GStencil/s: " << maxGStencilPerS << "\n";
+}
+
 void timeAndPrintStats(std::function<void(void)> func, size_t numStencils,
                        CSVDataRecorder &csvDataRecorder) {
   // setup for timing the function
@@ -113,3 +143,4 @@ void timeAndPrintStats(std::function<void(void)> func, size_t numStencils,
   std::cout << avg_time << "(s)"
             << " " << avg_gstencils_s << "(GStencil/s)" << std::endl;
 }
+

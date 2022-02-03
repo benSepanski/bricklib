@@ -29,9 +29,10 @@ __global__
 void ijDerivBrickKernel(brick::Array<unsigned, RANK, brick::Padding<>, unsigned> grid,
                            brick::Array<unsigned, RANK-1, brick::Padding<>, unsigned> coeffGrid,
                            FieldBrick_i bIn, FieldBrick_i bOut, PreCoeffBrick bP1,
-                           PreCoeffBrick bP2, bComplexElem *ikj) {
+                           PreCoeffBrick bP2, bComplexElem *ikj,
+                           int numGhostZonesToSkip) {
   // compute brick index
-  unsigned b_i = blockIdx.x;
+  unsigned b_i = numGhostZonesToSkip + blockIdx.x;
   unsigned b_j = blockIdx.y;
   unsigned b_klmn = blockIdx.z;
   unsigned b_k = b_klmn % grid.extent[2];
@@ -88,15 +89,17 @@ void ijDerivBrickKernel(brick::Array<unsigned, RANK, brick::Padding<>, unsigned>
  * @param bIn the input bricks
  * @param bOut the output bricks
  * @param coeff the coefficient bricks
+ * @param numGhostZonesToSkip the number of ghost zones to skip
  */
 __launch_bounds__(NUM_ELEMENTS_PER_FIELD_BRICK, max_blocks_per_sm(NUM_ELEMENTS_PER_FIELD_BRICK))
 __global__
 void semiArakawaBrickKernelSimple(brick::Array<unsigned, RANK, brick::Padding<>, unsigned> grid,
                                   brick::Array<unsigned, RANK, brick::Padding<>, unsigned> coeffGrid,
-                                  FieldBrick_kl bIn, FieldBrick_kl bOut, ArakawaCoeffBrick coeff) {
+                                  FieldBrick_kl bIn, FieldBrick_kl bOut, ArakawaCoeffBrick coeff,
+                                  int numGhostZonesToSkip) {
   // get brick index for field
-  unsigned b_k = blockIdx.x;
-  unsigned b_l = blockIdx.y;
+  unsigned b_k = blockIdx.x + numGhostZonesToSkip;
+  unsigned b_l = blockIdx.y + numGhostZonesToSkip;
   unsigned b_ijmn = blockIdx.z;
   unsigned b_i = b_ijmn % grid.extent[0];
   unsigned b_jmn = b_ijmn / grid.extent[0];
@@ -171,6 +174,7 @@ __constant__ unsigned optimizedSemiArakawaFieldBrickGridStride[RANK];
  * @param bIn the input bricks
  * @param bOut the output bricks
  * @param coeff the coefficient bricks
+* @param numGhostZonesToSkip the number of ghost zones to skip
  */
 __launch_bounds__(NUM_ELEMENTS_PER_FIELD_BRICK, max_blocks_per_sm(NUM_ELEMENTS_PER_FIELD_BRICK))
 __global__ void
@@ -178,7 +182,8 @@ semiArakawaBrickKernelOptimized(brick::Array<unsigned, RANK, brick::Padding<>, u
                                 brick::Array<unsigned, RANK, brick::Padding<>, unsigned> coeffGrid,
                                 FieldBrick_kl bIn,
                                 FieldBrick_kl bOut,
-                                ArakawaCoeffBrick coeff)
+                                ArakawaCoeffBrick coeff,
+                                int numGhostZonesToSkip)
 {
   static_assert(ARAKAWA_COEFF_BRICK_DIM[0] == 1, "Assumes arakawa brick-dim is 1 in first index");
   // compute indices
@@ -190,11 +195,11 @@ semiArakawaBrickKernelOptimized(brick::Array<unsigned, RANK, brick::Padding<>, u
     const unsigned * const extent = optimizedSemiArakawaFieldBrickGridExtent;
     const unsigned * const stride = optimizedSemiArakawaFieldBrickGridStride;
 
-    unsigned bFieldGridIndex = 0;
+    unsigned bFieldGridIndex = numGhostZonesToSkip * (stride[2] + stride[3]);
 
     const unsigned d0 = gridIterationOrder[0];
     assert(blockIdx.x < extent[d0]);
-    bFieldGridIndex = blockIdx.x * stride[d0];
+    bFieldGridIndex += blockIdx.x * stride[d0];
     const unsigned d1 = gridIterationOrder[1];
     assert(blockIdx.y < extent[d1]);
     bFieldGridIndex += blockIdx.y * stride[d1];
@@ -238,7 +243,7 @@ semiArakawaBrickKernelOptimized(brick::Array<unsigned, RANK, brick::Padding<>, u
   myIndex.shiftInDims<3>(-2);
   in[0] = bIn.dat[bIn.step * neighbors[myIndex.indexInNbrList] + myIndex.getIndexInBrick()];
   bElem my_coeff = coeff.dat[coeff.step * coeffGrid.atFlatIndex(bCoeffGridIndex) + flatIndexNoJ];
-  result += in[0] * my_coeff;
+  result = in[0] * my_coeff;
 
   myIndex.shiftInDims<3, 2>(+1, -1);
   in[1] = bIn.dat[bIn.step * neighbors[myIndex.indexInNbrList] + myIndex.getIndexInBrick()];
@@ -330,9 +335,20 @@ ijDerivBrickKernelType buildBricksIJDerivBrickKernel(brick::BrickLayout<RANK> fi
                                                      BrickedPCoeffArray &p1,
                                                      BrickedPCoeffArray &p2,
                                                      const complexArray1D_J &ikj,
-                                                     bElem i_deriv_coeffs[5]) {
+                                                     bElem i_deriv_coeffs[5],
+                                                     int numGhostZonesToSkip) {
   const unsigned *const brickExtentWithGZ = fieldLayout.indexInStorage.extent;
-  dim3 cuda_grid_size(brickExtentWithGZ[0], brickExtentWithGZ[1],
+  if(numGhostZonesToSkip < 0) {
+    throw std::runtime_error("numGhostZonesToSkip must be non-negative");
+  }
+  if(numGhostZonesToSkip * 3 > brickExtentWithGZ[0]) {
+    std::ostringstream errStream;
+    errStream << "numGhostZonesToSkip = " << numGhostZonesToSkip
+              << " is greater than 3 * brick-grid-extent[0] = 3 * " << brickExtentWithGZ[0];
+    throw std::runtime_error(errStream.str());
+  }
+
+  dim3 cuda_grid_size(brickExtentWithGZ[0] - 2 * numGhostZonesToSkip, brickExtentWithGZ[1],
                       brickExtentWithGZ[2] * brickExtentWithGZ[3] * brickExtentWithGZ[4] *
                           brickExtentWithGZ[5]),
       cuda_block_size(BRICK_DIM[0], BRICK_DIM[1],
@@ -363,7 +379,8 @@ ijDerivBrickKernelType buildBricksIJDerivBrickKernel(brick::BrickLayout<RANK> fi
   std::function<void(FieldBrick_kl, FieldBrick_kl)> arakawaComputation;
   auto ijDerivComputation = [=](const FieldBrick_i& bIn_dev, const FieldBrick_i& bOut_dev) -> void {
     ijDerivBrickKernel<<<cuda_grid_size, cuda_block_size>>>(
-        fieldIndexInStorage_dev, pCoeffIndexInStorage_dev, bIn_dev, bOut_dev, p1_dev, p2_dev, ikj_dev.getData().get());
+        fieldIndexInStorage_dev, pCoeffIndexInStorage_dev, bIn_dev, bOut_dev, p1_dev, p2_dev, ikj_dev.getData().get(),
+        numGhostZonesToSkip);
 #ifndef NDEBUG
     gpuCheck(cudaPeekAtLastError());
 #endif
@@ -372,8 +389,21 @@ ijDerivBrickKernelType buildBricksIJDerivBrickKernel(brick::BrickLayout<RANK> fi
 }
 
 ArakawaBrickKernelType buildBricksArakawaKernel(brick::BrickLayout<RANK> fieldLayout,
-                                            BrickedArakawaCoeffArray bCoeff,
-                                            BricksArakawaKernelType kernelType) {
+                                                BrickedArakawaCoeffArray bCoeff,
+                                                BricksArakawaKernelType kernelType,
+                                                int numGhostZonesToSkip) {
+  if(numGhostZonesToSkip < 0) {
+    throw std::runtime_error("numGhostZonesToSkip must be non-negative");
+  }
+  for(unsigned d = 2; d <= 3; ++d) {
+    if (numGhostZonesToSkip * 3 > fieldLayout.indexInStorage.extent[d]) {
+      std::ostringstream errStream;
+      errStream << "numGhostZonesToSkip = " << numGhostZonesToSkip
+                << " is greater than 3 * brick-grid-extent[" << d << "]"
+                << " = 3 * " << fieldLayout.indexInStorage.extent[d];
+      throw std::runtime_error(errStream.str());
+    }
+  }
 
   std::string iterationOrderString = toString(kernelType);
   std::array<unsigned, RANK> iterationOrder{};
@@ -394,10 +424,16 @@ ArakawaBrickKernelType buildBricksArakawaKernel(brick::BrickLayout<RANK> fieldLa
     }
   }
 
-  const unsigned *const brickExtentWithGZ = fieldLayout.indexInStorage.extent;
-  dim3 cuda_grid_size(brickExtentWithGZ[iterationOrder[0]], brickExtentWithGZ[iterationOrder[1]],
-                      brickExtentWithGZ[iterationOrder[2]] * brickExtentWithGZ[iterationOrder[3]] *
-                          brickExtentWithGZ[iterationOrder[4]] * brickExtentWithGZ[iterationOrder[5]]),
+  std::array<unsigned, RANK> brickExtent{};
+  for(unsigned d = 0; d < RANK; ++d) {
+    brickExtent[d] = fieldLayout.indexInStorage.extent[d];
+    if(d == 2 || d == 3) {
+      brickExtent[d] -= 2 * numGhostZonesToSkip;
+    }
+  }
+  dim3 cuda_grid_size(brickExtent[iterationOrder[0]], brickExtent[iterationOrder[1]],
+                      brickExtent[iterationOrder[2]] * brickExtent[iterationOrder[3]] *
+                      brickExtent[iterationOrder[4]] * brickExtent[iterationOrder[5]]),
       cuda_block_size(BRICK_DIM[0], BRICK_DIM[1],
                       FieldBrick_kl::BRICKLEN / BRICK_DIM[0] / BRICK_DIM[1]);
   validateLaunchConfig(cuda_grid_size, cuda_block_size);
@@ -415,7 +451,8 @@ ArakawaBrickKernelType buildBricksArakawaKernel(brick::BrickLayout<RANK> fieldLa
   if(kernelType == SIMPLE_KLIJMN) {
     arakawaComputation = [=](FieldBrick_kl bIn_dev, FieldBrick_kl bOut_dev) -> void {
       semiArakawaBrickKernelSimple<< <cuda_grid_size, cuda_block_size>> >(
-          fieldIndexInStorage_dev, coeffIndexInStorage_dev, bIn_dev, bOut_dev, bCoeff_dev);
+          fieldIndexInStorage_dev, coeffIndexInStorage_dev, bIn_dev, bOut_dev, bCoeff_dev,
+          numGhostZonesToSkip);
 #ifndef NDEBUG
       gpuCheck(cudaPeekAtLastError());
 #endif
@@ -429,12 +466,13 @@ ArakawaBrickKernelType buildBricksArakawaKernel(brick::BrickLayout<RANK> fieldLa
     }
 
     gpuCheck(cudaMemcpyToSymbol(optimizedSemiArakawaGridIterationOrder, iterationOrder.data(), RANK * sizeof(unsigned)));
-    gpuCheck(cudaMemcpyToSymbol(optimizedSemiArakawaFieldBrickGridExtent, fieldLayout.indexInStorage.extent, RANK * sizeof(unsigned)));
+    gpuCheck(cudaMemcpyToSymbol(optimizedSemiArakawaFieldBrickGridExtent, brickExtent.data(), RANK * sizeof(unsigned)));
     gpuCheck(cudaMemcpyToSymbol(optimizedSemiArakawaFieldBrickGridStride, fieldBrickGridStride, RANK * sizeof(unsigned)));
 
     arakawaComputation = [=](FieldBrick_kl bIn_dev, FieldBrick_kl bOut_dev) -> void {
       semiArakawaBrickKernelOptimized<< <cuda_grid_size, cuda_block_size>> >(
-          fieldIndexInStorage_dev, coeffIndexInStorage_dev, bIn_dev, bOut_dev, bCoeff_dev);
+          fieldIndexInStorage_dev, coeffIndexInStorage_dev, bIn_dev, bOut_dev, bCoeff_dev,
+          numGhostZonesToSkip);
     #ifndef NDEBUG
         gpuCheck(cudaPeekAtLastError());
     #endif

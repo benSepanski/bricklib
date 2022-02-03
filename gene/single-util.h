@@ -25,6 +25,22 @@ trial_iter_count parse_single_args(std::array<unsigned, RANK> *perProcessDomainS
                                    std::istream &in);
 
 /**
+ * Get device peak memory bandwidth in GB/s (GB=10**9 bytes)
+ * @param device the device number
+ * @param print if true, print some device info
+ * @return the peak memory bandwidth
+ */
+double getDevicePeakMemoryBandwidthGBPerS(int device, bool print = false);
+
+/**
+ * Print theoretical limits on AI/GStencil/s to console
+ * @param minNumBytesTransferred minimum number of bytes to be transferrerd
+ * @param numStencils number of stencils being computed
+ * @param flopsPerStencil number of flops per stencil
+ */
+void printTheoreticalLimits(size_t minNumBytesTransferred, size_t numStencils, size_t flopsPerStencil, int device = 0);
+
+/**
  * @brief times func and prints stats
  *
  * @param func[in] the func to run

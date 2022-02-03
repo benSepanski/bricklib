@@ -168,6 +168,7 @@ inline std::ostream& operator<<(std::ostream& out, BricksArakawaKernelType kerne
  * @param p2 the coefficients
  * @param ikj i * 2pi * fourier Mode
  * @param i_deriv_coeffs the five coefficients for the five-point stencil
+ * @param numGhostZonesToSkip the number of ghost-zones to skip
  *
  * @return the function which invokes the kernel
  */
@@ -176,7 +177,8 @@ ijDerivBrickKernelType buildBricksIJDerivBrickKernel(brick::BrickLayout<RANK> fi
                                                      BrickedPCoeffArray &p1,
                                                      BrickedPCoeffArray &p2,
                                                      const complexArray1D_J &ikj,
-                                                     bElem i_deriv_coeffs[5]);
+                                                     bElem i_deriv_coeffs[5],
+                                                     int numGhostZonesToSkip = 0);
 
 
 /**
@@ -187,11 +189,15 @@ ijDerivBrickKernelType buildBricksIJDerivBrickKernel(brick::BrickLayout<RANK> fi
  * @param fieldLayout the layout of field bricks
  * @param bCoeff the coefficients to use
  * @param kernelType which kernel to use
+* @param numGhostZonesToSkip the number of ghost-zones to skip
  *
  * @return the function which invokes the kernel
  */
 typedef std::function<void(FieldBrick_kl,FieldBrick_kl)> ArakawaBrickKernelType;
-ArakawaBrickKernelType buildBricksArakawaKernel(brick::BrickLayout<RANK> fieldLayout, BrickedArakawaCoeffArray bCoeff, BricksArakawaKernelType kernelType);
+ArakawaBrickKernelType buildBricksArakawaKernel(brick::BrickLayout<RANK> fieldLayout,
+                                                BrickedArakawaCoeffArray bCoeff,
+                                                BricksArakawaKernelType kernelType,
+                                                int numGhostZonesToSkip = 0);
 
 /**
  * Thrown an error if any pair of elements from arr1 and arr2 are
