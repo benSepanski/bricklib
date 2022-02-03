@@ -1,55 +1,7 @@
 import argparse
 import os
 
-
-class MachineConfig:
-    def __init__(self, 
-                 gpus_per_node=None,
-                 sockets_per_node=None,
-                 cores_per_socket=None,
-                 threads_per_core=None,
-                 ):
-        self.gpus_per_node = gpus_per_node
-        self.sockets_per_node = sockets_per_node
-        self.cores_per_socket = cores_per_socket
-        self.threads_per_core = threads_per_core
-
-
-machine_configurations = {
-    "perlmutter": MachineConfig(gpus_per_node=4,
-                                sockets_per_node=1,
-                                cores_per_socket=64,
-                                threads_per_core=2,
-                                ),
-}
-
-
-def build_slurm_preamble(config, num_gpus, job_name, email_address=None, account_name=None, time_limit=None):
-    num_nodes = (num_gpus + config.gpus_per_node - 1) // config.gpus_per_node
-    num_mpi_tasks = num_gpus
-    num_cpus_per_task = config.sockets_per_node \
-        * (config.cores_per_socket // num_mpi_tasks) \
-        * config.threads_per_core
-
-    preamble = f"""#!/bin/bash
-#SBATCH -C gpu
-#SBATCH -N {num_nodes}
-#SBATCH -G {num_gpus}
-#SBATCH -n {num_mpi_tasks}
-#SBATCH -c {num_cpus_per_task}
-#SBATCH --gpus-per-task 1
-#SBATCH --gpu-bind single:1
-#SBATCH -q regular
-#SBATCH -J {job_name}
-#SBATCH -o {job_name}.out
-#SBATCH -e {job_name}.err
-#SBATCH -t {time_limit}"""
-    if account_name is not None:
-        preamble += f"\n#SBATCH -A {account_name}"
-    if email_address is not None:
-        preamble += f"""\n#SBATCH --mail-user={email_address}
-#SBATCH --mail-type=FAIL"""
-    return preamble
+from slurmpy import *
 
 
 if __name__ == "__main__":
@@ -85,10 +37,10 @@ if __name__ == "__main__":
     email_address = args["email"]
     compiler = args["compiler"]
 
-    preamble = build_slurm_preamble(machine_config, num_gpus, job_name,
-                                    email_address=email_address,
-                                    account_name=account_name,
-                                    time_limit=time_limit)
+    preamble = build_slurm_gpu_preamble(machine_config, num_gpus, job_name,
+                                        email_address=email_address,
+                                        account_name=account_name,
+                                        time_limit=time_limit)
 
     gtensor_dir = os.getenv("gtensor_DIR")
     if gtensor_dir is None:

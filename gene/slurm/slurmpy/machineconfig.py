@@ -1,0 +1,23 @@
+class MachineConfig:
+    def __init__(self,
+                 name=None,
+                 gpus_per_node=None,
+                 sockets_per_node=None,
+                 cores_per_socket=None,
+                 threads_per_core=None,
+                 ):
+        self.name = name
+        self.gpus_per_node = gpus_per_node
+        self.sockets_per_node = sockets_per_node
+        self.cores_per_socket = cores_per_socket
+        self.threads_per_core = threads_per_core
+
+
+machine_configurations = {
+    "perlmutter": MachineConfig("perlmutter",
+                                gpus_per_node=4,
+                                sockets_per_node=1,
+                                cores_per_socket=64,
+                                threads_per_core=2,
+                                ),
+}
