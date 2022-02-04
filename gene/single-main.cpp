@@ -289,6 +289,9 @@ void runArakawa(std::array<unsigned, RANK> extent, CSVDataRecorder &dataRecorder
       std::cout << "Brick decomposition setup complete. Beginning coefficient setup..." << std::endl;
   // initialize my coefficients to random data, and receive coefficients for ghost-zones
   realArray6D coeffs{realArray6D::random(coeffExtent)};
+  std::cout << "Coefficient setup complete. Beginning Arakawa array computation" << std::endl;
+  dataRecorder.setDefaultValue("Layout", "array");
+  dataRecorder.setDefaultValue("Kernel", "arakawa");
 
   unsigned long numNonGhostElements = arrayOut.numElements / arrayOut.extent[2] /
                                       arrayOut.extent[3] * (arrayOut.extent[2] - 2 * 2) *
@@ -327,9 +330,6 @@ void runArakawa(std::array<unsigned, RANK> extent, CSVDataRecorder &dataRecorder
   }
   std::cout << "Brick Limits (computation " << 1 - numGZBrickToSkip << " ghost bricks):" << std::endl;
   printTheoreticalLimits(minNumBytesMoved, numStencils, flopsPerStencil, dataRecorder);
-  std::cout << "Coefficient setup complete. Beginning Arakawa array computation" << std::endl;
-  dataRecorder.setDefaultValue("Layout", "array");
-  dataRecorder.setDefaultValue("Kernel", "arakawa");
 
   std::array<BricksArakawaKernelType, 7> kernelTypes = {
       SIMPLE_KLIJMN,

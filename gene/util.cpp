@@ -83,6 +83,13 @@ void CSVDataRecorder::unsetDefaultValue(const std::string &defaultColNameToUnset
 }
 
 void CSVDataRecorder::writeToFile(const std::string& fileName, bool append, char separator, const std::string& naString) {
+  // Check f file already exists
+  bool fileExists = false;
+  {
+    std::ifstream inFile(fileName);
+    fileExists = inFile.good();
+  }
+
   std::ofstream outFile;
   if(append) {
     outFile.open(fileName, std::ios_base::app);
@@ -90,7 +97,7 @@ void CSVDataRecorder::writeToFile(const std::string& fileName, bool append, char
     outFile.open(fileName);
   }
   // write header
-  if(!append) {
+  if(!append || !fileExists) {
     bool first = true;
     for (const auto &colName : headers) {
       if (!first)
