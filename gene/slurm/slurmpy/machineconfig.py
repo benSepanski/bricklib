@@ -23,4 +23,10 @@ machine_configurations = {
                                 threads_per_core=2,
                                 cuda_arch=80,
                                 ),
+    "cori-gpu": MachineConfig("cori-gpu",
+                              gpus_per_node=8,
+                              sockets_per_node=2,
+                              cores_per_socket=20,
+                              threads_per_core=2,
+                              cuda_arch=70)
 }
