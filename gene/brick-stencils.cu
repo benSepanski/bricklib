@@ -218,96 +218,7 @@ semiArakawaBrickKernelOptimized(brick::Array<unsigned, RANK, brick::Padding<>, u
         ARAKAWA_STENCIL_SIZE;
   }
 
-  unsigned *neighbors = bIn.bInfo->adj[bFieldIndex];
-
-  int n = threadIdx.z / (BRICK_DIM[2] *  BRICK_DIM[3]  * BRICK_DIM[4]);
-  int m = threadIdx.z / (BRICK_DIM[2] *  BRICK_DIM[3]) % BRICK_DIM[4];
-  int l = threadIdx.z /  BRICK_DIM[2] % BRICK_DIM[3];
-  int k = threadIdx.z %  BRICK_DIM[2];
-  int j = threadIdx.y;
-  int i = threadIdx.x;
-
-  // bounds check
-  assert(i < BRICK_DIM[0]);
-  assert(j < BRICK_DIM[1]);
-  assert(k < BRICK_DIM[2]);
-  assert(l < BRICK_DIM[3]);
-  assert(m < BRICK_DIM[4]);
-  assert(n < BRICK_DIM[5]);
-
-  // load in data
-  bComplexElem in[13], result = 0.0;
-  auto myIndex = BrickIndex<FieldBrick_kl>(n, m, l, k, j, i);
-  unsigned flatIndexNoJ = i + BRICK_DIM[0] * (k + BRICK_DIM[2] * (l + BRICK_DIM[3] * (m + BRICK_DIM[4] * n)));
-
-  myIndex.shiftInDims<3>(-2);
-  in[0] = bIn.dat[bIn.step * neighbors[myIndex.indexInNbrList] + myIndex.getIndexInBrick()];
-  bElem my_coeff = coeff.dat[coeff.step * coeffGrid.atFlatIndex(bCoeffGridIndex) + flatIndexNoJ];
-  result = in[0] * my_coeff;
-
-  myIndex.shiftInDims<3, 2>(+1, -1);
-  in[1] = bIn.dat[bIn.step * neighbors[myIndex.indexInNbrList] + myIndex.getIndexInBrick()];
-  my_coeff = coeff.dat[coeff.step * coeffGrid.atFlatIndex(bCoeffGridIndex + 1) + flatIndexNoJ];
-  result += in[1] * my_coeff;
-
-  myIndex.shiftInDims<2>(+1);
-  in[2] = bIn.dat[bIn.step * neighbors[myIndex.indexInNbrList] + myIndex.getIndexInBrick()];
-  my_coeff = coeff.dat[coeff.step * coeffGrid.atFlatIndex(bCoeffGridIndex + 2) + flatIndexNoJ];
-  result += in[2] * my_coeff;
-
-  myIndex.shiftInDims<2>(+1);
-  in[3] = bIn.dat[bIn.step * neighbors[myIndex.indexInNbrList] + myIndex.getIndexInBrick()];
-  my_coeff = coeff.dat[coeff.step * coeffGrid.atFlatIndex(bCoeffGridIndex + 3) + flatIndexNoJ];
-  result += in[3] * my_coeff;
-
-  myIndex.shiftInDims<3, 2>(+1, -3);
-  in[4] = bIn.dat[bIn.step * neighbors[myIndex.indexInNbrList] + myIndex.getIndexInBrick()];
-  my_coeff = coeff.dat[coeff.step * coeffGrid.atFlatIndex(bCoeffGridIndex + 4) + flatIndexNoJ];
-  result += in[4] * my_coeff;
-
-  myIndex.shiftInDims<2>(+1);
-  in[5] = bIn.dat[bIn.step * neighbors[myIndex.indexInNbrList] + myIndex.getIndexInBrick()];
-  my_coeff = coeff.dat[coeff.step * coeffGrid.atFlatIndex(bCoeffGridIndex + 5) + flatIndexNoJ];
-  result += in[5] * my_coeff;
-
-  myIndex.shiftInDims<2>(+1);
-  in[6] = bIn.dat[bIn.step * neighbors[myIndex.indexInNbrList] + myIndex.getIndexInBrick()];
-  my_coeff = coeff.dat[coeff.step * coeffGrid.atFlatIndex(bCoeffGridIndex + 6) + flatIndexNoJ];
-  result += in[6] * my_coeff;
-
-  myIndex.shiftInDims<2>(+1);
-  in[7] = bIn.dat[bIn.step * neighbors[myIndex.indexInNbrList] + myIndex.getIndexInBrick()];
-  my_coeff = coeff.dat[coeff.step * coeffGrid.atFlatIndex(bCoeffGridIndex + 7) + flatIndexNoJ];
-  result += in[7] * my_coeff;
-
-  myIndex.shiftInDims<2>(+1);
-  in[8] = bIn.dat[bIn.step * neighbors[myIndex.indexInNbrList] + myIndex.getIndexInBrick()];
-  my_coeff = coeff.dat[coeff.step * coeffGrid.atFlatIndex(bCoeffGridIndex + 8) + flatIndexNoJ];
-  result += in[8] * my_coeff;
-
-  myIndex.shiftInDims<3, 2>(+1, -3);
-  in[9] = bIn.dat[bIn.step * neighbors[myIndex.indexInNbrList] + myIndex.getIndexInBrick()];
-  my_coeff = coeff.dat[coeff.step * coeffGrid.atFlatIndex(bCoeffGridIndex + 9) + flatIndexNoJ];
-  result += in[9] * my_coeff;
-
-  myIndex.shiftInDims<2>(+1);
-  in[10] = bIn.dat[bIn.step * neighbors[myIndex.indexInNbrList] + myIndex.getIndexInBrick()];
-  my_coeff = coeff.dat[coeff.step * coeffGrid.atFlatIndex(bCoeffGridIndex + 10) + flatIndexNoJ];
-  result += in[10] * my_coeff;
-
-  myIndex.shiftInDims<2>(+1);
-  in[11] = bIn.dat[bIn.step * neighbors[myIndex.indexInNbrList] + myIndex.getIndexInBrick()];
-  my_coeff = coeff.dat[coeff.step * coeffGrid.atFlatIndex(bCoeffGridIndex + 11) + flatIndexNoJ];
-  result += in[11] * my_coeff;
-
-  myIndex.shiftInDims<3, 2>(+1, -1);
-  in[12] = bIn.dat[bIn.step * neighbors[myIndex.indexInNbrList] + myIndex.getIndexInBrick()];
-  my_coeff = coeff.dat[coeff.step * coeffGrid.atFlatIndex(bCoeffGridIndex + 12) + flatIndexNoJ];
-  result += in[12] * my_coeff;
-
-  // store result
-  unsigned flatIndex = threadIdx.x + blockDim.x * (threadIdx.y + blockDim.y * threadIdx.z);
-  bOut.dat[bFieldIndex * bOut.step + flatIndex] = result;
+  brick("semi_arakawa_stencil.py", "CUDA", (GENE6D_BRICK_DIM), (GENE6D_VEC_DIM), bFieldIndex);
 }
 
 
@@ -433,10 +344,7 @@ ArakawaBrickKernelType buildBricksArakawaKernel(brick::BrickLayout<RANK> fieldLa
   }
   dim3 cuda_grid_size(brickExtent[iterationOrder[0]], brickExtent[iterationOrder[1]],
                       brickExtent[iterationOrder[2]] * brickExtent[iterationOrder[3]] *
-                      brickExtent[iterationOrder[4]] * brickExtent[iterationOrder[5]]),
-      cuda_block_size(BRICK_DIM[0], BRICK_DIM[1],
-                      FieldBrick_kl::BRICKLEN / BRICK_DIM[0] / BRICK_DIM[1]);
-  validateLaunchConfig(cuda_grid_size, cuda_block_size);
+                      brickExtent[iterationOrder[4]] * brickExtent[iterationOrder[5]]);
 
   // Get known parameters to kernel
   auto fieldIndexInStorage_dev = fieldLayout.indexInStorage.allocateOnDevice();
@@ -449,6 +357,10 @@ ArakawaBrickKernelType buildBricksArakawaKernel(brick::BrickLayout<RANK> fieldLa
   // define the computation
   std::function<void(FieldBrick_kl, FieldBrick_kl)> arakawaComputation;
   if(kernelType == SIMPLE_KLIJMN) {
+    dim3 cuda_block_size(BRICK_DIM[0], BRICK_DIM[1],
+                    FieldBrick_kl::BRICKLEN / BRICK_DIM[0] / BRICK_DIM[1]);
+    validateLaunchConfig(cuda_grid_size, cuda_block_size);
+
     arakawaComputation = [=](FieldBrick_kl bIn_dev, FieldBrick_kl bOut_dev) -> void {
       semiArakawaBrickKernelSimple<< <cuda_grid_size, cuda_block_size>> >(
           fieldIndexInStorage_dev, coeffIndexInStorage_dev, bIn_dev, bOut_dev, bCoeff_dev,
@@ -468,6 +380,9 @@ ArakawaBrickKernelType buildBricksArakawaKernel(brick::BrickLayout<RANK> fieldLa
     gpuCheck(cudaMemcpyToSymbol(optimizedSemiArakawaGridIterationOrder, iterationOrder.data(), RANK * sizeof(unsigned)));
     gpuCheck(cudaMemcpyToSymbol(optimizedSemiArakawaFieldBrickGridExtent, brickExtent.data(), RANK * sizeof(unsigned)));
     gpuCheck(cudaMemcpyToSymbol(optimizedSemiArakawaFieldBrickGridStride, fieldBrickGridStride, RANK * sizeof(unsigned)));
+
+    dim3 cuda_block_size{32};
+    validateLaunchConfig(cuda_grid_size, cuda_block_size);
 
     arakawaComputation = [=](FieldBrick_kl bIn_dev, FieldBrick_kl bOut_dev) -> void {
       semiArakawaBrickKernelOptimized<< <cuda_grid_size, cuda_block_size>> >(

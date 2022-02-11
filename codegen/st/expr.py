@@ -2,7 +2,7 @@
 
 from st.expr_meta import ExprMeta
 import st.alop
-from typing import List, Dict
+from typing import List, Dict, Callable
 
 
 def conv_expr(input):
@@ -284,6 +284,46 @@ class UnOp(Expr):
     def str_attr(self):
         """ Extra attributes that should be printed in str representation """
         return str(self.operator)
+
+
+class FunctionOfLocalVectorIndex(Expr):
+    def __init__(self, operator: Callable[..., str], *args, **kwargs):
+        """
+        User-defined functions which take as input
+        string-expressions of the indices currently being read from
+        and output a string
+
+        For example, if a brick is shaped KxJxI = 2x2x2 with vectors
+        of shape KxJxI = 1x2x2,
+        a function(i, j, k) would be invoked with values i, j, k = ("0", "0", "0")
+        and ("0", "0", "1")
+
+        The strings may contain variables in the case of loops
+
+        :param operator: A function to apply local vector indices
+        :param args: the indices in question
+        :param kwargs:
+            :kwarg: complex_valued either true or false
+        """
+        super().__init__()
+        terms = []
+        if len(args) > 0:
+            terms += args[0]
+        if not all([isinstance(term, st.expr.Index) for term in terms]):
+            bad_types = set(filter(lambda x: not isinstance(x, st.expr.Index), terms))
+            raise TypeError(f"All parameters to local index function must be of type Index, not {bad_types}")
+        self.children = terms[:]
+        self.op = operator
+        complex_valued = kwargs.get("complex_valued", False)
+        self._attr[Expr._COMPLEX_FLAG] = complex_valued
+        self.tile_dims = None
+        self.fold = None
+
+    def record_tile_dims(self, tile_dims):
+        self.tile_dims = tile_dims
+
+    def record_fold(self, fold):
+        self.fold = fold
 
 
 class IntLiteral(Expr):

@@ -41,7 +41,7 @@ def eval_offset(idx_expr: Expr):
         return idx, eval(idx_expr.operator.value + repr(val))
     if isinstance(idx_expr, st.expr.IntLiteral):
         return None, idx_expr.val
-    raise ValueError("Wrong format")
+    raise ValueError(f"idx_expr {idx_expr} of unexpected type {type(idx_expr)}")
 
 
 class GridRef(Expr):

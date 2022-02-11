@@ -1,7 +1,8 @@
 from st.codegen.backend.base import CodeBlock, Backend, Buffer, PrinterRed
 from st.grid import Grid, GridRef
 from st.expr import Expr
-from typing import List
+from typing import List, Dict
+
 
 class PrinterScalar(PrinterRed):
     def __init__(self):
@@ -100,12 +101,15 @@ class BackendScalar(Backend):
         ref = "{}[{}]".format(buf.name, self.printer.print_str(comp))
         return ref
 
-    def gen_rhs(self, comp: Expr, shift: List[int], offset: List[int], rel=None, dimrels=None):
+    def gen_rhs(self, comp: Expr, shift: List[int], offset: List[int], rel=None, dimrels=None,
+                dim_to_loop_var:Dict[int, Expr] = None):
         """
         :param comp: The expression to print
         :param shift: The shift of scatter
         :param offset: Scattered from
         :param rel: Added offset when using loops
+        :param dim_to_loop_var: map from dimensions currently looping over to an expression holding
+                        the current index value in the loop over that axis
         :return:
         """
         self.printer.shift = shift[:]
@@ -114,6 +118,7 @@ class BackendScalar(Backend):
         self.printer.dimrels = dimrels
         if rel:
             self.printer.rel = rel
+        self.printer.dim_to_loop_var = dict(dim_to_loop_var)
         return self.printer.print_str(comp)
 
     def declare_reg(self, name, block: CodeBlock):

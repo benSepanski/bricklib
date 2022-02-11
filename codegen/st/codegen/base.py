@@ -406,6 +406,9 @@ class CodeGen:
                     off[idx.n] = node.offsets[i]
                 node.attr['refs'] = {node.grid: {str(off): off}}
                 return node.attr['refs']
+            elif isinstance(node, st.expr.FunctionOfLocalVectorIndex):
+                node.record_tile_dims(self.TILE_DIM)
+                node.record_fold(self.FOLD)
             ret = dict()
             ref_col = list()
             for child in node.children:
@@ -711,9 +714,12 @@ class CodeGen:
                         if expr.grid not in reading:
                             reading[expr.grid] = dict()
                             read[expr.grid] = dict()
-                        noff = [o1 + o2 for o1, o2 in zip(expr.offsets, shift)]
+                        expr_offsets = [None] * len(shift)
+                        for idx, o in zip(expr.indices, expr.offsets):
+                            expr_offsets[idx.n] = o
+                        noff = [None if o1 is None else o1 + o2 for o1, o2 in zip(expr_offsets, shift)]
                         off = tuple(noff)
-                        real_off = [o1 + o2 for o1, o2 in zip(off, offset)]
+                        real_off = [None if o1 is None else o1 + o2 for o1, o2 in zip(off, offset)]
                         if off in read[expr.grid]:
                             return
                         else:
@@ -846,7 +852,8 @@ class CodeGen:
                 if len(read) > 0:
                     compGroup.append(read_block)
 
-            def genScatter(compGroup, offset, srcs: Dict[Buffer, List[int]], read_bufs, rel=None, dimrels=None):
+            def genScatter(compGroup, offset, srcs: Dict[Buffer, List[int]], read_bufs, rel=None, dimrels=None,
+                           dim_to_loop_var: Dict[int, Expr] = None):
                 exprs = []
                 for n, coll in srcs.items():
                     for idx in coll:
@@ -863,12 +870,13 @@ class CodeGen:
                         shift = n.rhs.get_attr('offset')[idx]
                         noff = [b + a for a, b in zip(shift, offset)]
                         if self.DIRECT:
-                            lhs = backend.genStoreLoc(n.grid, shift, offset, rel, dimrels)
+                            lhs = backend.genStoreLoc(n.grid, shift, offset, rel, dimrels, dim_to_loop_var)
                         else:
                             lhs = backend.gen_lhs(n, noff, rel, dimrels)
                         vec.append(lhs +
                                    " {}= {};".format(n.rhs.terms_op[idx].value,
-                                                     backend.gen_rhs(n.rhs.children[idx], shift, offset, rel, dimrels)))
+                                                     backend.gen_rhs(n.rhs.children[idx], shift, offset, rel, dimrels,
+                                                                     dim_to_loop_var)))
 
             def find_refs(reads, expr: Expr, shift):
                 if isinstance(expr, GridRef):
@@ -920,7 +928,7 @@ class CodeGen:
 
                 offset = [0] * len(self.TILE_DIM)
 
-                def reduceDim(offset, cur_dim, nested: CodeBlock, rel, dimrels):
+                def reduceDim(offset, cur_dim, nested: CodeBlock, rel, dimrels, dim_to_loop_var: Dict[int, Expr]):
                     if cur_dim < 0:
                         create_exprs = []
                         for expr in exprs.values():
@@ -936,10 +944,11 @@ class CodeGen:
                         vec = backend.genVectorLoop(comp)
                         for buf, expr in exprs.items():
                             if self.DIRECT:
-                                lhs = backend.genStoreLoc(buf.grid, shift, offset, rel, dimrels)
+                                lhs = backend.genStoreLoc(buf.grid, shift, offset, rel, dimrels, dim_to_loop_var)
                             else:
                                 lhs = backend.gen_lhs(buf, offset, rel, dimrels)
-                            vec.append("{} = {};".format(lhs, backend.gen_rhs(expr, shift, offset, rel, dimrels)))
+                            vec.append("{} = {};".format(lhs, backend.gen_rhs(expr, shift, offset, rel, dimrels,
+                                                                              dim_to_loop_var)))
 
                         return
                     l = 1048576
@@ -970,7 +979,7 @@ class CodeGen:
                         if i % fold[cur_dim] == 0:
                             # generate code only when it is aligned
                             offset[cur_dim] = i
-                            reduceDim(offset, cur_dim - 1, nested, rel, dimrels)
+                            reduceDim(offset, cur_dim - 1, nested, rel, dimrels, dim_to_loop_var)
                     if self.LAYOUTREL:
                         dimrels.pop()
 
@@ -997,7 +1006,9 @@ class CodeGen:
                             if (i + lb) % fold[cur_dim] == 0:
                                 # generate code only when it is aligned
                                 offset[cur_dim] = i + lb
-                                reduceDim(offset, cur_dim - 1, newlevel, reln, dimrels)
+                                dim_to_loop_var[cur_dim] = idx_name
+                                reduceDim(offset, cur_dim - 1, newlevel, reln, dimrels, dim_to_loop_var)
+                                del dim_to_loop_var[cur_dim]
 
                         discardlevel = CodeBlock()
                         for i in range(fold[cur_dim]):
@@ -1005,7 +1016,9 @@ class CodeGen:
                             if t % fold[cur_dim] == 0:
                                 # generate code only when it is aligned
                                 offset[cur_dim] = t
-                                reduceDim(offset, cur_dim - 1, discardlevel, reln, dimrels)
+                                dim_to_loop_var[cur_dim] = idx_name
+                                reduceDim(offset, cur_dim - 1, discardlevel, reln, dimrels, dim_to_loop_var)
+                                dim_to_loop_var
 
                         newlevel.append("{} += {};".format(backend.rel_name(cur_dim), backend.stride(cur_dim)))
                     if self.LAYOUTREL:
@@ -1018,11 +1031,11 @@ class CodeGen:
                         if i % fold[cur_dim] == 0:
                             # generate code only when it is aligned
                             offset[cur_dim] = i
-                            reduceDim(offset, cur_dim - 1, nested, rel, dimrels)
+                            reduceDim(offset, cur_dim - 1, nested, rel, dimrels, dim_to_loop_var)
                     if self.LAYOUTREL:
                         dimrels.pop()
 
-                reduceDim(offset, len(self.TILE_DIM) - 1, initlevel, None, [])
+                reduceDim(offset, len(self.TILE_DIM) - 1, initlevel, None, [], {})
 
             def scatter(rst):
                 initlevel = CodeBlock()
@@ -1053,7 +1066,7 @@ class CodeGen:
                 cur_offsets = list(offsets.keys())
                 offset = [0] * len(self.TILE_DIM)
 
-                def scatterDim(offset, cur_offsets, cur_dim, nested, rel, dimrels):
+                def scatterDim(offset, cur_offsets, cur_dim, nested, rel, dimrels, dim_to_loop_var: Dict[int, Expr]):
                     if cur_dim < 0:
                         if not cur_offsets:
                             raise ValueError("no!!!!!")
@@ -1065,7 +1078,7 @@ class CodeGen:
                                 all_expr[b] += idx
                         newlev = CodeBlock()
                         nested.append(newlev)
-                        genScatter(newlev, offset, all_expr, read_bufs, rel, dimrels)
+                        genScatter(newlev, offset, all_expr, read_bufs, rel, dimrels, dim_to_loop_var)
 
                         return
                     l = 1048576
@@ -1098,7 +1111,7 @@ class CodeGen:
                     tlb = 0 - ro
                     tend = self.TILE_DIM[cur_dim] - fold[cur_dim] + 1
                     trb = tend - lo
-                    
+
                     lb = max(tlb, 0 - min(l, 0), 0 - min(lo, 0))
                     rb = min(trb, tend - max(ro, 0), tend - max(r, 0))
 
@@ -1122,7 +1135,7 @@ class CodeGen:
                         if nex_offsets:
                             # generate code only when it is aligned
                             offset[cur_dim] = i
-                            scatterDim(offset, nex_offsets, cur_dim - 1, nested, rel, dimrels)
+                            scatterDim(offset, nex_offsets, cur_dim - 1, nested, rel, dimrels, dim_to_loop_var)
 
                     if self.LAYOUTREL:
                         dimrels.pop()
@@ -1157,7 +1170,10 @@ class CodeGen:
                             if nex_offsets:
                                 # generate code only when it is aligned
                                 offset[cur_dim] = i + lb
-                                scatterDim(offset, nex_offsets, cur_dim - 1, newlevel, reln, dimrels)
+                                dim_to_loop_var[cur_dim] = idx_name
+                                scatterDim(offset, nex_offsets, cur_dim - 1, newlevel, reln, dimrels,
+                                           dim_to_loop_var)
+                                del dim_to_loop_var[cur_dim]
 
                         discardlevel = CodeBlock()
                         for i in range(fold[cur_dim]):
@@ -1170,7 +1186,10 @@ class CodeGen:
                             if nex_offsets:
                                 # generate code only when it is aligned
                                 offset[cur_dim] = i + rb - fold[cur_dim]
-                                scatterDim(offset, nex_offsets, cur_dim - 1, discardlevel, reln, dimrels)
+                                dim_to_loop_var[cur_dim] = idx_name
+                                scatterDim(offset, nex_offsets, cur_dim - 1, discardlevel, reln, dimrels,
+                                           dim_to_loop_var)
+                                del dim_to_loop_var[cur_dim]
 
                         newlevel.append("{} += {};".format(
                             backend.rel_name(cur_dim), self.backend.stride(cur_dim)))
@@ -1190,11 +1209,11 @@ class CodeGen:
                         if nex_offsets:
                             # generate code only when it is aligned
                             offset[cur_dim] = i
-                            scatterDim(offset, nex_offsets, cur_dim - 1, nested, rel, dimrels)
+                            scatterDim(offset, nex_offsets, cur_dim - 1, nested, rel, dimrels, dim_to_loop_var)
                     if self.LAYOUTREL:
                         dimrels.pop()
 
-                scatterDim(offset, cur_offsets, len(self.TILE_DIM) - 1, initlevel, None, [])
+                scatterDim(offset, cur_offsets, len(self.TILE_DIM) - 1, initlevel, None, [], {})
 
             def scatter_unrolled():
                 # collect the necessary grid read
@@ -1238,7 +1257,7 @@ class CodeGen:
                     # grouplevel.append('// Offset {}'.format(str(tuple(off))))
                     compGroup = CodeBlock()
                     grouplevel.append(compGroup)
-                    genScatter(compGroup, tuple(reversed(off)), offsets[off], read_bufs)
+                    genScatter(compGroup, tuple(reversed(off)), offsets[off], read_bufs, [])
 
 
             red_init = dict()

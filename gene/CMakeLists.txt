@@ -11,9 +11,17 @@ if(gtensor_FOUND AND CMAKE_CUDA_COMPILER)
         endif()
     endfunction()
 
+    # Generate kernels
+    set(GENE6D_STENCILS_INCLUDE_DIRS
+            "${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES}")
+    if(GENE6D_BRICK_DIM)
+        set(GENE6D_STENCILS_COMPILE_OPTIONS "-DGENE6D_BRICK_DIM=${GENE6D_BRICK_DIM}")
+    endif()
+    VSTARGET(GENE6D_STENCILS brick-stencils.cu brick-stencils-out.cu)
+
     # mpi computation
     if(MPI_FOUND)
-        add_executable(mpi-gene6d mpi-main.cpp brick-stencils.cu mpi-util.cpp util.cpp)
+        add_executable(mpi-gene6d mpi-main.cpp ${VSTARGET_GENE6D_STENCILS_OUTPUT} mpi-util.cpp util.cpp)
         target_gtensor_sources(mpi-gene6d PRIVATE mpi-main.cpp gtensor-stencils.h)
         target_link_libraries(mpi-gene6d
                               brick brickhelper
@@ -43,7 +51,7 @@ if(gtensor_FOUND AND CMAKE_CUDA_COMPILER)
     endif()
 
     # single-device computation
-    add_executable(single-gene-6d single-main.cpp brick-stencils.cu single-util.cpp util.cpp)
+    add_executable(single-gene-6d single-main.cpp ${VSTARGET_GENE6D_STENCILS_OUTPUT} single-util.cpp util.cpp)
     target_gtensor_sources(single-gene-6d PRIVATE single-main.cpp gtensor-stencils.h)
     target_link_libraries(single-gene-6d
             brick brickhelper

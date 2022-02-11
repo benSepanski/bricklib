@@ -25,10 +25,23 @@
 // useful constants
 constexpr unsigned RANK = 6;
 #ifndef GENE6D_BRICK_DIM
-#define GENE6D_BRICK_DIM 2,32,2,2,1,1
+#define GENE6D_BRICK_DIM 1,1,2,2,32,2
 #endif
-constexpr std::array<unsigned, RANK> BRICK_DIM = {GENE6D_BRICK_DIM};
-constexpr std::array<unsigned, RANK> BRICK_VECTOR_DIM = {1,1,1,1,1,1};
+#ifndef GENE6D_BEC_DIM
+#define GENE6D_VEC_DIM 1,1,1,1,16,2
+#endif
+namespace {  //anonymous namespace
+// brick/vector dim in N M L K J I order
+constexpr std::array<unsigned, RANK> BRICK_DIM_REVERSED = {GENE6D_BRICK_DIM};
+constexpr std::array<unsigned, RANK> BRICK_VECTOR_DIM_REVERSED = {GENE6D_VEC_DIM};
+} // end anonymous namespace
+// brick/vector dim in I J K L M N
+constexpr std::array<unsigned, RANK> BRICK_DIM = {BRICK_DIM_REVERSED[5], BRICK_DIM_REVERSED[4],
+                                                  BRICK_DIM_REVERSED[3], BRICK_DIM_REVERSED[2],
+                                                  BRICK_DIM_REVERSED[1], BRICK_DIM_REVERSED[0]};
+constexpr std::array<unsigned, RANK> BRICK_VECTOR_DIM = {
+    BRICK_VECTOR_DIM_REVERSED[5], BRICK_VECTOR_DIM_REVERSED[4], BRICK_VECTOR_DIM_REVERSED[3],
+    BRICK_VECTOR_DIM_REVERSED[2], BRICK_VECTOR_DIM_REVERSED[1], BRICK_VECTOR_DIM_REVERSED[0]};
 constexpr std::array<unsigned, RANK> PCOEFF_BRICK_DIM = {BRICK_DIM[0], BRICK_DIM[2], BRICK_DIM[3], BRICK_DIM[4], BRICK_DIM[5]};
 constexpr std::array<unsigned, RANK> ARAKAWA_COEFF_BRICK_DIM = {
     1, BRICK_DIM[0], BRICK_DIM[2], BRICK_DIM[3], BRICK_DIM[4], BRICK_DIM[5]};
@@ -49,13 +62,16 @@ typedef Dim<ARAKAWA_COEFF_BRICK_DIM[5], ARAKAWA_COEFF_BRICK_DIM[4], ARAKAWA_COEF
 typedef Dim<BRICK_VECTOR_DIM[5], BRICK_VECTOR_DIM[4], BRICK_VECTOR_DIM[3], BRICK_VECTOR_DIM[2],
             BRICK_VECTOR_DIM[1], BRICK_VECTOR_DIM[0]>
     VectorFoldType;
+typedef Dim<BRICK_VECTOR_DIM[5], BRICK_VECTOR_DIM[4], BRICK_VECTOR_DIM[3], BRICK_VECTOR_DIM[2],
+            BRICK_VECTOR_DIM[0], 1>
+    ArakawaCoeffVectorFoldType;
 typedef CommDims<false, false, false, false, false, true> CommIn_i;
 typedef CommDims<false, false, true, true, false, false> CommIn_kl;
 typedef CommDims<false, false, false, false, false, false> NoComm;
 typedef Brick<FieldBrickDimsType, VectorFoldType, true, CommIn_i> FieldBrick_i;
 typedef Brick<FieldBrickDimsType, VectorFoldType, true, CommIn_kl> FieldBrick_kl;
 typedef Brick<PreCoeffBrickDimsType, Dim<1>, true, NoComm> PreCoeffBrick;
-typedef Brick<ArakawaCoeffBrickDimsType, VectorFoldType, false, NoComm> ArakawaCoeffBrick;
+typedef Brick<ArakawaCoeffBrickDimsType, ArakawaCoeffVectorFoldType, false, NoComm> ArakawaCoeffBrick;
 
 typedef brick::Padding<PADDING[5], PADDING[4], PADDING[3], PADDING[2], PADDING[1], PADDING[0]>
     Padding_kl6D;
@@ -67,7 +83,7 @@ typedef brick::Array<bComplexElem, 1, brick::Padding<PADDING[1]> > complexArray1
 typedef brick::Array<bElem, 6> realArray6D;
 typedef brick::BrickedArray<bComplexElem, FieldBrickDimsType, VectorFoldType> BrickedFieldArray;
 typedef brick::BrickedArray<bComplexElem, PreCoeffBrickDimsType, Dim<1> >BrickedPCoeffArray;
-typedef brick::BrickedArray<bElem, ArakawaCoeffBrickDimsType, VectorFoldType>
+typedef brick::BrickedArray<bElem, ArakawaCoeffBrickDimsType, ArakawaCoeffVectorFoldType>
     BrickedArakawaCoeffArray;
 
 // some CUDA constants
