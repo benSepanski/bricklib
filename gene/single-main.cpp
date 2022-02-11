@@ -284,7 +284,7 @@ void runArakawa(std::array<unsigned, RANK> extent, CSVDataRecorder &dataRecorder
   }
 
   complexArray6D in{complexArray6D::random(extent)},
-      arrayOut{extent, 0.0}, brickOut{extent, 0.0};
+      arrayOut{extent, -1}, brickOut{extent, -1};
 
       std::cout << "Brick decomposition setup complete. Beginning coefficient setup..." << std::endl;
   // initialize my coefficients to random data, and receive coefficients for ghost-zones
