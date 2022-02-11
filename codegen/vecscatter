@@ -157,19 +157,23 @@ if __name__ == "__main__":
             else:
                 stride = []
             stride = stride + [1] * (len(dim) - len(stride))
+
+            local = {"brick_dim": tuple(dim), "fold": tuple(fold)}
+            with open(script_name, 'rt') as f:
+                script = f.read()
+                exec(script, {}, local)
+            neighbor_dims = local.get("NEIGHBOR_DIMS", None)
+
             from st.codegen.backend import Brick
             layout = Brick(dim=dim, fold=fold, prec=prec, brick_idx=bidx,
+                           neighbor_dims=neighbor_dims,
                            cstruct=False if vec != 'OPENCL' and vec != 'SYCL' else True)
             from st.codegen.base import CodeGen
             cg = CodeGen(backend, layout, dag_msize=arg.msize, scatter_thres=arg.thres, unroll=arg.unroll,
                          dimsplit=arg.dsplit, stride=stride, K=arg.K, klimit=arg.limit)
-            with open(script_name, 'rt') as f:
-                script = f.read()
-            local = {}
-            exec(script, {}, local)
             from io import StringIO
             s = StringIO()
-            cg.gencode(local['STENCIL'], s)
+            cg.gencode(list(local['STENCIL']), s)
             source[line - 1] = '# 1 "VSBrick-{}-{}-{}-{}" 1\n'.format(os.path.basename(script_name), vec,
                                                                       "x".join([str(d) for d in reversed(dim)]),
                                                                       "x".join([str(f) for f in reversed(fold)])) + \

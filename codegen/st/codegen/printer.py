@@ -62,6 +62,7 @@ class Printer(PrinterBase):
             Uop.Not: 3,
             Uop.BitNot: 3
         }
+        self.print.register(st.expr.FunctionOfLocalVectorIndex, self._print_local_index_function)
         self.print.register(st.expr.BinOp, self._print_binOp)
         self.print.register(st.expr.ComplexLiteral, self._print_complexLiteral)
         self.print.register(st.expr.FloatLiteral, self._print_floatLiteral)
@@ -71,6 +72,33 @@ class Printer(PrinterBase):
         self.print.register(st.expr.If, self._print_if)
         self.print.register(st.func.CallExpr, self._print_callExpr)
         self.print.register(GridRef, self._print_gridref)
+
+    def _print_local_index_function(self, node: st.expr.FunctionOfLocalVectorIndex, stream: StringIO, prec=255):
+        if node.tile_dims is None:
+            raise ValueError("FunctionOfLocalVectorIndex has not recorded the tile dimensions!")
+        if node.fold is None:
+            raise ValueError("FunctionOfLocalVectorIndex has not recorded the tile fold!")
+        for necessary_attribute in ["shift", "offset", "dim_to_loop_var"]:
+            if not hasattr(self, necessary_attribute):
+                raise RuntimeError(f"Printer missing attribute {necessary_attribute}")
+
+        index = [st.expr.IntLiteral(s + o) for s, o in zip(self.shift, self.offset)]
+        for dim, loop_var in self.dim_to_loop_var.items():
+            loop_var = st.expr.ConstRef(loop_var)
+            if index[dim].val != 0:
+                index[dim] += loop_var
+            else:
+                index[dim] = loop_var
+
+        index_strings = []
+        for idx_d in index:
+            index_stream = StringIO()
+            self.print(idx_d, index_stream, prec=prec)
+            index_strings.append(index_stream.getvalue())
+
+        assert all([isinstance(idx, st.expr.Index) for idx in node.children])
+        args = [index_strings[idx.n] for idx in node.children]
+        stream.write(node.op(*args))
 
     def _print_binOp(self, node: st.expr.BinOp, stream: StringIO, prec=255):
         mprec = self.precedence[node.operator]

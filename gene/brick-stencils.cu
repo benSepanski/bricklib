@@ -218,28 +218,7 @@ semiArakawaBrickKernelOptimized(brick::Array<unsigned, RANK, brick::Padding<>, u
         ARAKAWA_STENCIL_SIZE;
   }
 
-  int n = threadIdx.z / (BRICK_DIM[2] *  BRICK_DIM[3]  * BRICK_DIM[4]);
-  int m = threadIdx.z / (BRICK_DIM[2] *  BRICK_DIM[3]) % BRICK_DIM[4];
-  int l = threadIdx.z /  BRICK_DIM[2] % BRICK_DIM[3];
-  int k = threadIdx.z %  BRICK_DIM[2];
-  int j = threadIdx.y;
-  int i = threadIdx.x;
-
-  // bounds check
-  assert(i < BRICK_DIM[0]);
-  assert(j < BRICK_DIM[1]);
-  assert(k < BRICK_DIM[2]);
-  assert(l < BRICK_DIM[3]);
-  assert(m < BRICK_DIM[4]);
-  assert(n < BRICK_DIM[5]);
-
-  // load in data
-  unsigned flatIndexNoJ = i + BRICK_DIM[0] * (k + BRICK_DIM[2] * (l + BRICK_DIM[3] * (m + BRICK_DIM[4] * n)));
-  bElem c[ARAKAWA_STENCIL_SIZE] {};
-  for(unsigned s = 0; s < ARAKAWA_STENCIL_SIZE; ++s) {
-    c[s] = coeff.dat[coeff.step * coeffGrid.atFlatIndex(bCoeffGridIndex + s) + flatIndexNoJ];
-  }
-  brick("semi_arakawa_stencil.py", "CUDA", (GENE6D_BRICK_DIM), (2,16,1,1,1,1), bFieldIndex);
+  brick("semi_arakawa_stencil.py", "CUDA", (GENE6D_BRICK_DIM), (GENE6D_VEC_DIM), bFieldIndex);
 }
 
 
@@ -365,10 +344,7 @@ ArakawaBrickKernelType buildBricksArakawaKernel(brick::BrickLayout<RANK> fieldLa
   }
   dim3 cuda_grid_size(brickExtent[iterationOrder[0]], brickExtent[iterationOrder[1]],
                       brickExtent[iterationOrder[2]] * brickExtent[iterationOrder[3]] *
-                      brickExtent[iterationOrder[4]] * brickExtent[iterationOrder[5]]),
-      cuda_block_size(BRICK_DIM[0], BRICK_DIM[1],
-                      FieldBrick_kl::BRICKLEN / BRICK_DIM[0] / BRICK_DIM[1]);
-  validateLaunchConfig(cuda_grid_size, cuda_block_size);
+                      brickExtent[iterationOrder[4]] * brickExtent[iterationOrder[5]]);
 
   // Get known parameters to kernel
   auto fieldIndexInStorage_dev = fieldLayout.indexInStorage.allocateOnDevice();
@@ -381,6 +357,10 @@ ArakawaBrickKernelType buildBricksArakawaKernel(brick::BrickLayout<RANK> fieldLa
   // define the computation
   std::function<void(FieldBrick_kl, FieldBrick_kl)> arakawaComputation;
   if(kernelType == SIMPLE_KLIJMN) {
+    dim3 cuda_block_size(BRICK_DIM[0], BRICK_DIM[1],
+                    FieldBrick_kl::BRICKLEN / BRICK_DIM[0] / BRICK_DIM[1]);
+    validateLaunchConfig(cuda_grid_size, cuda_block_size);
+
     arakawaComputation = [=](FieldBrick_kl bIn_dev, FieldBrick_kl bOut_dev) -> void {
       semiArakawaBrickKernelSimple<< <cuda_grid_size, cuda_block_size>> >(
           fieldIndexInStorage_dev, coeffIndexInStorage_dev, bIn_dev, bOut_dev, bCoeff_dev,
@@ -400,6 +380,9 @@ ArakawaBrickKernelType buildBricksArakawaKernel(brick::BrickLayout<RANK> fieldLa
     gpuCheck(cudaMemcpyToSymbol(optimizedSemiArakawaGridIterationOrder, iterationOrder.data(), RANK * sizeof(unsigned)));
     gpuCheck(cudaMemcpyToSymbol(optimizedSemiArakawaFieldBrickGridExtent, brickExtent.data(), RANK * sizeof(unsigned)));
     gpuCheck(cudaMemcpyToSymbol(optimizedSemiArakawaFieldBrickGridStride, fieldBrickGridStride, RANK * sizeof(unsigned)));
+
+    dim3 cuda_block_size{32};
+    validateLaunchConfig(cuda_grid_size, cuda_block_size);
 
     arakawaComputation = [=](FieldBrick_kl bIn_dev, FieldBrick_kl bOut_dev) -> void {
       semiArakawaBrickKernelOptimized<< <cuda_grid_size, cuda_block_size>> >(

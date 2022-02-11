@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Dict
 from abc import abstractmethod
 from st.codegen.printer import Printer
 from st.codegen.buffer import Buffer, BufferRead
@@ -104,9 +104,9 @@ class Brick:
         if neighbor_dims is not None:
             if not all(map(lambda d: isinstance(d, int), neighbor_dims)):
                 raise ValueError("All entries in neighbor_dims must be int}")
-            if not all(map(lambda d: 0 <= d < dim, neighbor_dims)):
+            if not all(map(lambda d: 0 <= d < len(dim), neighbor_dims)):
                 raise ValueError(f"Some entry in neighbor_dims {neighbor_dims} is not in range f{(0, dim)}")
-            if len(set(neighbor_dims)) < neighbor_dims:
+            if len(set(neighbor_dims)) < len(neighbor_dims):
                 raise ValueError(f"Duplicate entry in neighbor_dims: {neighbor_dims}")
             neighbor_dims = sorted(neighbor_dims)
         else:
@@ -187,8 +187,13 @@ class Brick:
     def neighbor_val(self, offset: List[int]):
         if offset is not None:
             val = 0
-            for d in reversed(self.neighbor_dims):
-                val = val * 3 + (offset[d] + 1)
+            for d, off in enumerate(reversed(offset)):
+                if d not in self.neighbor_dims:
+                    if off != 0:
+                        raise ValueError(f"Cannot access neighbor along axis {d}," +
+                                         f"available neighbor dims = {self.neighbor_dims}")
+                else:
+                    val = val * 3 + (off + 1)
         else:
             tot = int(3 ** len(self.neighbor_dims))
             val = tot // 2
@@ -395,11 +400,11 @@ class Backend:
         group.append("{} = {}[rel + vit];".format(
             self.genStoreLoc(buf.grid, [0] * dims, [0] * dims, None, dimrels), buf.name))
 
-    def genStoreLoc(self, grid: Grid, shift, offset, rel, dimrels):
+    def genStoreLoc(self, grid: Grid, shift, offset, rel, dimrels, dim_to_loop_var: Dict[int, Expr]):
         from st.grid import GridRef
         from st.expr import Index
         dims = grid.dims
-        return self.gen_rhs(GridRef(grid, [Index(i) for i in range(dims)]), shift, offset, rel, dimrels)
+        return self.gen_rhs(GridRef(grid, [Index(i) for i in range(dims)]), shift, offset, rel, dimrels, dim_to_loop_var)
 
     def genStoreTileLoop(self, group: CodeBlock, dims):
         subblock = CodeBlock()
@@ -429,12 +434,15 @@ class Backend:
         pass
 
     @abstractmethod
-    def gen_rhs(self, comp: Expr, shift: List[int], offset: List[int], rel=None, dimrels=None):
+    def gen_rhs(self, comp: Expr, shift: List[int], offset: List[int], rel=None, dimrels=None,
+                dim_to_loop_var:Dict[int, Expr] = None):
         """
         :param comp: The expression to print
         :param shift: The shift of scatter
         :param offset: Scattered from
         :param rel: Added offset when using loops
+        :param dim_to_loop_var: map from dimensions currently looping over to an expression holding
+                                the current index value in the loop over that axis
         :return:
         """
         pass

@@ -14,6 +14,9 @@ if(gtensor_FOUND AND CMAKE_CUDA_COMPILER)
     # Generate kernels
     set(GENE6D_STENCILS_INCLUDE_DIRS
             "${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES}")
+    if(GENE6D_BRICK_DIM)
+        set(GENE6D_STENCILS_COMPILE_OPTIONS "-DGENE6D_BRICK_DIM=${GENE6D_BRICK_DIM}")
+    endif()
     VSTARGET(GENE6D_STENCILS brick-stencils.cu brick-stencils-out.cu)
 
     # mpi computation
