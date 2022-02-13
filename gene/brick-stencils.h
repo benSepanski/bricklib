@@ -44,7 +44,7 @@ constexpr std::array<unsigned, RANK> BRICK_VECTOR_DIM = {
     BRICK_VECTOR_DIM_REVERSED[2], BRICK_VECTOR_DIM_REVERSED[1], BRICK_VECTOR_DIM_REVERSED[0]};
 constexpr std::array<unsigned, RANK> PCOEFF_BRICK_DIM = {BRICK_DIM[0], BRICK_DIM[2], BRICK_DIM[3], BRICK_DIM[4], BRICK_DIM[5]};
 constexpr std::array<unsigned, RANK> ARAKAWA_COEFF_BRICK_DIM = {
-    1, BRICK_DIM[0], BRICK_DIM[2], BRICK_DIM[3], BRICK_DIM[4], BRICK_DIM[5]};
+    13, BRICK_DIM[0], BRICK_DIM[2], BRICK_DIM[3], BRICK_DIM[4], BRICK_DIM[5]};
 constexpr std::array<unsigned, RANK> PADDING = {0,0,2,2,0,0};
 constexpr unsigned TILE_SIZE = 8;
 constexpr unsigned ARAKAWA_STENCIL_SIZE = 13;

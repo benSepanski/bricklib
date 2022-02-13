@@ -23,8 +23,7 @@ constexpr unsigned max_blocks_per_sm(unsigned max_block_size) {
  * Assumes i-deriv coeff has been copied to constant memory
  * @see copy_i_deriv_coeff
  */
-__launch_bounds__(NUM_ELEMENTS_PER_FIELD_BRICK,
-                  max_blocks_per_sm(NUM_ELEMENTS_PER_FIELD_BRICK))
+__launch_bounds__(FieldBrick_i::VECLEN, max_blocks_per_sm(FieldBrick_i::VECLEN))
 __global__
 void ijDerivBrickKernel(brick::Array<unsigned, RANK, brick::Padding<>, unsigned> grid,
                            brick::Array<unsigned, RANK-1, brick::Padding<>, unsigned> coeffGrid,
@@ -46,40 +45,7 @@ void ijDerivBrickKernel(brick::Array<unsigned, RANK, brick::Padding<>, unsigned>
   unsigned bFieldIndex = grid(b_i, b_j, b_k, b_l, b_m, b_n);
   unsigned bCoeffIndex = coeffGrid(b_i, b_k, b_l, b_m, b_n);
 
-  unsigned n = threadIdx.z / (BRICK_DIM[2] * BRICK_DIM[3] * BRICK_DIM[4]);
-  unsigned m = threadIdx.z / (BRICK_DIM[2] * BRICK_DIM[3]) % BRICK_DIM[4];
-  unsigned l = (threadIdx.z / BRICK_DIM[2]) % BRICK_DIM[3];
-  unsigned k = threadIdx.z % BRICK_DIM[2];
-  unsigned j = threadIdx.y;
-  unsigned i = threadIdx.x;
-
-  // bounds check
-  assert(i < BRICK_DIM[0]);
-  assert(j < BRICK_DIM[1]);
-  assert(k < BRICK_DIM[2]);
-  assert(l < BRICK_DIM[3]);
-  assert(m < BRICK_DIM[4]);
-  assert(n < BRICK_DIM[5]);
-
-  // load data together so that memory accesses get coalesced
-  bComplexElem in[5];
-  in[0] = bIn[bFieldIndex][n][m][l][k][j][i - 2];
-  in[1] = bIn[bFieldIndex][n][m][l][k][j][i - 1];
-  in[2] = bIn[bFieldIndex][n][m][l][k][j][i];
-  in[3] = bIn[bFieldIndex][n][m][l][k][j][i + 1];
-  in[4] = bIn[bFieldIndex][n][m][l][k][j][i + 2];
-
-  bComplexElem p1 = bP1[bCoeffIndex][n][m][l][k][i], p2 = bP2[bCoeffIndex][n][m][l][k][i],
-               my_ikj = ikj[PADDING[1] + b_j * BRICK_DIM[1] + j];
-
-  // perform computation
-  bComplexElem out = p1 * (const_i_deriv_coeff_dev[0] * in[0] + const_i_deriv_coeff_dev[1] * in[1] +
-                           const_i_deriv_coeff_dev[2] * in[2] + const_i_deriv_coeff_dev[3] * in[3] +
-                           const_i_deriv_coeff_dev[4] * in[4]) +
-                     p2 * my_ikj * in[2];
-
-  // store computation
-  bOut[bFieldIndex][n][m][l][k][j][i] = out;
+  brick("ij_deriv_stencil.py", "CUDA", (GENE6D_BRICK_DIM), (GENE6D_VEC_DIM), bFieldIndex);
 }
 
 /**
@@ -136,9 +102,9 @@ void semiArakawaBrickKernelSimple(brick::Array<unsigned, RANK, brick::Padding<>,
   auto input = [&](int deltaK, int deltaL) -> bComplexElem {
     return in[n][m][l + deltaL][k + deltaK][j][i];
   };
+  unsigned coeffBrickIndex = coeffGrid(0, b_i, b_k, b_l, b_m, b_n);
   auto c = [&](unsigned stencilIdx) -> bElem {
-    unsigned coeffBrickIndex = coeffGrid(stencilIdx, b_i, b_k, b_l, b_m, b_n);
-    return coeff[coeffBrickIndex][n][m][l][k][i][0];
+    return coeff[coeffBrickIndex][n][m][l][k][i][stencilIdx];
   };
   bOut[fieldBrickIdx][n][m][l][k][j][i] =
          c(0) * input(0, -2)
@@ -176,7 +142,7 @@ __constant__ unsigned optimizedSemiArakawaFieldBrickGridStride[RANK];
  * @param coeff the coefficient bricks
 * @param numGhostZonesToSkip the number of ghost zones to skip
  */
-__launch_bounds__(NUM_ELEMENTS_PER_FIELD_BRICK, max_blocks_per_sm(NUM_ELEMENTS_PER_FIELD_BRICK))
+__launch_bounds__(FieldBrick_kl::VECLEN, max_blocks_per_sm(FieldBrick_kl::VECLEN))
 __global__ void
 semiArakawaBrickKernelOptimized(brick::Array<unsigned, RANK, brick::Padding<>, unsigned> grid,
                                 brick::Array<unsigned, RANK, brick::Padding<>, unsigned> coeffGrid,
@@ -185,10 +151,10 @@ semiArakawaBrickKernelOptimized(brick::Array<unsigned, RANK, brick::Padding<>, u
                                 ArakawaCoeffBrick coeff,
                                 int numGhostZonesToSkip)
 {
-  static_assert(ARAKAWA_COEFF_BRICK_DIM[0] == 1, "Assumes arakawa brick-dim is 1 in first index");
+  static_assert(ARAKAWA_COEFF_BRICK_DIM[0] == 13, "Assumes arakawa brick-dim is 13 in first index");
   // compute indices
   unsigned bFieldIndex, ///< Index into storage of current field brick
-      bCoeffGridIndex; ///< Index into coeffGrid of first coeff brick
+      bCoeffIndex; ///< Index into storage of current coeff brick
   {
     // alias the const memory
     const unsigned *const gridIterationOrder = optimizedSemiArakawaGridIterationOrder;
@@ -213,9 +179,9 @@ semiArakawaBrickKernelOptimized(brick::Array<unsigned, RANK, brick::Padding<>, u
     assert(blockIdxZ == 0);
     bFieldIndex = grid.atFlatIndex(bFieldGridIndex);
     // IJKLMN -> IKLMN -> CoefficientAxisIKLMN
-    bCoeffGridIndex =
-        ((bFieldGridIndex % extent[0]) + extent[0] * (bFieldGridIndex / (extent[0] * extent[1]))) *
-        ARAKAWA_STENCIL_SIZE;
+    unsigned bCoeffGridIndex =
+        (bFieldGridIndex % extent[0]) + extent[0] * (bFieldGridIndex / (extent[0] * extent[1]));
+    bCoeffIndex = grid.atFlatIndex(bCoeffGridIndex);
   }
 
   brick("semi_arakawa_stencil.py", "CUDA", (GENE6D_BRICK_DIM), (GENE6D_VEC_DIM), bFieldIndex);
@@ -262,8 +228,7 @@ ijDerivBrickKernelType buildBricksIJDerivBrickKernel(brick::BrickLayout<RANK> fi
   dim3 cuda_grid_size(brickExtentWithGZ[0] - 2 * numGhostZonesToSkip, brickExtentWithGZ[1],
                       brickExtentWithGZ[2] * brickExtentWithGZ[3] * brickExtentWithGZ[4] *
                           brickExtentWithGZ[5]),
-      cuda_block_size(BRICK_DIM[0], BRICK_DIM[1],
-                      FieldBrick_kl::BRICKLEN / BRICK_DIM[0] / BRICK_DIM[1]);
+      cuda_block_size(FieldBrick_i::VECLEN);
   validateLaunchConfig(cuda_grid_size, cuda_block_size);
 
   // Get known parameters to kernel
@@ -323,8 +288,8 @@ ArakawaBrickKernelType buildBricksArakawaKernel(brick::BrickLayout<RANK> fieldLa
   }
 
   // check input
-  if(bCoeff.getLayout().indexInStorage.extent[0] != ARAKAWA_STENCIL_SIZE) {
-    throw std::runtime_error("bCoeff extent [0] must be ARAKAWA_STENCIL_SIZE");
+  if(bCoeff.getLayout().indexInStorage.extent[0] != 1) {
+    throw std::runtime_error("bCoeff extent [0] must be 1");
   }
   if(bCoeff.getLayout().indexInStorage.extent[1] != fieldLayout.indexInStorage.extent[0]) {
     throw std::runtime_error("bCoeff and fieldLayout extents are incompatible");
@@ -381,7 +346,7 @@ ArakawaBrickKernelType buildBricksArakawaKernel(brick::BrickLayout<RANK> fieldLa
     gpuCheck(cudaMemcpyToSymbol(optimizedSemiArakawaFieldBrickGridExtent, brickExtent.data(), RANK * sizeof(unsigned)));
     gpuCheck(cudaMemcpyToSymbol(optimizedSemiArakawaFieldBrickGridStride, fieldBrickGridStride, RANK * sizeof(unsigned)));
 
-    dim3 cuda_block_size{32};
+    dim3 cuda_block_size{FieldBrick_kl::VECLEN};
     validateLaunchConfig(cuda_grid_size, cuda_block_size);
 
     arakawaComputation = [=](FieldBrick_kl bIn_dev, FieldBrick_kl bOut_dev) -> void {

@@ -16,7 +16,7 @@ output = Grid("bOut", 6, complex_valued=True)
 coeffs = []
 for stencil_idx in range(13):
     def f(i, k, l, m, n, stencil_idx=stencil_idx, fold=fold, brick_dim=brick_dim):
-        brick_idx = f"coeff.step * coeffGrid.atFlatIndex(bCoeffGridIndex + {stencil_idx})"
+        brick_idx = f"coeff.step * bCoeffIndex"
 
         idx_in_fold = "threadIdx.x"
         # Divide out j extent
@@ -49,7 +49,7 @@ for stencil_idx in range(13):
         else:
             idx_of_vec = str(vec_len * compile_time_part_of_idx_of_vec)
 
-        idx_in_brick = f"{idx_of_vec} + {idx_in_fold}"
+        idx_in_brick = f"13 * ({idx_of_vec}) + {stencil_idx} * {vec_len} + {idx_in_fold}"
 
         return f"coeff.dat[{brick_idx} + {idx_in_brick}]"
     coeffs.append(FunctionOfLocalVectorIndex(f, (i, k, l, m, n)))
