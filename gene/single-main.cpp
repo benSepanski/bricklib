@@ -492,6 +492,12 @@ int main(int argc, char **argv) {
     if (i < RANK - 1)
       std::cout << " x ";
   }
+  std::cout << "\n" << std::setw(io_col_width) << "Brick Vector :";
+  for (int i = 0; i < RANK; ++i) {
+    std::cout << std::setw(2) << BRICK_VECTOR_DIM[i];
+    if (i < RANK - 1)
+      std::cout << " x ";
+  }
   std::cout << "\n" << std::setw(io_col_width) << "Array Padding :";
   for (int i = 0; i < RANK; ++i) {
     std::cout << std::setw(2) << PADDING[i];
