@@ -187,7 +187,7 @@ class Brick:
     def neighbor_val(self, offset: List[int]):
         if offset is not None:
             val = 0
-            for d, off in enumerate(reversed(offset)):
+            for d, off in zip(reversed(range(len(offset))), reversed(offset)):
                 if d not in self.neighbor_dims:
                     if off != 0:
                         raise ValueError(f"Cannot access neighbor along axis {d}," +
