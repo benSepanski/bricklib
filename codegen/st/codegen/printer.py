@@ -82,7 +82,10 @@ class Printer(PrinterBase):
             if not hasattr(self, necessary_attribute):
                 raise RuntimeError(f"Printer missing attribute {necessary_attribute}")
 
-        index = [st.expr.IntLiteral(s + o) for s, o in zip(self.shift, self.offset)]
+        index = [s + o for s, o in zip(self.shift, self.offset)]
+        assert all([off % fold == 0 for off, fold in zip(index, node.fold)])
+        index = [st.expr.IntLiteral(off // fold) for off, fold in zip(index, node.fold)]
+
         for dim, loop_var in self.dim_to_loop_var.items():
             loop_var = st.expr.ConstRef(loop_var)
             if index[dim].val != 0:
