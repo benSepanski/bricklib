@@ -38,18 +38,18 @@ for stencil_idx in range(13):
             except ValueError:
                 runtime_part_of_idx_of_vec.append(vec_idx_d)
                 if stride > 1:
-                    runtime_part_of_idx_of_vec[-1] += f" * {stride}"
+                    runtime_part_of_idx_of_vec[-1] = f"({runtime_part_of_idx_of_vec[-1]}) * {stride}"
             stride *= brick_dim[d] // fold[d]
 
         vec_len = fold[0] * fold[2] * fold[3] * fold[4] * fold[5]
         if len(runtime_part_of_idx_of_vec) > 0:
-            idx_of_vec = f"{vec_len} * ({' + '.join(runtime_part_of_idx_of_vec)})"
+            idx_of_vec = f"{13 * vec_len} * ({' + '.join(runtime_part_of_idx_of_vec)})"
             if compile_time_part_of_idx_of_vec != 0:
-                idx_of_vec = str(vec_len * compile_time_part_of_idx_of_vec) + " + " + idx_of_vec
+                idx_of_vec = str(13 * vec_len * compile_time_part_of_idx_of_vec) + " + " + idx_of_vec
         else:
-            idx_of_vec = str(vec_len * compile_time_part_of_idx_of_vec)
+            idx_of_vec = str(13 * vec_len * compile_time_part_of_idx_of_vec)
 
-        idx_in_brick = f"13 * ({idx_of_vec}) + {stencil_idx} * {vec_len} + {idx_in_fold}"
+        idx_in_brick = f"{idx_of_vec} + {stencil_idx} * {vec_len} + {idx_in_fold}"
 
         return f"coeff.dat[{brick_idx} + {idx_in_brick}]"
     coeffs.append(FunctionOfLocalVectorIndex(f, (i, k, l, m, n)))
