@@ -155,11 +155,7 @@ void ijderivGTensor(complexArray6D out, const complexArray6D &in, const complexA
  */
 void ijderivBrick(complexArray6D out, const complexArray6D &in, const complexArray5D &p1,
                   const complexArray5D &p2, const complexArray1D_J &ikj, bElem i_deriv_coeffs[5],
-                  int numGZToSkip, CSVDataRecorder &dataRecorder) {
-  if(numGZToSkip != 1 && numGZToSkip != 0) {
-    throw std::runtime_error("numGZToSkip must be 0 or 1");
-  }
-
+                  CSVDataRecorder &dataRecorder) {
   // set up brick-info and storage on host
   std::array<unsigned, RANK> fieldBrickGridExtent{};
   for(unsigned d = 0; d < RANK; ++d) {
@@ -186,6 +182,7 @@ void ijderivBrick(complexArray6D out, const complexArray6D &in, const complexArr
   FieldBrick_i bIn_dev = bInArray.viewBricksOnDevice<CommIn_i>();
   FieldBrick_i bOut_dev = bOutArray.viewBricksOnDevice<CommIn_i>();
 
+  int numGZToSkip = 1;
   auto brickKernel = buildBricksIJDerivBrickKernel(fieldLayout, bP1Array, bP2Array, ikj, i_deriv_coeffs, numGZToSkip);
   // build kernel
   auto brickComputation = [&]() -> void {
@@ -214,12 +211,7 @@ void ijderivBrick(complexArray6D out, const complexArray6D &in, const complexArr
  * @param[out] csvDataRecorder records data for CSV output if rank is zero
  */
 void semiArakawaBrick(complexArray6D out, const complexArray6D& in, const realArray6D& coeffs,
-                      BricksArakawaKernelType kernelType, int numGZToSkip,
-                      CSVDataRecorder &csvDataRecorder) {
-  if(numGZToSkip != 0 && numGZToSkip != 1) {
-    throw std::runtime_error("numGZToSkip must be 0 or 1");
-  }
-
+                      BricksArakawaKernelType kernelType, CSVDataRecorder &csvDataRecorder) {
   // set up brick-info and storage on host
   std::array<unsigned, RANK> gridExtent{};
   for(unsigned d = 0; d < RANK; ++d) {
@@ -246,6 +238,7 @@ void semiArakawaBrick(complexArray6D out, const complexArray6D& in, const realAr
   BrickedArakawaCoeffArray bCoeffArray(coeffLayout);
   bCoeffArray.loadFrom(coeffs);
 
+  int numGZToSkip = 1;
   auto arakawaBrickKernel = buildBricksArakawaKernel(brickLayout, bCoeffArray, kernelType, numGZToSkip);
 
   // set up on device
@@ -283,8 +276,7 @@ void runArakawa(std::array<unsigned, RANK> extent, CSVDataRecorder &dataRecorder
     coeffExtent[i] = extent[i];
   }
 
-  complexArray6D in{complexArray6D::random(extent)},
-      arrayOut{extent, -1}, brickOut{extent, -1};
+  complexArray6D in{complexArray6D::random(extent)}, arrayOut{extent, -1.0};
 
       std::cout << "Brick decomposition setup complete. Beginning coefficient setup..." << std::endl;
   // initialize my coefficients to random data, and receive coefficients for ghost-zones
@@ -319,16 +311,32 @@ void runArakawa(std::array<unsigned, RANK> extent, CSVDataRecorder &dataRecorder
     dataRecorder.setDefaultValue((std::string) "BrickDim_" + dimNames[d], BRICK_DIM[d]);
     dataRecorder.setDefaultValue((std::string) "BrickVecDim_" + dimNames[d], BRICK_VECTOR_DIM[d]);
   }
-  static_assert(BRICK_DIM[2] % 2 == 0, "Brick k-extent must be multiple of 2");
-  static_assert(BRICK_DIM[3] % 2 == 0, "Brick l-extent must be multiple of 2");
-  // can skip ghost bricks if they are *entirely* contained in the ghost-zone
-  int numGZBrickToSkip = (BRICK_DIM[2] == 2 && BRICK_DIM[3] == 2) ? 1 : 0;
-  assert(numGZBrickToSkip == 0 || numGZBrickToSkip == 1);
-  if(numGZBrickToSkip == 0) {
-    minNumBytesMoved += (arrayOut.numElements - numNonGhostElements) * sizeof(bComplexElem);
-    numStencils = arrayOut.numElements;
+  static_assert(BRICK_DIM[2] % 2 == 0 && BRICK_DIM[2] > 0, "Brick k-extent must be multiple of 2");
+  static_assert(BRICK_DIM[3] % 2 == 0 && BRICK_DIM[3] > 0, "Brick l-extent must be multiple of 2");
+  std::array<int, RANK> arrayPaddingForBrick = {0, 0, BRICK_DIM[2] - 2, BRICK_DIM[3] - 2, 0, 0};
+  std::array<int, RANK> negativeArrayPaddingForBrick{ };
+  for(unsigned d = 0; d < RANK; ++d) {
+    negativeArrayPaddingForBrick[d] = -arrayPaddingForBrick[d];
   }
-  std::cout << "Brick Limits (computation " << 1 - numGZBrickToSkip << " ghost bricks):" << std::endl;
+
+  auto paddedIn = padWithZeros6D(in, arrayPaddingForBrick);
+  auto test = padWithZeros6D(paddedIn, negativeArrayPaddingForBrick);
+
+  auto paddedCoeff = padWithZeros6D(coeffs, {0, arrayPaddingForBrick[0], arrayPaddingForBrick[2],
+                                             arrayPaddingForBrick[3], arrayPaddingForBrick[4],
+                                             arrayPaddingForBrick[5]});
+
+  complexArray6D brickOut{{
+                              paddedIn.extent[0],
+                              paddedIn.extent[1],
+                              paddedIn.extent[2],
+                              paddedIn.extent[3],
+                              paddedIn.extent[4],
+                              paddedIn.extent[5],
+                          },
+                          -1.0};
+  minNumBytesMoved += (paddedIn.numElements - in.numElements) * sizeof(bComplexElem);
+  std::cout << "Brick Limits " << std::endl;
   printTheoreticalLimits(minNumBytesMoved, numStencils, flopsPerStencil, dataRecorder);
 
   std::array<BricksArakawaKernelType, 7> kernelTypes = {
@@ -345,10 +353,11 @@ void runArakawa(std::array<unsigned, RANK> extent, CSVDataRecorder &dataRecorder
     dataRecorder.setDefaultValue("BrickIterationOrder", toString(kernelType));
     std::cout << "Bricks " << toString(kernelType) << " ";
 
-    semiArakawaBrick(brickOut, in, coeffs, kernelType, numGZBrickToSkip, dataRecorder);
-    checkClose(brickOut, arrayOut, {0, 0, 2, 2, 0, 0});
+    semiArakawaBrick(brickOut, paddedIn, paddedCoeff, kernelType, dataRecorder);
+    auto unpaddedBrickOut = padWithZeros6D(brickOut, negativeArrayPaddingForBrick);
+    checkClose(unpaddedBrickOut, arrayOut, {0, 0, 2, 2, 0, 0});
     // clear out brick to be sure correct values don't propagate through loop
-    brickOut.set(0.0);
+    brickOut.set(-1.0);
   }
 }
 
@@ -360,8 +369,7 @@ void runArakawa(std::array<unsigned, RANK> extent, CSVDataRecorder &dataRecorder
 void runIJDeriv(std::array<unsigned, RANK> extent, CSVDataRecorder &dataRecorder) {
   std::cout << "Building input arrays..." << std::endl;
 
-  complexArray6D in{complexArray6D::random(extent)},
-      arrayOut{extent, 0.0}, brickOut{extent, 0.0};
+  complexArray6D in{complexArray6D::random(extent)}, arrayOut{extent, -1.0};
 
   // set up coeffs
   std::array<unsigned, RANK - 1> coeffExtent{};
@@ -412,29 +420,37 @@ void runIJDeriv(std::array<unsigned, RANK> extent, CSVDataRecorder &dataRecorder
     dataRecorder.setDefaultValue((std::string) "BrickVecDim_" + dimNames[d], BRICK_VECTOR_DIM[d]);
   }
 
-  static_assert(BRICK_DIM[0] % 2 == 0, "Brick extent on i-axis must be a multiple of 2");
-
-  // If brick is entirely contained in ghost-zone, we can skip computing on it.
-  // Otherwise, we must compute on the non-ghost parts of the brick so cannot skip it
-  int numGZBrickToSkip = (BRICK_DIM[0] == 2) ? 1 : 0;
-  assert(numGZBrickToSkip == 0 || numGZBrickToSkip == 1);
-  // PRAGMAS used to ignore IDE warnings about unreachable code
-#pragma clang diagnostic push
-#pragma ide diagnostic ignored "ConstantConditionsOC"
-#pragma ide diagnostic ignored "UnreachableCode"
-  if(numGZBrickToSkip == 0) {
-    minNumBytesMoved += (arrayOut.numElements - numNonGhostElements) * sizeof(bComplexElem);
-    numStencils = arrayOut.numElements;
+  // Have to pad to multiple of brick-size if not equal to 2
+  static_assert(BRICK_DIM[0] % 2 == 0 && BRICK_DIM[0] > 0, "Brick extent on i-axis must be a multiple of 2");
+  std::array<int, RANK> arrayPaddingForBrick = {BRICK_DIM[0] - 2}, negativeArrayPaddingForBrick{ };
+  std::array<int, RANK - 1> arrayPaddingForCoeffBrick = {BRICK_DIM[0] - 2};
+  for(unsigned d = 0; d < RANK; ++d) {
+    negativeArrayPaddingForBrick[d] = -arrayPaddingForBrick[d];
   }
-#pragma clang diagnostic pop
 
-  std::cout << "Brick Limits (computation " << 1 - numGZBrickToSkip << " ghost bricks):" << std::endl;
+  auto paddedIn = padWithZeros6D(in, arrayPaddingForBrick);
+  auto paddedP1 = padWithZeros5D(p1, arrayPaddingForCoeffBrick);
+  auto paddedP2 = padWithZeros5D(p2, arrayPaddingForCoeffBrick);
+  assert(arrayPaddingForBrick[1] == 0);
+  complexArray6D brickOut{{
+                              paddedIn.extent[0],
+                              paddedIn.extent[1],
+                              paddedIn.extent[2],
+                              paddedIn.extent[3],
+                              paddedIn.extent[4],
+                              paddedIn.extent[5],
+                          },
+                          -1.0};
+  minNumBytesMoved += (paddedIn.numElements - in.numElements) * sizeof(bComplexElem);
+
+  std::cout << "Brick Limits" << std::endl;
   printTheoreticalLimits(minNumBytesMoved, numStencils, flopsPerStencil, dataRecorder);
 
   std::cout << "Bricks " << " ";
 
-  ijderivBrick(brickOut, in, p1, p2, ikj, i_deriv_coeff, numGZBrickToSkip, dataRecorder);
-  checkClose(brickOut, arrayOut, {2, 0, 0, 0, 0, 0});
+  ijderivBrick(brickOut, paddedIn, paddedP1, paddedP2, ikj, i_deriv_coeff, dataRecorder);
+  auto unpaddedBrickOut = padWithZeros6D(brickOut, negativeArrayPaddingForBrick);
+  checkClose(unpaddedBrickOut, arrayOut, {2, 0, 0, 0, 0, 0});
   // clear out brick to be sure correct values don't propagate through loop
   brickOut.set(0.0);
 }
