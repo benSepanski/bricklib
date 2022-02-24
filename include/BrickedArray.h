@@ -270,7 +270,11 @@ class BrickedArray;
         // Ensure extents match
         for(unsigned d = 0; d < RANK; ++d) {
           if(arr.extent[d] != this->extent[d]) {
-            throw std::runtime_error("Array extent does not match this object");
+            std::ostringstream errStream;
+            errStream << "Array extent on axis " << d << " of " << arr.extent[d]
+                      << " does not match this object's " << d << "th extent (" << this->extent[d]
+                      << ")";
+            throw std::runtime_error(errStream.str());
           }
         }
         constexpr std::array<long, RANK> allZero{};  //< all zero
