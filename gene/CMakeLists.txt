@@ -9,13 +9,25 @@ if(gtensor_FOUND AND CMAKE_CUDA_COMPILER)
                     PUBLIC $<$<COMPILE_LANGUAGE:CXX>:GENE6D_BRICK_DIM=${GENE6D_BRICK_DIM}>
                            $<$<COMPILE_LANGUAGE:CUDA>:GENE6D_BRICK_DIM=${GENE6D_BRICK_DIM_ESCAPED_COMMA}>)
         endif()
+        if(GENE6D_VEC_DIM)
+            # Commas need to be escaped for nvcc preprocessor
+            # https://gitlab.kitware.com/cmake/cmake/-/issues/17379
+            string(REPLACE , [[\,]] GENE6D_VEC_DIM_ESCAPED_COMMA "${GENE6D_VEC_DIM}" )
+            target_compile_definitions(${target_name}
+                    PUBLIC $<$<COMPILE_LANGUAGE:CXX>:GENE6D_VEC_DIM=${GENE6D_VEC_DIM}>
+                    $<$<COMPILE_LANGUAGE:CUDA>:GENE6D_VEC_DIM=${GENE6D_VEC_DIM_ESCAPED_COMMA}>)
+        endif()
     endfunction()
 
     # Generate kernels
     set(GENE6D_STENCILS_INCLUDE_DIRS
             "${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES}")
+    set(GENE6D_STENCILS_COMPILE_OPTIONS "")
     if(GENE6D_BRICK_DIM)
-        set(GENE6D_STENCILS_COMPILE_OPTIONS "-DGENE6D_BRICK_DIM=${GENE6D_BRICK_DIM}")
+        set(GENE6D_STENCILS_COMPILE_OPTIONS ${GENE6D_STENCILS_COMPILE_OPTIONS} -DGENE6D_BRICK_DIM=${GENE6D_BRICK_DIM})
+    endif()
+    if(GENE6D_VEC_DIM)
+        set(GENE6D_STENCILS_COMPILE_OPTIONS ${GENE6D_STENCILS_COMPILE_OPTIONS} -DGENE6D_VEC_DIM=${GENE6D_VEC_DIM})
     endif()
     VSTARGET(GENE6D_STENCILS brick-stencils.cu brick-stencils-out.cu)
 
