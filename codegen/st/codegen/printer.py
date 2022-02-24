@@ -88,6 +88,8 @@ class Printer(PrinterBase):
 
         for dim, loop_var in self.dim_to_loop_var.items():
             loop_var = st.expr.ConstRef(loop_var)
+            if node.fold[dim] > 1:
+                loop_var /= node.fold[dim]
             if index[dim].val != 0:
                 index[dim] += loop_var
             else:
