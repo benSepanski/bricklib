@@ -1,5 +1,8 @@
 import argparse
-import os
+import random
+
+from math import gcd
+
 from slurmpy import *
 
 if __name__ == "__main__":
@@ -38,10 +41,42 @@ if __name__ == "__main__":
 
     per_process_extent = tuple(map(int, args["per_process_domain_size"].split(',')))
 
-    brick_dims = [(2, 32, 2, 2, 1, 1), (2, 16, 2, 2, 2, 1), (2, 16, 2, 4, 1, 1), (2, 16, 4, 2, 1, 1),
-                  (4, 16, 2, 2, 1, 1), (2, 8, 2, 2, 4, 1), (4, 8, 2, 2, 2, 1), (2, 8, 4, 4, 1, 1), (2, 16, 2, 2, 1, 1),
-                  (2, 8, 2, 2, 2, 1), (2, 8, 2, 4, 1, 1), (2, 8, 4, 2, 1, 1), (4, 8, 2, 2, 1, 1), (2, 4, 2, 2, 4, 1),
-                  (4, 4, 2, 2, 2, 1), (2, 4, 4, 4, 1, 1)]
+    def get_range(dim, remaining_size):
+        if dim in [0, 2, 3]:
+            is_valid_extent = lambda x: (per_process_extent[dim] + 2 * (x-2)) % x == 0 and remaining_size % x == 0
+            min_val = 2
+        else:
+            is_valid_extent = lambda x: per_process_extent[dim] % x == 0 and remaining_size % x == 0
+            min_val = 1
+        max_val = min(per_process_extent[dim], remaining_size)
+        return filter(is_valid_extent, range(min_val, max_val + 1))
+
+    brick_dims = []
+    vector_dims = []
+    brick_sizes = [64, 128, 256, 512, 1024]
+    for i in get_range(0, max(brick_sizes)):
+        for k in get_range(2, max(brick_sizes) // i):
+            for ell in get_range(3, max(brick_sizes) // i // k):
+                for brick_size in filter(lambda x: x % (i*k*ell) == 0, brick_sizes):
+                    jmn_size = brick_size // i // k // ell
+                    for j in get_range(1, jmn_size):
+                        mn_size = jmn_size // j
+                        n = gcd(mn_size, per_process_extent[5])
+                        m = mn_size // n
+                        if per_process_extent[4] % m == 0:
+                            assert i * j * k * ell * m * n == brick_size
+                            brick_dim = (i, j, k, ell, m, n)
+                            vec_dim = [1, 1, 1, 1, 1, 1]
+                            vec_len = 1
+                            d = 0
+                            while vec_len < 32 and d < 6:
+                                vec_dim[d] = gcd((32 // vec_len), brick_dim[d])
+                                vec_len *= vec_dim[d]
+                                d += 1
+
+                            if vec_len == 32:
+                                brick_dims.append((i, j, k, ell, m, n))
+                                vector_dims.append(tuple(vec_dim))
 
     build_dir = f"cmake-builds/single/{machine_config.name}"
     preamble += f"""
@@ -50,34 +85,93 @@ if [[ ! -f "{build_dir}" ]] ; then
 fi
 """
     brick_dim_var_name = "brick_dim"
-    build_job = f"""cmake -S ../../ \\
+
+    def build_job(brick_dim, vec_dim):
+        return f"""echo "Building brick-dim {brick_dim} with vec dim {vec_dim}" ; 
+    cmake -S ../../ \\
         -B {build_dir} \\
         -DCMAKE_CUDA_ARCHITECTURES={machine_config.cuda_arch} \\
         -DCMAKE_INSTALL_PREFIX=bin \\
         -DGENE6D_USE_TYPES=OFF \\
         -DGENE6D_CUDA_AWARE=OFF \\
-        -DGENE6D_BRICK_DIM=${{{brick_dim_var_name}}} \\
-        -DCMAKE_CUDA_FLAGS=\"-lineinfo -gencode arch=compute_{machine_config.cuda_arch},code=[sm_{machine_config.cuda_arch},lto_{machine_config.cuda_arch}]\" \\
+        -DGENE6D_BRICK_DIM={','.join(map(str,reversed(brick_dim)))} \\
+        -DGENE6D_VEC_DIM={','.join(map(str,reversed(vec_dim)))} \\
+        -DCMAKE_CUDA_FLAGS=\"--resource-usage -lineinfo -gencode arch=compute_{machine_config.cuda_arch},code=[sm_{machine_config.cuda_arch},lto_{machine_config.cuda_arch}]\" \\
         -DCMAKE_BUILD_TYPE=Release \\
         -DPERLMUTTER={"ON" if machine_config.name == "perlmutter" else "OFF"} \\
     || exit 1
-    (cd {build_dir} && make -j 20 single-gene-6d) || exit 1
+    (cd {build_dir} && make clean && make -j 20 single-gene-6d 2> "${{ptx_info_file}}") || exit 1
+    python3 get_ptx_info.py
 """
-    run_job = f"""echo "Running experiment with brick size ${{{brick_dim_var_name}}}"
-    srun -n 1 {build_dir}/gene/single-gene6d -d {','.join(map(str,per_process_extent))} \\
+
+    def run_job(extent, first_job: bool):
+        tmp_file_name = "tmp" + str(random.randint(0, 1000000))
+        return f"""echo "Running experiment with extent {extent}"
+    srun -n 1 {build_dir}/gene/single-gene6d -d {','.join(map(str,extent))} \\
         -o {args["output_file"]} \\
         -a \\
         -I 100 \\
-        -W 10 \\
+        -W 5 \\
     || exit 1
-"""
-    run_all_jobs = f"""for {brick_dim_var_name} in {' '.join(map(lambda dims: ','.join(map(str, dims)), brick_dims))} ; do
-    {build_job}
-    {run_job}
-done
+    
+    # Create file that runs command, piping output to dev/null
+    echo "#!/bin/bash
+    {build_dir}/gene/single-gene6d -d {','.join(map(str,extent))} \\
+    -o {tmp_file_name}.tmp \\
+    -I 1 \\
+    -W 0 \\
+    > /dev/null
+rm {tmp_file_name}.tmp" > {tmp_file_name}.run
+    chmod 777 {tmp_file_name}.run
+    
+    # Use backticks around comments inside multiline command
+    # https://stackoverflow.com/questions/9522631/how-to-put-a-line-comment-for-a-multi-line-command
+    
+    # Now profile that file using ncu, collecting metrics into csv
+    srun -n 1 ncu --csv   `# output data as csv to console` \\
+        --target-processes all `# profile child processes` \\
+        --metrics $metncu11,$register_metrics,$l1_load_metrics,$lts_load_metrics \\
+        {tmp_file_name}.run \\
+        | sed '/^==PROF==/d'   `# Remove lines above csv output by filter on regex "^==PROF=="` \\
+        > {tmp_file_name}.csv \\
+    || exit 1
+    rm {tmp_file_name}.run
+    {"mv" if first_job else "tail -n +2 "} {tmp_file_name}.csv {"" if first_job else ">>"} {"ncu_" + args["output_file"]} 
+    {"" if first_job else f"rm {tmp_file_name}.csv"}
 """
 
-    slurm_script = "\n\n".join([preamble, run_all_jobs]) + "\n"
+    all_jobs = []
+    for brick_dim, vec_dim in zip(brick_dims, vector_dims):
+        first_job = len(all_jobs) == 0
+        all_jobs.append(build_job(brick_dim, vec_dim))
+        extent = list(per_process_extent)
+        all_jobs.append(run_job(extent, first_job))
+
+    # from
+    # https://github.com/cyanguwa/nersc-roofline/blob/65487eb44c1290f195cf2edb67cc329614aa86ae/GPP/Volta/run.survey
+    l1_load_metrics = ["l1tex__t_bytes"] + [f"l1tex__t_sectors_pipe_lsu_mem_{memory_space}_op_{access_type}"
+                                            for memory_space in ["global", "local"] for access_type in ["ld", "st"]
+                                            ]
+    lts_load_metrics = ["lts__t_bytes_equiv_l1sectormiss_pipe_lsu_mem_local_op_ld",
+                        "lts__t_bytes_equiv_l1sectormiss_pipe_lsu_mem_local_op_st",
+                        "lts__t_bytes_equiv_l1sectormiss_pipe_lsu_mem_global_op_st",
+                        "lts__t_bytes_equiv_l1sectormiss_pipe_lsu_mem_global_op_ld"
+                        ]
+    environment_setup = [
+        "ptx_info_file=$(pwd)/ptx_info.txt",
+        "metncu11='sm__cycles_elapsed.avg,sm__cycles_elapsed.avg.per_second,"
+        "sm__sass_thread_inst_executed_op_dadd_pred_on.sum,sm__sass_thread_inst_executed_op_dfma_pred_on.sum,"
+        "sm__sass_thread_inst_executed_op_dmul_pred_on.sum,sm__sass_thread_inst_executed_op_fadd_pred_on.sum,"
+        "sm__sass_thread_inst_executed_op_ffma_pred_on.sum,sm__sass_thread_inst_executed_op_fmul_pred_on.sum,"
+        "sm__sass_thread_inst_executed_op_hadd_pred_on.sum,sm__sass_thread_inst_executed_op_hfma_pred_on.sum,"
+        "sm__sass_thread_inst_executed_op_hmul_pred_on.sum,sm__inst_executed_pipe_tensor.sum,l1tex__t_bytes.sum,"
+        "lts__t_bytes.sum,dram__bytes.sum'",
+        "register_metrics='launch__registers_per_thread'",
+        "l1_load_metrics='" + ".sum,".join(l1_load_metrics) + ".sum'",
+        "lts_load_metrics='" + ".sum,".join(lts_load_metrics) + ".sum'",
+    ]
+    slurm_script = "\n\n".join([preamble] + environment_setup + all_jobs) + "\n"
 
     print(slurm_script)
+    print(f"# {len(brick_dims)} jobs total")
 
