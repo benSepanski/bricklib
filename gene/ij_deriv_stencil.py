@@ -26,7 +26,7 @@ for d in range(6):
     fold_stride.append(fold_stride[-1] * fold[d])
 
 
-def eval_index_in_vector(dim: int, fold: Tuple[str] = fold, fold_stride: List[str] = fold_stride) -> str:
+def eval_index_in_vector(dim: int, fold: Tuple[str] = fold, fold_stride: List[int] = fold_stride) -> str:
     index = "0"
     if fold_stride[dim] < 32 and fold[dim] > 1:
         index = "threadIdx.x"
