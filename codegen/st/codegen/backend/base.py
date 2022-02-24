@@ -397,8 +397,10 @@ class Backend:
     def storeTile(self, buf: Buffer, group: CodeBlock):
         dims = buf.grid.dims
         dimrels = [self.index_name(i) for i in reversed(range(dims))]
+        # FIXME: is {} the right thing to do for dim_to_loop_var?
         group.append("{} = {}[rel + vit];".format(
-            self.genStoreLoc(buf.grid, [0] * dims, [0] * dims, None, dimrels), buf.name))
+            self.genStoreLoc(buf.grid, [0] * dims, [0] * dims, None, dimrels, dim_to_loop_var={}),
+            buf.name))
 
     def genStoreLoc(self, grid: Grid, shift, offset, rel, dimrels, dim_to_loop_var: Dict[int, Expr]):
         from st.grid import GridRef
