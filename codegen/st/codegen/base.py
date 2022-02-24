@@ -1018,7 +1018,7 @@ class CodeGen:
                                 offset[cur_dim] = t
                                 dim_to_loop_var[cur_dim] = idx_name
                                 reduceDim(offset, cur_dim - 1, discardlevel, reln, dimrels, dim_to_loop_var)
-                                dim_to_loop_var
+                                del dim_to_loop_var[cur_dim]
 
                         newlevel.append("{} += {};".format(backend.rel_name(cur_dim), backend.stride(cur_dim)))
                     if self.LAYOUTREL:
