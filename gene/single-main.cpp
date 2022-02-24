@@ -159,6 +159,9 @@ void ijderivBrick(complexArray6D out, const complexArray6D &in, const complexArr
   // set up brick-info and storage on host
   std::array<unsigned, RANK> fieldBrickGridExtent{};
   for(unsigned d = 0; d < RANK; ++d) {
+    if(in.extent[d] % BRICK_DIM[d] != 0) {
+      throw std::runtime_error("Extent not divisible by brick-dimension");
+    }
     fieldBrickGridExtent[d] = in.extent[d] / BRICK_DIM[d];
   }
   std::array<unsigned, RANK-1> coeffBrickGridExtent{};
@@ -215,6 +218,9 @@ void semiArakawaBrick(complexArray6D out, const complexArray6D& in, const realAr
   // set up brick-info and storage on host
   std::array<unsigned, RANK> gridExtent{};
   for(unsigned d = 0; d < RANK; ++d) {
+    if(in.extent[d] % BRICK_DIM[d] != 0) {
+      throw std::runtime_error("Extent not divisible by brick-dimension");
+    }
     gridExtent[d] = in.extent[d] / BRICK_DIM[d];
   }
   // build brick decomp
@@ -339,13 +345,13 @@ void runArakawa(std::array<unsigned, RANK> extent, CSVDataRecorder &dataRecorder
   std::cout << "Brick Limits " << std::endl;
   printTheoreticalLimits(minNumBytesMoved, numStencils, flopsPerStencil, dataRecorder);
 
-  std::array<BricksArakawaKernelType, 7> kernelTypes = {
-      SIMPLE_KLIJMN,
+  std::vector<BricksArakawaKernelType> kernelTypes = {
+//      SIMPLE_KLIJMN,
       OPT_IJKLMN,
-      OPT_IKJLMN,
-      OPT_IKLJMN,
-      OPT_KIJLMN,
-      OPT_KILJMN,
+//      OPT_IKJLMN,
+//      OPT_IKLJMN,
+//      OPT_KIJLMN,
+//      OPT_KILJMN,
       OPT_KLIJMN
   };
   for(auto kernelType : kernelTypes) {
