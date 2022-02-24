@@ -78,7 +78,7 @@ class BackendAVX512(Backend):
         ref = "{}[{}]".format(buf.name, self.printer.print_str(comp))
         return ref
 
-    def gen_rhs(self, comp: Expr, shift: List[int], offset: List[int], rel=None,
+    def gen_rhs(self, comp: Expr, shift: List[int], offset: List[int], rel=None, dimrels=None,
                 dim_to_loop_var: Dict[int, Expr] = None):
         """
         :param comp: The expression to print
