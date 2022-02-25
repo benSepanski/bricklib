@@ -111,6 +111,7 @@ if(CMAKE_CUDA_COMPILER)
         endif()
         set(CUFFT_LINK_DIR $ENV{CUFFT_LINK_DIR} CACHE PATH "Directory containing libcufft_static.a" )
         set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -L${CUFFT_LINK_DIR}")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -L${CUFFT_LINK_DIR}")
     endif()
     target_link_libraries(single-fft brickhelper ${CUFFT_LIBRARIES})
     target_include_directories(single-fft PUBLIC
