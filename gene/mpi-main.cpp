@@ -27,12 +27,15 @@
  * @param[out] out output data (has ghost-zones)
  * @param[in] in input data (has ghost-zones)
  * @param[in] coeffs input coefficients (has ghost-zones)
- * @param[in] mpiLayout the mpi layout
- * @param[out] csvDataRecorder records data for CSV output if rank is zero
+ * @param[in] mpiHandle the mpi handle
+ * @param[in] numGhostZones the number of ghost zones to use
+ * @param[in] totalExchangeSize the total exchange side, just used for logging output
+ * @param[in, out] csvDataRecorder records data for CSV output if rank is zero
  */
 void semiArakawaDistributedGTensor(complexArray6D out, const complexArray6D& in,
-                                   const realArray6D& coeffs, GeneMPILayout &mpiLayout,
-                                   CSVDataRecorder &csvDataRecorder, int numGhostZones) {
+                                   const realArray6D& coeffs, GeneMPIHandle &mpiHandle,
+                                   int numGhostZones, size_t totalExchangeSize,
+                                   CSVDataRecorder &csvDataRecorder) {
   complexArray6D inCopy(
       {in.extent[0], in.extent[1], in.extent[2], in.extent[3], in.extent[4], in.extent[5]});
   inCopy.loadFrom(in);
@@ -68,7 +71,8 @@ void semiArakawaDistributedGTensor(complexArray6D out, const complexArray6D& in,
   auto out_dev = out.allocateOnDevice();
   auto gt_out_dev = gt::adapt_device((gt::complex<bElem> *)out_dev.getData().get(), shape6D);
   // set up MPI types for transfer
-  auto complexFieldMPIArrayTypesHandle = mpiLayout.buildArrayTypesHandle(inCopy);
+  std::array<unsigned, RANK> ghostDepth{0, 0, 2 * (unsigned) numGhostZones, 2 * (unsigned) numGhostZones, 0, 0};
+  auto complexFieldMPIArrayTypesHandle = mpiHandle.buildArrayTypesHandle(inCopy, ghostDepth);
 
   // get the gtensor kernel
   unsigned numGhostZonesToSkip = 0;
@@ -83,13 +87,13 @@ void semiArakawaDistributedGTensor(complexArray6D out, const complexArray6D& in,
     double st = omp_get_wtime();
     toExchange.copyFromDevice(toExchange_dev); ///< Copy device -> host
     movetime += omp_get_wtime() - st;
-    mpiLayout.exchangeArray(toExchange); ///< Exchange on host
+    mpiHandle.exchangeArray(toExchange, ghostDepth); ///< Exchange on host
     st = omp_get_wtime();
     toExchange.copyToDevice(toExchange_dev); ///< Copy host -> device
     movetime += omp_get_wtime() - st;
 #else
     mpiCheckCudaAware();
-    mpiLayout.exchangeArray(toExchange_dev, complexFieldMPIArrayTypesHandle);
+    mpiHandle.exchangeArray(toExchange_dev, complexFieldMPIArrayTypesHandle);
 #endif
   };
 
@@ -132,7 +136,7 @@ void semiArakawaDistributedGTensor(complexArray6D out, const complexArray6D& in,
   check_MPI(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
   if (rank == 0)
     std::cout << "gtensor MPI decomp" << std::endl;
-  timeAndPrintMPIStats(gtensorFunc, mpiLayout, (double) in.numElements, numGhostZones, csvDataRecorder);
+  timeAndPrintMPIStats(gtensorFunc, totalExchangeSize, (double) in.numElements, numGhostZones, csvDataRecorder);
 
   // copy output data back to host
   if(inToOut) {
@@ -152,11 +156,14 @@ void semiArakawaDistributedGTensor(complexArray6D out, const complexArray6D& in,
  * @param[in] coeffs input coefficients (has ghost-zones but no padding)
  * @param[in] mpiLayout the mpi-layout
  * @param[in] kernelType the kernel type to use
+ * @param[in] numGhostZones the number of ghost zones
+ * @param[in] totalExchangeSize the total exchange side, just used for logging output
  * @param[out] csvDataRecorder records data for CSV output if rank is zero
  */
-void semiArakawaDistributedBrick(complexArray6D out, const complexArray6D& in, const realArray6D& coeffs,
-                                 GeneMPILayout &mpiLayout, BricksArakawaKernelType kernelType,
-                                 CSVDataRecorder &csvDataRecorder, int numGhostZones) {
+void semiArakawaDistributedBrick(complexArray6D out, const complexArray6D &in,
+                                 const realArray6D &coeffs, GeneMPILayout &mpiLayout,
+                                 BricksArakawaKernelType kernelType, int numGhostZones,
+                                 size_t totalExchangeSize, CSVDataRecorder &csvDataRecorder) {
   // set up brick-info and storage on host
   brick::BrickLayout<RANK> fieldLayout = mpiLayout.getBrickLayout();
 #ifdef DECOMP_PAGEUNALIGN
@@ -250,7 +257,7 @@ void semiArakawaDistributedBrick(complexArray6D out, const complexArray6D& in, c
   check_MPI(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
   if (rank == 0)
     std::cout << "brick MPI decomp" << std::endl;
-  timeAndPrintMPIStats(brickFunc, mpiLayout, (double)in.numElements, numGhostZones, csvDataRecorder);
+  timeAndPrintMPIStats(brickFunc, totalExchangeSize, (double)in.numElements, numGhostZones, csvDataRecorder);
 
   // Copy back
   auto finalOutputBrickedArray = inToOut ? bInArray : bOutArray;
@@ -492,7 +499,8 @@ int main(int argc, char **argv) {
   }
 
   // build brick decomp
-  brick::MPILayout<FieldBrickDimsType, CommIn_kl> mpiLayout(cartesianComm, fieldMPIExtent,
+  GeneMPIHandle mpiHandle(cartesianComm);
+  brick::MPILayout<FieldBrickDimsType, CommIn_kl> mpiLayout(mpiHandle, fieldMPIExtent,
                                                             fieldMPIGhostZoneDepth, fieldSkin2D);
 
   if (rank == 0) {
@@ -512,14 +520,19 @@ int main(int argc, char **argv) {
   if (rank == 0) {
     std::cout << "Beginning coefficient exchange" << std::endl;
   }
-  brick::MPILayout<ArakawaCoeffBrickDimsType, CommIn_kl> coeffMpiLayout(cartesianComm, coeffExtent,
-                                                                        coeffGhostDepth, coeffSkin2D);
+  brick::MPIHandle<RANK, CommIn_kl> coeffMPIHandle(cartesianComm);
 #if defined(USE_TYPES)
-  auto coeffMPIArrayTypesHandle = coeffMpiLayout.buildArrayTypesHandle(coeffs);
-  coeffMpiLayout.exchangeArray(coeffs, coeffMPIArrayTypesHandle);
+  auto coeffMPIArrayTypesHandle = coeffMPIHandle.buildArrayTypesHandle(coeffs, coeffGhostDepth);
+  coeffMPIHandle.exchangeArray(coeffs, coeffMPIArrayTypesHandle);
 #else
-  coeffMpiLayout.exchangeArray(coeffs);
+  coeffMPIHandle.exchangeArray(coeffs, coeffGhostDepth);
 #endif
+
+  // get total exchange size
+  size_t totalExchangeSize = 0;
+  for (const auto g : mpiLayout.getBrickDecompPtr()->ghost) {
+    totalExchangeSize += g.len * FieldBrick_kl::BRICKSIZE * sizeof(bElem);
+  }
 
   if (rank == 0) {
     std::cout << "Coefficient exchange complete. Beginning array computation" << std::endl;
@@ -532,7 +545,7 @@ int main(int argc, char **argv) {
     }
   }
   // run array computation
-  semiArakawaDistributedGTensor(arrayOut, in, coeffs, mpiLayout, dataRecorder, numGhostZones);
+  semiArakawaDistributedGTensor(arrayOut, in, coeffs, mpiHandle, numGhostZones, totalExchangeSize, dataRecorder);
   if (rank == 0) {
     std::cout << "Array computation complete. Beginning bricks computation" << std::endl;
     dataRecorder.setDefaultValue("CUDA_AWARE", bricksCudaAware);
@@ -559,7 +572,7 @@ int main(int argc, char **argv) {
       dataRecorder.setDefaultValue("BrickIterationOrder", toString(kernelType));
       std::cout << "Trying with iteration order " << toString(kernelType) << std::endl;
     }
-    semiArakawaDistributedBrick(brickOut, in, coeffs, mpiLayout, kernelType, dataRecorder, numGhostZones);
+    semiArakawaDistributedBrick(brickOut, in, coeffs, mpiLayout, kernelType, numGhostZones, totalExchangeSize, dataRecorder);
     checkClose(brickOut, arrayOut, ghostZoneDepth);
     // clear out brick to be sure correct values don't propagate through loop
     brickOut.set(0.0);

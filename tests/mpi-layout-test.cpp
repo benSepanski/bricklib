@@ -20,7 +20,8 @@ TYPED_TEST(MPI_CartesianTest3D, ExchangeNoMMAPTest) {
   typedef typename TestFixture::Region Region;
   typedef TypeParam CommunicatingDims;
   // build a brick from the layout
-  brick::MPILayout<BrickDims, CommunicatingDims> mpiLayout(this->buildMPILayout());
+  brick::MPIHandle<3, CommunicatingDims> mpiHandle(this->buildMPIHandle());
+  brick::MPILayout<BrickDims, CommunicatingDims> mpiLayout(this->buildMPILayout(mpiHandle));
   brick::BrickedArray<bElem, BrickDims> bArr(mpiLayout.getBrickLayout());
   // also build a regular array from the layout
   brick::Array<bElem, 3> arr({bArr.extent[0], bArr.extent[1], bArr.extent[2]});
@@ -29,7 +30,7 @@ TYPED_TEST(MPI_CartesianTest3D, ExchangeNoMMAPTest) {
   this->template fill3DArray(arr);
   // exchange
   mpiLayout.exchangeBrickedArray(bArr);
-  mpiLayout.exchangeArray(arr);
+  mpiHandle.exchangeArray(arr, this->ghostDepth);
   // Now make sure that ghosts received the appropriate regionTag
   // (NOTE: THIS RELIES ON THE CARTESIAN COMM BEING PERIODIC)
   for (unsigned k = 0; k < this->extentWithGZ[2]; ++k) {
@@ -48,7 +49,8 @@ TYPED_TEST(MPI_CartesianTest3D, ExchangeMMAPTest) {
   typedef typename TestFixture::Region Region;
   typedef TypeParam CommunicatingDims;
 
-  brick::MPILayout<BrickDims, CommunicatingDims> mpiLayout(this->buildMPILayout());
+  brick::MPIHandle<3, CommunicatingDims> mpiHandle(this->buildMPIHandle());
+  brick::MPILayout<BrickDims, CommunicatingDims> mpiLayout(this->buildMPILayout(mpiHandle));
   // build a brick from the layout using mmap
   brick::BrickedArray<bElem, BrickDims> bArr(mpiLayout.getBrickLayout(), nullptr);
   // also build a regular array from the layout
@@ -59,7 +61,7 @@ TYPED_TEST(MPI_CartesianTest3D, ExchangeMMAPTest) {
   // exchange
   ExchangeView ev = mpiLayout.buildBrickedArrayMMAPExchangeView(bArr);
   ev.exchange();
-  mpiLayout.exchangeArray(arr);
+  mpiHandle.exchangeArray(arr, this->ghostDepth);
   // Now make sure that ghosts received the appropriate regionTag
   // (NOTE: THIS RELIES ON THE CARTESIAN COMM BEING PERIODIC)
   for (unsigned k = 0; k < this->extentWithGZ[2]; ++k) {
@@ -78,7 +80,8 @@ TYPED_TEST(MPI_CartesianTest3D, LoadFromStoreToTest) {
   typedef TypeParam CommunicatingDims;
 
   // build a brick from the layout
-  brick::MPILayout<BrickDims, CommunicatingDims> mpiLayout(this->buildMPILayout());
+  brick::MPIHandle<3, CommunicatingDims> mpiHandle(this->buildMPIHandle());
+  brick::MPILayout<BrickDims, CommunicatingDims> mpiLayout(this->buildMPILayout(mpiHandle));
   brick::BrickLayout<3> layout = mpiLayout.getBrickLayout();
   brick::BrickedArray<bElem, BrickDims> bArr1(layout), bArr2(layout);
   brick::Array<bElem, 3> arr(this->extentWithGZ);
@@ -111,7 +114,8 @@ TYPED_TEST(MPI_CartesianTest3D, GridIsCorrectTest) {
   typedef TypeParam CommunicatingDims;
 
   // build a layout using MPI
-  brick::MPILayout<BrickDims, CommunicatingDims> mpiLayout(this->buildMPILayout());
+  brick::MPIHandle<3, CommunicatingDims> mpiHandle(this->buildMPIHandle());
+  brick::MPILayout<BrickDims, CommunicatingDims> mpiLayout(this->buildMPILayout(mpiHandle));
   brick::BrickLayout<3> layout = mpiLayout.getBrickLayout();
 
   // make sure the grids match
@@ -132,7 +136,8 @@ TYPED_TEST(MPI_CartesianTest3D, MemoryLayoutTest) {
   typedef TypeParam CommunicatingDims;
 
   // build a brick from the layout
-  brick::MPILayout<BrickDims, CommunicatingDims> mpiLayout(this->buildMPILayout());
+  brick::MPIHandle<3, CommunicatingDims> mpiHandle(this->buildMPIHandle());
+  brick::MPILayout<BrickDims, CommunicatingDims> mpiLayout(this->buildMPILayout(mpiHandle));
   brick::BrickLayout<3> layout = mpiLayout.getBrickLayout();
   brick::BrickedArray<bElem, BrickDims> bArr(layout);
 

@@ -17,7 +17,7 @@
 #include <cuda_runtime.h>
 #define mpiCheckCudaAware() _mpiCheckCudaAware()
 
-void _mpiCheckCudaAware() {
+inline void _mpiCheckCudaAware() {
 #if defined(MPIX_CUDA_AWARE_SUPPORT) && MPIX_CUDA_AWARE_SUPPORT
 #elif defined(MPIX_CUDA_AWARE_SUPPORT) && !MPIX_CUDA_AWARE_SUPPORT
 #error "This MPI library does not have CUDA-aware support.\n"

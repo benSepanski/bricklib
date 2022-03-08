@@ -23,7 +23,8 @@ TYPED_TEST(MPI_CartesianTest3D, CopyToFromCudaIsIdentity) {
   typedef TypeParam CommunicatingDims;
 
   // build bricked arrays from the layout
-  brick::MPILayout<BrickDims, CommunicatingDims> mpiLayout(this->buildMPILayout());
+  brick::MPIHandle<3, CommunicatingDims> mpiHandle(this->buildMPIHandle());
+  brick::MPILayout<BrickDims, CommunicatingDims> mpiLayout(this->buildMPILayout(mpiHandle));
   brick::BrickLayout<3> layout = mpiLayout.getBrickLayout();
   brick::BrickedArray<bElem, BrickDims> arr(layout);
   int index = 1;
@@ -63,7 +64,8 @@ TYPED_TEST(MPI_CartesianTest3D, CopyToCuda) {
   typedef TypeParam CommunicatingDims;
 
   // build bricked arrays from the layout
-  brick::MPILayout<BrickDims, CommunicatingDims> mpiLayout(this->buildMPILayout());
+  brick::MPIHandle<3, CommunicatingDims> mpiHandle(this->buildMPIHandle());
+  brick::MPILayout<BrickDims, CommunicatingDims> mpiLayout(this->buildMPILayout(mpiHandle));
   brick::BrickLayout<3> layout = mpiLayout.getBrickLayout();
   brick::BrickedArray<bElem, BrickDims> src(layout), dst(layout);
 
@@ -85,7 +87,8 @@ TYPED_TEST(MPI_CartesianTest3D, CudaAwareArray) {
 #endif
 
   // build an array
-  brick::MPILayout<BrickDims, CommunicatingDims> mpiLayout(this->buildMPILayout());
+  brick::MPIHandle<3, CommunicatingDims> mpiHandle(this->buildMPIHandle());
+  brick::MPILayout<BrickDims, CommunicatingDims> mpiLayout(this->buildMPILayout(mpiHandle));
   brick::BrickLayout<3> layout = mpiLayout.getBrickLayout();
   brick::Array<bElem, 3> arr({this->extentWithGZ[0], this->extentWithGZ[1], this->extentWithGZ[2]});
   this->template fill3DArray(arr);
@@ -94,9 +97,9 @@ TYPED_TEST(MPI_CartesianTest3D, CudaAwareArray) {
   arr.copyToDevice(arr_dev);
 
   // build a types handle and run the MPI transfer
-  auto typesHandle = mpiLayout.buildArrayTypesHandle(arr);
-  mpiLayout.exchangeArray(arr, typesHandle);
-  mpiLayout.exchangeArray(arr_dev, typesHandle);
+  auto typesHandle = mpiHandle.buildArrayTypesHandle(arr, this->ghostDepth);
+  mpiHandle.exchangeArray(arr, typesHandle);
+  mpiHandle.exchangeArray(arr_dev, typesHandle);
   // copy back and make sure it's what we expect
   brick::Array<bElem, 3> arr2({arr.extent[0], arr.extent[1], arr.extent[2]});
   arr2.copyFromDevice(arr_dev);

@@ -53,8 +53,12 @@ protected:
 
   MPI_Comm getCartesianComm() { return cartesianComm; }
 
-  brick::MPILayout<BrickDims, CommunicatingDims> buildMPILayout() {
+  brick::MPIHandle<3, CommunicatingDims> buildMPIHandle() {
     MPI_Comm comm = getCartesianComm();
+    return brick::MPIHandle<3, CommunicatingDims>(comm);
+  }
+
+  brick::MPILayout<BrickDims, CommunicatingDims> buildMPILayout(brick::MPIHandle<3, CommunicatingDims> &mpiHandle) {
     std::vector<BitSet> skin = skin3d_good;
     for(long d = 0; d < 3; ++d) {
       if(!CommunicatingDims::communicatesInDim(d)) {
@@ -67,7 +71,7 @@ protected:
         );
       }
     }
-    return brick::MPILayout<BrickDims, CommunicatingDims>(comm, extent, ghostDepth, skin);
+    return brick::MPILayout<BrickDims, CommunicatingDims>(mpiHandle, extent, ghostDepth, skin);
   }
 
 

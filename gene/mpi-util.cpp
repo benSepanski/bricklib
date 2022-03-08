@@ -45,7 +45,7 @@ MPI_Comm buildCartesianComm(std::array<int, RANK> numProcsPerDim,
 }
 
 
-void timeAndPrintMPIStats(std::function<void(void)> func, GeneMPILayout &mpiLayout,
+void timeAndPrintMPIStats(std::function<void(void)> func, size_t totalExchangeSize,
                           double totElems, unsigned numGhostZones, CSVDataRecorder &dataRecorder) {
   // warmup function
   for (int i = 0; i < NUM_WARMUPS; ++i) {
@@ -56,11 +56,6 @@ void timeAndPrintMPIStats(std::function<void(void)> func, GeneMPILayout &mpiLayo
   packtime = calltime = waittime = movetime = calctime = 0;
   for (int i = 0; i < NUM_EXCHANGES; ++i) {
     func();
-  }
-
-  size_t totalExchangeSize = 0;
-  for (const auto g : mpiLayout.getBrickDecompPtr()->ghost) {
-    totalExchangeSize += g.len * FieldBrick_kl::BRICKSIZE * sizeof(bElem);
   }
 
   int totalNumIters = NUM_EXCHANGES * numGhostZones;

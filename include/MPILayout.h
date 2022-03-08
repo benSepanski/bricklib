@@ -7,39 +7,11 @@
 
 #include "BrickLayout.h"
 #include "BrickedArray.h"
+#include "MPIHandle.h"
 #include "array-mpi.h"
 #include "brick-mpi.h"
 
 #include <memory>
-
-/**
- * @brief check for MPI failure
- *
- * @param return_value the value returned from an MPI call
- * @param func name of the MPI function being invoked
- * @param filename filename of call site
- * @param line line number of call site
- */
-inline void _check_MPI(int return_value, const char *func, const char *filename,
-                       const int line) {
-  if (return_value != MPI_SUCCESS) {
-    char error_msg[MPI_MAX_ERROR_STRING + 1];
-    int error_length;
-    std::ostringstream error_stream;
-    error_stream << "MPI Error during call " << func << " " << filename << ":"
-                 << line << std::endl;
-    if (MPI_Error_string(return_value, error_msg, &error_length) !=
-        MPI_SUCCESS) {
-      error_stream << "Invalid argument passed to MPI_Error_string"
-                   << std::endl;
-    } else {
-      error_stream << error_msg << std::endl;
-    }
-    throw std::runtime_error(error_stream.str());
-  }
-}
-
-#define check_MPI(x) _check_MPI(x, #x, __FILE__, __LINE__)
 
 namespace brick {
 /**
@@ -50,21 +22,10 @@ namespace brick {
 template <typename BrickDims, typename CommunicatingDims = CommDims<>>
 class MPILayout;
 
-/**
- * A handle for the MPI types used by MPILayout to exchange arrays
- * @see MPILayout
- */
-class MPIArrayTypesHandle {
-private:
-  template <typename BrickDims, typename CommunicatingDims>
-  friend class brick::MPILayout;
-  std::unordered_map<uint64_t, MPI_Datatype> stypemap;
-  std::unordered_map<uint64_t, MPI_Datatype> rtypemap;
-};
 
 /**
  * An MPI-layout to handle setup of fast MPI transfers for
- * bricks and arrays.
+ * bricks.
  *
  * @tparam BDims the brick-dimensions
  * @tparam CommInDim true if communicating in the dimension (default is true)
@@ -92,7 +53,7 @@ private:
    * Builds a brickDecomp
    * @tparam ExtentDataType convertible to unsigned
    * @tparam GZDataType convertible to unsigned
-   * @param cartesianComm a cartesian communicator
+   * @param mpiHandle a handle to the mpi communicator
    * @param arrayExtent the extent of the array (excluding ghost elements)
    * @param ghostDepth the number of ghost elements
    * @param skinlist the skin-list to use for building the BrickDecomp
@@ -100,7 +61,7 @@ private:
    */
   template <typename ExtentDataType = unsigned, typename GZDataType = unsigned>
   std::shared_ptr<BrickDecomp<BrickDims, CommunicatingDims>>
-  static buildBrickDecomp(MPI_Comm &cartesianComm,
+  static buildBrickDecomp(brick::MPIHandle<RANK, CommunicatingDims> &mpiHandle,
                           const std::array<ExtentDataType, RANK> &arrayExtent,
                           const std::array<GZDataType, RANK> &ghostDepth,
                           const std::vector<BitSet> &skinlist) {
@@ -120,17 +81,17 @@ private:
     }
     // get rank, size
     int rank, size;
-    check_MPI(MPI_Comm_rank(cartesianComm, &rank));
-    check_MPI(MPI_Comm_size(cartesianComm, &size));
+    check_MPI(MPI_Comm_rank(mpiHandle.getMPIComm(), &rank));
+    check_MPI(MPI_Comm_size(mpiHandle.getMPIComm(), &size));
     std::array<int, RANK> coordsOfProc{};
-    check_MPI(MPI_Cart_coords(cartesianComm, rank, RANK, coordsOfProc.data()));
+    check_MPI(MPI_Cart_coords(mpiHandle.getMPIComm(), rank, RANK, coordsOfProc.data()));
     // build brickDecomp
     std::shared_ptr<BrickDecompType> brickDecompPtr(new BrickDecompType(
         std::vector<unsigned>(arrayExtent.cbegin(), arrayExtent.cend()),
         std::vector<unsigned>(ghostDepth.cbegin(), ghostDepth.cend())));
     // populate neighbors and build from skinlist
-    brickDecompPtr->comm = cartesianComm;
-    populate(cartesianComm, *brickDecompPtr, 0, 1, coordsOfProc.data());
+    brickDecompPtr->comm = mpiHandle.getMPIComm();
+    populate(mpiHandle.getMPIComm(), *brickDecompPtr, 0, 1, coordsOfProc.data());
     brickDecompPtr->initialize(skinlist);
 
     // return the pointer
@@ -219,18 +180,6 @@ private:
   brick::BrickLayout<RANK> brickLayout;
   std::vector<long> ghost{}, extent{};
 
-  /// methods
-private:
-  // private methods
-  template<typename ArrType>
-  void validateExtentsMatch(const ArrType &a) {
-    for (unsigned d = 0; d < RANK; ++d) {
-      if (a.extent[d] != extent[d] + 2 * ghost[d]) {
-        throw std::runtime_error("Mismatch in extents");
-      }
-    }
-  }
-
 public:
   // public methods
   /**
@@ -238,18 +187,17 @@ public:
    *
    * @tparam ExtentDataType must be convertible to unsigned
    * @tparam GZDataType must be convertible to unsigned
-   * @param cartesianComm a cartesian MPI communicator
+   * @param mpiHandle a handle to the MPI communicator
    * @param arrayExtent the extent of the array (in elements)
-   * @param ghostDepth the number of ghost elements on each axis
+   * @param ghostDepth the number of ghostExtent elements on each axis
    * @param skinlist the order in which neighbor-data is stored
    */
   template <typename ExtentDataType = unsigned, typename GZDataType = unsigned>
-  MPILayout(MPI_Comm &cartesianComm,
+  MPILayout(brick::MPIHandle<RANK, CommunicatingDims> &mpiHandle,
             const std::array<ExtentDataType, RANK> &arrayExtent,
             const std::array<GZDataType, RANK> &ghostDepth,
             const std::vector<BitSet> &skinlist)
-      : brickDecompPtr{buildBrickDecomp(cartesianComm, arrayExtent, ghostDepth,
-                                        skinlist)},
+      : brickDecompPtr{buildBrickDecomp(mpiHandle, arrayExtent, ghostDepth, skinlist)},
         brickLayout{buildBrickLayout(brickDecompPtr, arrayExtent, ghostDepth)} {
     static_assert(std::is_convertible<ExtentDataType, unsigned>::value,
                   "ExtentDataType not convertible to unsigned");
@@ -365,88 +313,6 @@ public:
     gpuCheck(cudaMemcpy(dst, src, size, cudaMemcpyHostToDevice));
   }
 #endif
-
-  /**
-   * Exchange arrays
-   * @tparam DataType data-type of the array
-   * @tparam ArrPadding the padding of the array
-   * @tparam ArrSizeType the size-type of the array
-   * @tparam ArrIndexType the index-type of the array
-   * @param arr the array to exchange
-   */
-  template <typename DataType, typename ArrPadding, typename ArrSizeType,
-            typename ArrIndexType>
-  void exchangeArray(
-      Array<DataType, RANK, ArrPadding, ArrSizeType, ArrIndexType> &arr) {
-    validateExtentsMatch(arr);
-    std::vector<long> padding;
-    padding.reserve(RANK);
-    for (unsigned d = 0; d < RANK; ++d) {
-      padding.push_back(arr.PADDING(d));
-    }
-    exchangeArr<RANK>(arr.getData().get(), brickDecompPtr->comm,
-                      brickDecompPtr->rank_map, this->extent, padding,
-                      this->ghost);
-  }
-
-  /**
-   * Build a handle for exchanging ghost-elements of arrays
-   * using MPI Types.
-   *
-   * @tparam DataType data type of the array
-   * @tparam ArrPadding array padding
-   * @tparam ArrSizeType array size type
-   * @tparam ArrIndexType array index type
-   * @param arr the array
-   * @return the handle
-   * @see exchangeArray
-   */
-  template <typename DataType, typename ArrPadding, typename ArrSizeType,
-            typename ArrIndexType>
-  MPIArrayTypesHandle buildArrayTypesHandle(
-      Array<DataType, RANK, ArrPadding, ArrSizeType, ArrIndexType> arr) {
-    validateExtentsMatch(arr);
-    std::vector<long> padding;
-    padding.reserve(RANK);
-    for (unsigned d = 0; d < RANK; ++d) {
-      padding.push_back(arr.PADDING(d));
-    }
-    MPIArrayTypesHandle handle;
-    exchangeArrPrepareTypes<RANK, DataType>(handle.stypemap,
-                                            handle.rtypemap,
-                                            this->extent,
-                                            padding,
-                                            this->ghost);
-    return handle;
-  }
-
-  /**
-   * Exchange arrays using the provided handle
-   * @tparam DataType data-type of the array
-   * @tparam ArrPadding the padding of the array
-   * @tparam ArrSizeType the size-type of the array
-   * @tparam ArrIndexType the index-type of the array
-   * @param arr the array to exchange
-   * @param handle the handle describing the array types
-   * @see buildArrayTypesHandle
-   */
-  template <typename DataType, typename ArrPadding, typename ArrSizeType,
-            typename ArrIndexType>
-  void exchangeArray(
-      Array<DataType, RANK, ArrPadding, ArrSizeType, ArrIndexType> arr,
-      MPIArrayTypesHandle handle) {
-    validateExtentsMatch(arr);
-    std::vector<long> padding;
-    padding.reserve(RANK);
-    for (unsigned d = 0; d < RANK; ++d) {
-      padding.push_back(arr.PADDING(d));
-    }
-    exchangeArrTypes<RANK>(arr.getData().get(),
-                           brickDecompPtr->comm,
-                           brickDecompPtr->rank_map,
-                           handle.stypemap,
-                           handle.rtypemap);
-  }
 };
 
 } // end namespace brick

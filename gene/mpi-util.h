@@ -11,6 +11,7 @@
 #include <functional>
 
 // useful types
+typedef brick::MPIHandle<RANK, CommIn_kl> GeneMPIHandle;
 typedef brick::MPILayout<FieldBrickDimsType, CommIn_kl> GeneMPILayout;
 
 // global constants set by CLI
@@ -39,12 +40,12 @@ MPI_Comm buildCartesianComm(std::array<int, RANK> numProcsPerDim,
  * @brief times func and prints stats
  *
  * @param func[in] the func to run
- * @param mpiLayout[in] the MPI layout used
+ * @param totalExchangeSize[in] the total exchange size in bytes
  * @param totElems[in] the number of elements
  * @param numGhostZones[in] number of ghost zones
  * @param csvDataRecorder[in,out] csv data recorder to record data in (if rank is 0)
  */
-void timeAndPrintMPIStats(std::function<void(void)> func, GeneMPILayout &mpiLayout,
+void timeAndPrintMPIStats(std::function<void(void)> func, size_t totalExchangeSize,
                           double totElems, unsigned numGhostZones, CSVDataRecorder &csvDataRecorder);
 
 /**
