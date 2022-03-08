@@ -352,7 +352,7 @@ void runArakawa(std::array<unsigned, RANK> extent, CSVDataRecorder &dataRecorder
 //      OPT_IKLJMN,
 //      OPT_KIJLMN,
 //      OPT_KILJMN,
-      OPT_KLIJMN
+//      OPT_KLIJMN
   };
   for(auto kernelType : kernelTypes) {
     dataRecorder.setDefaultValue("OptimizedBrickKernel",kernelType != SIMPLE_KLIJMN);
