@@ -130,7 +130,7 @@ rm {tmp_file_name}.tmp" > {tmp_file_name}.run
     # Now profile that file using ncu, collecting metrics into csv
     srun -n 1 ncu --csv   `# output data as csv to console` \\
         --target-processes all `# profile child processes` \\
-        --metrics $metncu11,$register_metrics,$l1_load_metrics,$lts_load_metrics \\
+        --metrics $metncu11,$register_metrics,$l1_load_metrics,$lts_load_metrics,$occupancy_metrics \\
         {tmp_file_name}.run \\
         | sed '/^==PROF==/d'   `# Remove lines above csv output by filter on regex "^==PROF=="` \\
         > {tmp_file_name}.csv \\
@@ -157,6 +157,7 @@ rm {tmp_file_name}.tmp" > {tmp_file_name}.run
                         "lts__t_bytes_equiv_l1sectormiss_pipe_lsu_mem_global_op_st",
                         "lts__t_bytes_equiv_l1sectormiss_pipe_lsu_mem_global_op_ld"
                         ]
+    occupancy_metrics = ["sm__warps_active.avg.pct_of_peak_sustained_active"]
     environment_setup = [
         "ptx_info_file=$(pwd)/ptx_info.txt",
         "metncu11='sm__cycles_elapsed.avg,sm__cycles_elapsed.avg.per_second,"
@@ -169,6 +170,7 @@ rm {tmp_file_name}.tmp" > {tmp_file_name}.run
         "register_metrics='launch__registers_per_thread'",
         "l1_load_metrics='" + ".sum,".join(l1_load_metrics) + ".sum'",
         "lts_load_metrics='" + ".sum,".join(lts_load_metrics) + ".sum'",
+        "occupancy_metrics='" + ','.join(occupancy_metrics) + "'",
     ]
     slurm_script = "\n\n".join([preamble] + environment_setup + all_jobs) + "\n"
 
