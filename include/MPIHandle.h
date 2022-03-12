@@ -6,7 +6,6 @@
 #define BRICK_MPIHANDLE_H
 
 #include "Array.h"
-#include "IndexSpace.h"
 #include "array-mpi.h"
 #include "brick.h"
 #include "brick-mpi.h"
@@ -108,33 +107,7 @@ public:
     check_MPI(MPI_Comm_size(cartesianComm, &size));
     std::array<int, Rank> coordsOfProc{};
     check_MPI(MPI_Cart_coords(cartesianComm, rank, Rank, coordsOfProc.data()));
-
-    std::array<brick::Interval<int>, Rank> bounds {};
-    for(unsigned d = 0; d < Rank; ++d) {
-      if(CommunicatingDims::communicatesInDim(d)) {
-        bounds[d].low = -1;
-        bounds[d].high = 1 + 1;
-      } else {
-        bounds[d].low = 0;
-        bounds[d].high = 1;
-      }
-    }
-    brick::IndexSpace<Rank, int> neighborSpace(bounds);
-    for(brick::Index<Rank, int> &neighborIdx : neighborSpace) {
-      std::array<int, Rank> neighborCoords{};
-      BitSet neighbor(0);
-      for(long d = 0; d < Rank; ++d) {
-        neighborCoords[d] = neighborIdx[d];
-        if(neighborIdx[d] == -1) {
-          neighbor.flip(-(d+1));
-        } else if(neighborIdx[d] == 1){
-          neighbor.flip(d+1);
-        }
-      }
-      int neighborRank;
-      check_MPI(MPI_Cart_rank(cartesianComm, neighborCoords.data(), &neighborRank));
-      rank_map[neighbor.set] = neighborRank;
-    }
+    populate<Rank, CommunicatingDims>(cartesianComm, this->rank_map, 0, 1, coordsOfProc.data());
   }
 
   /**

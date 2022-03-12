@@ -94,6 +94,9 @@ private:
     populate(mpiHandle.getMPIComm(), *brickDecompPtr, 0, 1, coordsOfProc.data());
     brickDecompPtr->initialize(skinlist);
 
+    assert(brickDecompPtr->rank_map.size() == mpiHandle.rank_map.size());
+    assert(brickDecompPtr->rank_map == mpiHandle.rank_map);
+
     // return the pointer
     return brickDecompPtr;
   }
