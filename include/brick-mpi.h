@@ -811,6 +811,35 @@ public:
 };
 
 /**
+ * Populate the rank map directly
+ * @see populate(MPI_Comm&, BrickDecomp<Dim<BDims...>, CommunicatingDims>, BitSet, int, int*)
+ */
+template<unsigned Rank, typename CommunicatingDims>
+void populate(MPI_Comm &comm, std::unordered_map<uint64_t, int> &rank_map, BitSet neighbor, int d, int *coo) {
+  if (d > Rank) {
+    int rank;
+    MPI_Cart_rank(comm, coo, &rank);
+    rank_map[neighbor.set] = rank;
+    return;
+  }
+
+  int dd = Rank - d;
+  int c = coo[dd];
+  neighbor.flip(d);
+  coo[dd] = c - 1;
+  populate<Rank, CommunicatingDims>(comm, rank_map, neighbor, d + 1, coo);
+  neighbor.flip(d);
+  // Not picked
+  coo[dd] = c;
+  populate<Rank, CommunicatingDims>(comm, rank_map, neighbor, d + 1, coo);
+  // Picked -
+  neighbor.flip(-d);
+  coo[dd] = c + 1;
+  populate<Rank, CommunicatingDims>(comm, rank_map, neighbor, d + 1, coo);
+  coo[dd] = c;
+}
+
+/**
  * @brief Populate neighbor-rank map for BrickDecomp using MPI_Comm
  * @tparam BDims Brick dimensions
  * @tparam CommunicatingDims the dimensions in the brick-info
@@ -827,28 +856,7 @@ public:
  */
 template<unsigned ...BDims, typename CommunicatingDims>
 void populate(MPI_Comm &comm, BrickDecomp<Dim<BDims...>, CommunicatingDims> &bDecomp, BitSet neighbor, int d, int *coo) {
-  constexpr unsigned dim = sizeof...(BDims); ///< number of dimensions
-  if (d > dim) {
-    int rank;
-    MPI_Cart_rank(comm, coo, &rank);
-    bDecomp.rank_map[neighbor.set] = rank;
-    return;
-  }
-
-  int dd = dim - d;
-  int c = coo[dd];
-  neighbor.flip(d);
-  coo[dd] = c - 1;
-  populate(comm, bDecomp, neighbor, d + 1, coo);
-  neighbor.flip(d);
-  // Not picked
-  coo[dd] = c;
-  populate(comm, bDecomp, neighbor, d + 1, coo);
-  // Picked -
-  neighbor.flip(-d);
-  coo[dd] = c + 1;
-  populate(comm, bDecomp, neighbor, d + 1, coo);
-  coo[dd] = c;
+  populate<sizeof...(BDims), CommunicatingDims>(comm, bDecomp.rank_map, neighbor, d, coo);
 }
 
 /**
