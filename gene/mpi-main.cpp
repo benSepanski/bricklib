@@ -559,12 +559,12 @@ int main(int argc, char **argv) {
   }
   std::array<BricksArakawaKernelType, 1> kernelTypes = {
       //SIMPLE_KLIJMN,
-//      OPT_IJKLMN,
+      OPT_IJKLMN,
 //      OPT_IKJLMN,
 //      OPT_IKLJMN,
 //      OPT_KIJLMN,
 //      OPT_KILJMN,
-      OPT_KLIJMN
+//      OPT_KLIJMN
   };
   for(auto kernelType : kernelTypes) {
     if(rank == 0) {
