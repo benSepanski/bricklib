@@ -77,7 +77,7 @@ fi
         -DCMAKE_BUILD_TYPE=Release \\
         -DPERLMUTTER={"ON" if machine_config.name == "perlmutter" else "OFF"} \\
     || exit 1
-    (cd {build_dir} && make clean && make -j 20 mpi-gene6d || exit 1
+    (cd {build_dir} && make clean && make -j 20 mpi-gene6d || exit 1)
 """
 
     preamble += f"""#https://docs.nersc.gov/jobs/affinity/#openmp-environment-variables
@@ -105,8 +105,8 @@ export gtensor_DIR={gtensor_dir}
             self.output_file = output_file
 
         def __str__(self):
-            srun_cmd = "srun --cpu-bind=cores"
-            return f"{srun_cmd} ${{bricks_DIR}}/gene/mpi-gene6d \
+            srun_cmd = f"srun -n {num_gpus} --cpu-bind=cores"
+            return f"{srun_cmd} {build_dir}/gene/mpi-gene6d \
         -d {','.join(map(str,self.per_process_extent))} \
         -p {','.join(map(str,self.procs_per_dim))} \
         -I 100 -W 5 -a -G {self.num_gz} \

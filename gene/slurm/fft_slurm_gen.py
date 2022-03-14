@@ -33,7 +33,17 @@ if __name__ == "__main__":
                                         account_name=account_name,
                                         time_limit=time_limit)
 
-    brick_dims = [(2, 32, 2, 2, 1, 1), (2, 16, 4, 2, 1, 1), (2, 8, 4, 4, 1, 1), (2, 4, 8, 4, 1, 1), (2, 2, 8, 8, 1, 1)]
+    brick_dims = [(2, 32, 2, 2, 1, 1),
+                  (2, 16, 2, 2, 1, 1),
+                  (2, 8, 4, 2, 1, 1),
+                  (2, 4, 4, 4, 1, 1),
+                  (2, 2, 8, 4, 1, 1)]
+    vec_dims = [(2, 16, 1, 1, 1, 1),
+                (2, 16, 1, 1, 1, 1),
+                (2, 8, 2, 1, 1, 1),
+                (2, 4, 4, 1, 1, 1),
+                (2, 2, 8, 1, 1, 1)
+                ]
 
 
     build_dir = f"cmake-builds/single/{machine_config.name}"
@@ -43,19 +53,20 @@ if [[ ! -f "{build_dir}" ]] ; then
 fi
 """
 
-    def build_job(brick_dim):
+    def build_job(brick_dim, vec_dim):
         return f"""cmake -S ../../ \\
         -B {build_dir} \\
         -DCMAKE_CUDA_ARCHITECTURES={machine_config.cuda_arch} \\
         -DCMAKE_INSTALL_PREFIX=bin \\
         -DGENE6D_USE_TYPES=OFF \\
         -DGENE6D_CUDA_AWARE=OFF \\
-        -DGENE6D_BRICK_DIM={','.join(map(str,brick_dim))} \\
+        -DGENE6D_BRICK_DIM={','.join(map(str,reversed(brick_dim)))} \\
+        -DGENE6D_VEC_DIM={','.join(map(str,reversed(vec_dim)))} \\
         -DCMAKE_CUDA_FLAGS=\"-lineinfo -gencode arch=compute_{machine_config.cuda_arch},code=[sm_{machine_config.cuda_arch},lto_{machine_config.cuda_arch}]\" \\
         -DCMAKE_BUILD_TYPE=Release \\
         -DPERLMUTTER={"ON" if machine_config.name == "perlmutter" else "OFF"} \\
     || exit 1
-    (cd {build_dir} && make -j 20 single-fft-gene-6d) || exit 1
+    (cd {build_dir} && make clean && make -j 20 single-fft-gene-6d) || exit 1
 """
 
     def run_job(brick_dim = None):
@@ -67,11 +78,11 @@ fi
     srun -n 1 {build_dir}/gene/fft-gene-6d 10 100 {to_run} || exit 1"""
 
     all_jobs = []
-    for brick_dim in brick_dims:
-        all_jobs.append(build_job(brick_dim))
+    for brick_dim, vec_dim in zip(brick_dims, vec_dims):
+        all_jobs.append(build_job(brick_dim, vec_dim))
         all_jobs.append(run_job(brick_dim))
 
-    slurm_script = "\n\n".join([preamble, build_job(brick_dims[0]), run_job()] + all_jobs) + "\n"
+    slurm_script = "\n\n".join([preamble] + all_jobs) + "\n"
 
     print(slurm_script)
 
