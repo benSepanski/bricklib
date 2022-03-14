@@ -79,10 +79,11 @@ if(gtensor_FOUND AND CMAKE_CUDA_COMPILER)
     set_gene6d_brick_dim(single-gene-6d)
 
     # FFT computation
-    add_executable(single-fft-gene-6d ../gene/fft-gene-6d.cu)
+    add_executable(single-fft-gene-6d fft-gene-6d.cu util.cpp)
     if(${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.17")
         set_property(TARGET single-fft-gene-6d PROPERTY CUDA_SEPARABLE_COMPILATION ON)
     endif()
+    set_gene6d_brick_dim(single-fft-gene-6d)
     if(PERLMUTTER)
         if(NOT DEFINED ENV{CUFFT_LINK_DIR} AND NOT DEFINED CUFFT_LINK_DIR)
             message(FATAL_ERROR "Must pass CUFFT_LINK_DIR option (or set as environment variable) for Perlmutter build")

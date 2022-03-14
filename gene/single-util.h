@@ -6,6 +6,7 @@
 #define BRICK_SINGLE_UTIL_H
 
 #include "util.h"
+#include "brick-stencils.h"
 // global constants set by CLI
 extern unsigned NUM_ITERATIONS; ///< how many measured iters?
 extern unsigned NUM_WARMUPS;    ///< how many warmup iters?

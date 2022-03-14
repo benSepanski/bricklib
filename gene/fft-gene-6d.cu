@@ -1,12 +1,57 @@
 #include "fft.h"
 #include "nvToolsExt.h"
 #include "single/transpose-cu.h"
-#include "stencils/gene-6d.h"
+#include "brick-stencils.h"
+#include "single-util.h"
+#include "util.h"
 #include <cmath>
 #include <iomanip>
 #include <iostream>
 
 // NOTE: none of the arrays use padding or ghost-zones
+// TODO: GET RID OF THESE GLOBALLY DEFINED VALUES
+#define EXTENT_i 72
+#define EXTENT_j 32
+#define EXTENT_k 24
+#define EXTENT_l 24
+#define EXTENT_m 32
+#define EXTENT_n 2
+#define NUM_ELEMENTS EXTENT_i * EXTENT_j * EXTENT_k * EXTENT_l * EXTENT_m * EXTENT_n
+#define EXTENT EXTENT_i,EXTENT_j,EXTENT_k,EXTENT_l,EXTENT_m,EXTENT_n
+#define BDIM_i BRICK_DIM[0]
+#define BDIM_j BRICK_DIM[1]
+#define BDIM_k BRICK_DIM[2]
+#define BDIM_l BRICK_DIM[3]
+#define BDIM_m BRICK_DIM[4]
+#define BDIM_n BRICK_DIM[5]
+#define BRICK_EXTENT_i EXTENT_i/BDIM_i
+#define BRICK_EXTENT_j EXTENT_j/BDIM_j
+#define BRICK_EXTENT_k EXTENT_k/BDIM_k
+#define BRICK_EXTENT_l EXTENT_l/BDIM_l
+#define BRICK_EXTENT_m EXTENT_m/BDIM_m
+#define BRICK_EXTENT_n EXTENT_n/BDIM_n
+#define NUM_BRICKS BRICK_EXTENT_i * BRICK_EXTENT_j * BRICK_EXTENT_k * BRICK_EXTENT_l * BRICK_EXTENT_m * BRICK_EXTENT_n
+#define BRICK_EXTENT BRICK_EXTENT_i,BRICK_EXTENT_j,BRICK_EXTENT_k,BRICK_EXTENT_l,BRICK_EXTENT_m,BRICK_EXTENT_n
+
+#define CU_WARMUP 5
+#define CU_ITER 100
+// TODO: REPLACE WITH timeAndPrintStats
+template<typename T>
+double cutime_func(T func, unsigned cu_warmup = CU_WARMUP, unsigned cu_iter = CU_ITER) {
+  for(int i = 0; i < cu_warmup; ++i) func(); // Warm up
+  cudaEvent_t start, stop;
+  float elapsed = 0.0;
+  gpuCheck(cudaDeviceSynchronize());
+  gpuCheck(cudaEventCreate(&start));
+  gpuCheck(cudaEventCreate(&stop));
+  gpuCheck(cudaEventRecord(start));
+  for (int i = 0; i < cu_iter; ++i)
+    func();
+  gpuCheck(cudaEventRecord(stop));
+  gpuCheck(cudaEventSynchronize(stop));
+  gpuCheck(cudaEventElapsedTime(&elapsed, start, stop));
+  return elapsed / cu_iter / 1000;
+}
 
 /**
  * @brief exit with error message if any element of arr1 and arr2 are not within tol of each other
@@ -400,17 +445,17 @@ double complex_to_complex_1d_j_fft_brick(bComplexElem *in_arr, bComplexElem *out
 
   // move arrays to host-side bricks
   unsigned *grid_ptr = nullptr;
-  BrickInfo<DIM, NoComm> bInfo = init_grid<DIM, NoComm>(grid_ptr, {BRICK_EXTENT});
+  BrickInfo<RANK, NoComm> bInfo = init_grid<RANK, NoComm>(grid_ptr, {BRICK_EXTENT});
   BrickStorage bStorage = bInfo.allocate(2 * ComplexBrick::BRICKSIZE);
   ComplexBrick bIn(&bInfo, bStorage, 0),
                bOut(&bInfo, bStorage, ComplexBrick::BRICKSIZE);
-  copyToBrick<DIM>({EXTENT}, std::vector<long>(DIM, 0), std::vector<long>(DIM, 0), in_arr, grid_ptr, bIn);
+  copyToBrick<RANK>({EXTENT}, std::vector<long>(RANK, 0), std::vector<long>(RANK, 0), in_arr, grid_ptr, bIn);
 
   // set up brick info in cuda
-  BrickInfo<DIM, NoComm> *bInfo_dev;
-  BrickInfo<DIM, NoComm> _bInfo_dev = movBrickInfo(bInfo, cudaMemcpyHostToDevice);
-  gpuCheck(cudaMalloc(&bInfo_dev, sizeof(BrickInfo<DIM, NoComm>)));
-  gpuCheck(cudaMemcpy(bInfo_dev, &_bInfo_dev, sizeof(BrickInfo<DIM, NoComm>), cudaMemcpyHostToDevice));
+  BrickInfo<RANK, NoComm> *bInfo_dev;
+  BrickInfo<RANK, NoComm> _bInfo_dev = movBrickInfo(bInfo, cudaMemcpyHostToDevice);
+  gpuCheck(cudaMalloc(&bInfo_dev, sizeof(BrickInfo<RANK, NoComm>)));
+  gpuCheck(cudaMemcpy(bInfo_dev, &_bInfo_dev, sizeof(BrickInfo<RANK, NoComm>), cudaMemcpyHostToDevice));
   // mov brick storage to cuda
   BrickStorage bStorage_dev = movBrickStorage(bStorage, cudaMemcpyHostToDevice);
   // set up brick in cuda
@@ -435,7 +480,7 @@ double complex_to_complex_1d_j_fft_brick(bComplexElem *in_arr, bComplexElem *out
   gpuCheck(cudaMemcpy(bStorage.dat.get(), bStorage_dev.dat.get(), bInfo.nbricks * bStorage.step * sizeof(bElem),
                        cudaMemcpyDeviceToHost));
   // copy data back into array
-  copyFromBrick<DIM>({EXTENT}, std::vector<long>(DIM, 0), std::vector<long>(DIM, 0), out_arr, grid_ptr, bOut);
+  copyFromBrick<RANK>({EXTENT}, std::vector<long>(RANK, 0), std::vector<long>(RANK, 0), out_arr, grid_ptr, bOut);
 
   // sanity check: inverse should match in_arr (up to scaling)
   nvtxRangePushA("inverse_fft_check");
@@ -454,7 +499,7 @@ double complex_to_complex_1d_j_fft_brick(bComplexElem *in_arr, bComplexElem *out
     gpuCheck(cudaMemcpy(bStorage.dat.get(), bStorage_dev.dat.get(), bInfo.nbricks * bStorage.step * sizeof(bElem),
                         cudaMemcpyDeviceToHost));
     // copy data back into check-array
-    copyFromBrick<DIM>({EXTENT}, std::vector<long>(DIM, 0), std::vector<long>(DIM, 0), out_check_arr, grid_ptr, bOut);
+    copyFromBrick<RANK>({EXTENT}, std::vector<long>(RANK, 0), std::vector<long>(RANK, 0), out_check_arr, grid_ptr, bOut);
     check_close(in_arr, out_check_arr, NUM_ELEMENTS, "cufft 1d j brick inverse check failed", 1.0 / EXTENT_j);
     // free memroy
     gpuCheck(cudaFree(out_check_arr_dev));
@@ -507,18 +552,18 @@ double complex_to_complex_1d_j_fft_brick_transpose(bComplexElem *in_arr, bComple
 
   // move arrays to host-side bricks
   unsigned *grid_ptr = nullptr;
-  BrickInfo<DIM, NoComm> bInfo = init_grid<DIM, NoComm>(grid_ptr, {BRICK_EXTENT});
+  BrickInfo<RANK, NoComm> bInfo = init_grid<RANK, NoComm>(grid_ptr, {BRICK_EXTENT});
   BrickStorage bInStorage = bInfo.allocate(ComplexBrick::BRICKSIZE),
                bOutStorage = bInfo.allocate(ComplexBrick::BRICKSIZE);
   ComplexBrick bIn(&bInfo, bInStorage, 0),
                bOut(&bInfo, bOutStorage, 0);
-  copyToBrick<DIM>({EXTENT}, std::vector<long>(DIM, 0), std::vector<long>(DIM, 0), in_arr, grid_ptr, bIn);
+  copyToBrick<RANK>({EXTENT}, std::vector<long>(RANK, 0), std::vector<long>(RANK, 0), in_arr, grid_ptr, bIn);
 
   // set up brick info in cuda
-  BrickInfo<DIM, NoComm> *bInfo_dev;
-  BrickInfo<DIM, NoComm> _bInfo_dev = movBrickInfo(bInfo, cudaMemcpyHostToDevice);
-  gpuCheck(cudaMalloc(&bInfo_dev, sizeof(BrickInfo<DIM, NoComm>)));
-  gpuCheck(cudaMemcpy(bInfo_dev, &_bInfo_dev, sizeof(BrickInfo<DIM, NoComm>), cudaMemcpyHostToDevice));
+  BrickInfo<RANK, NoComm> *bInfo_dev;
+  BrickInfo<RANK, NoComm> _bInfo_dev = movBrickInfo(bInfo, cudaMemcpyHostToDevice);
+  gpuCheck(cudaMalloc(&bInfo_dev, sizeof(BrickInfo<RANK, NoComm>)));
+  gpuCheck(cudaMemcpy(bInfo_dev, &_bInfo_dev, sizeof(BrickInfo<RANK, NoComm>), cudaMemcpyHostToDevice));
   // mov brick storage to cuda
   BrickStorage bInStorage_dev = movBrickStorage(bInStorage, cudaMemcpyHostToDevice);
   BrickStorage bOutStorage_dev = movBrickStorage(bOutStorage, cudaMemcpyHostToDevice);
@@ -532,10 +577,10 @@ double complex_to_complex_1d_j_fft_brick_transpose(bComplexElem *in_arr, bComple
   gpuCheck(cudaMemcpy(grid_ptr_dev, grid_ptr, size, cudaMemcpyHostToDevice));
 
   // set up brickinfo for transposed bricks
-  BrickInfo<DIM, NoComm> _bInfoTransposed_dev = movBrickInfo(bInfo, cudaMemcpyHostToDevice);
-  BrickInfo<DIM, NoComm> *bInfoTransposed_dev;
-  gpuCheck(cudaMalloc(&bInfoTransposed_dev, sizeof(BrickInfo<DIM, NoComm>)));
-  gpuCheck(cudaMemcpy(bInfoTransposed_dev, &_bInfoTransposed_dev, sizeof(BrickInfo<DIM, NoComm>), cudaMemcpyHostToDevice));
+  BrickInfo<RANK, NoComm> _bInfoTransposed_dev = movBrickInfo(bInfo, cudaMemcpyHostToDevice);
+  BrickInfo<RANK, NoComm> *bInfoTransposed_dev;
+  gpuCheck(cudaMalloc(&bInfoTransposed_dev, sizeof(BrickInfo<RANK, NoComm>)));
+  gpuCheck(cudaMemcpy(bInfoTransposed_dev, &_bInfoTransposed_dev, sizeof(BrickInfo<RANK, NoComm>), cudaMemcpyHostToDevice));
   // set up transposed grid ptr
   unsigned *grid_ptr_transposed_dev;
   gpuCheck(cudaMalloc(&grid_ptr_transposed_dev, size));
@@ -558,7 +603,7 @@ double complex_to_complex_1d_j_fft_brick_transpose(bComplexElem *in_arr, bComple
 
   // set up FFT in 0-dimensional for bricks
   typedef BricksCufftPlan<ComplexBrickTransposed, FourierType<ComplexToComplex, 0> > FFTPlanType;
-  std::array<size_t, DIM> transposed_grid_size = {BRICK_EXTENT_j, BRICK_EXTENT_i, BRICK_EXTENT_k,
+  std::array<size_t, RANK> transposed_grid_size = {BRICK_EXTENT_j, BRICK_EXTENT_i, BRICK_EXTENT_k,
                                                   BRICK_EXTENT_l, BRICK_EXTENT_m, BRICK_EXTENT_n};
   FFTPlanType plan(transposed_grid_size);
   plan.setup(bOut_as_transposed_dev, grid_ptr_transposed_dev, bIntermed_dev, grid_ptr_transposed_dev);
@@ -584,7 +629,7 @@ double complex_to_complex_1d_j_fft_brick_transpose(bComplexElem *in_arr, bComple
   gpuCheck(cudaMemcpy(bOutStorage.dat.get(), bOutStorage_dev.dat.get(), bInfo.nbricks * bOutStorage.step * sizeof(bElem),
                        cudaMemcpyDeviceToHost));
   // copy data back into array
-  copyFromBrick<DIM>({EXTENT}, std::vector<long>(DIM, 0), std::vector<long>(DIM, 0), out_arr, grid_ptr, bOut);
+  copyFromBrick<RANK>({EXTENT}, std::vector<long>(RANK, 0), std::vector<long>(RANK, 0), out_arr, grid_ptr, bOut);
 
   // sanity check: inverse should match in_arr (up to scaling)
   nvtxRangePushA("inverse_fft_check");
@@ -605,7 +650,7 @@ double complex_to_complex_1d_j_fft_brick_transpose(bComplexElem *in_arr, bComple
     gpuCheck(cudaMemcpy(bOutStorage.dat.get(), bOutStorage_dev.dat.get(), bInfo.nbricks * bOutStorage.step * sizeof(bElem),
                         cudaMemcpyDeviceToHost));
     // copy data back into check-array
-    copyFromBrick<DIM>({EXTENT}, std::vector<long>(DIM, 0), std::vector<long>(DIM, 0), out_check_arr, grid_ptr, bOut);
+    copyFromBrick<RANK>({EXTENT}, std::vector<long>(RANK, 0), std::vector<long>(RANK, 0), out_check_arr, grid_ptr, bOut);
     check_close(in_arr, out_check_arr, NUM_ELEMENTS, "cufft 1d j brick transpose inverse check failed", 1.0 / EXTENT_j);
     // free memroy
     gpuCheck(cudaFree(out_check_arr_dev));
@@ -656,19 +701,19 @@ double complex_to_complex_1d_collaped_ij_fft_brick(bComplexElem *in_arr, bComple
                                           BRICK_EXTENT_l,
                                           BRICK_EXTENT_m,
                                           BRICK_EXTENT_n};
-  BrickInfo<DIM-1, NoComm> bInfo = init_grid<DIM-1, NoComm>(grid_ptr, brick_extent);
+  BrickInfo<RANK-1, NoComm> bInfo = init_grid<RANK-1, NoComm>(grid_ptr, brick_extent);
   BrickStorage bInStorage = bInfo.allocate(ComplexBrick::BRICKSIZE),
                bOutStorage = bInfo.allocate(ComplexBrick::BRICKSIZE);
   ComplexBrick bIn(&bInfo, bInStorage, 0),
                bOut(&bInfo, bOutStorage, 0);
   const std::vector<long> arr_extent = {BDIM_i * EXTENT_j, EXTENT_i / BDIM_i * EXTENT_k, EXTENT_l, EXTENT_m, EXTENT_n};
-  copyToBrick<DIM-1>(arr_extent, std::vector<long>(DIM-1, 0), std::vector<long>(DIM-1, 0), in_arr, grid_ptr, bIn);
+  copyToBrick<RANK-1>(arr_extent, std::vector<long>(RANK-1, 0), std::vector<long>(RANK-1, 0), in_arr, grid_ptr, bIn);
 
   // set up brick info in cuda
-  BrickInfo<DIM-1, NoComm> *bInfo_dev;
-  BrickInfo<DIM-1, NoComm> _bInfo_dev = movBrickInfo(bInfo, cudaMemcpyHostToDevice);
-  gpuCheck(cudaMalloc(&bInfo_dev, sizeof(BrickInfo<DIM-1, NoComm>)));
-  gpuCheck(cudaMemcpy(bInfo_dev, &_bInfo_dev, sizeof(BrickInfo<DIM-1, NoComm>), cudaMemcpyHostToDevice));
+  BrickInfo<RANK-1, NoComm> *bInfo_dev;
+  BrickInfo<RANK-1, NoComm> _bInfo_dev = movBrickInfo(bInfo, cudaMemcpyHostToDevice);
+  gpuCheck(cudaMalloc(&bInfo_dev, sizeof(BrickInfo<RANK-1, NoComm>)));
+  gpuCheck(cudaMemcpy(bInfo_dev, &_bInfo_dev, sizeof(BrickInfo<RANK-1, NoComm>), cudaMemcpyHostToDevice));
   // mov brick storage to cuda
   BrickStorage bInStorage_dev = movBrickStorage(bInStorage, cudaMemcpyHostToDevice),
                bOutStorage_dev = movBrickStorage(bOutStorage, cudaMemcpyHostToDevice);
@@ -683,7 +728,7 @@ double complex_to_complex_1d_collaped_ij_fft_brick(bComplexElem *in_arr, bComple
 
   // set up FFT for bricks
   typedef BricksCufftPlan<ComplexBrick, FourierType<ComplexToComplex, 0> > FFTPlanType;
-  std::array<size_t, DIM-1> brick_extent_as_arr;
+  std::array<size_t, RANK-1> brick_extent_as_arr;
   std::copy(brick_extent.begin(), brick_extent.end(), brick_extent_as_arr.data());
   FFTPlanType plan(brick_extent_as_arr);
   plan.setup(bIn_dev, grid_ptr_dev, bOut_dev, grid_ptr_dev);
@@ -696,7 +741,7 @@ double complex_to_complex_1d_collaped_ij_fft_brick(bComplexElem *in_arr, bComple
   gpuCheck(cudaMemcpy(bOutStorage.dat.get(), bOutStorage_dev.dat.get(), bInfo.nbricks * bOutStorage.step * sizeof(bElem),
                        cudaMemcpyDeviceToHost));
   // copy data back into array
-  copyFromBrick<DIM-1>(arr_extent, std::vector<long>(DIM-1, 0), std::vector<long>(DIM-1, 0), out_arr, grid_ptr, bOut);
+  copyFromBrick<RANK-1>(arr_extent, std::vector<long>(RANK-1, 0), std::vector<long>(RANK-1, 0), out_arr, grid_ptr, bOut);
 
   // sanity check: inverse should match in_arr (up to scaling)
   nvtxRangePushA("inverse_fft_check");
@@ -716,7 +761,7 @@ double complex_to_complex_1d_collaped_ij_fft_brick(bComplexElem *in_arr, bComple
     gpuCheck(cudaMemcpy(bOutStorage.dat.get(), bOutStorage_dev.dat.get(), bInfo.nbricks * bOutStorage.step * sizeof(bElem),
                         cudaMemcpyDeviceToHost));
     // copy data back into check-array
-    copyFromBrick<DIM-1>(arr_extent, std::vector<long>(DIM-1, 0), std::vector<long>(DIM-1, 0), out_check_arr, grid_ptr, bOut);
+    copyFromBrick<RANK-1>(arr_extent, std::vector<long>(RANK-1, 0), std::vector<long>(RANK-1, 0), out_check_arr, grid_ptr, bOut);
     check_close(in_arr, out_check_arr, NUM_ELEMENTS, "cufft 1d collaped i-j brick inverse check failed", 1.0 / arr_extent[0]);
     // free memroy
     gpuCheck(cudaFree(out_check_arr_dev));
@@ -756,6 +801,13 @@ int main(int argc, char **argv)
     else throw std::runtime_error("Unrecognized argument, expected 'a', 'b', or 'c'");
   }
 
+  CSVDataRecorder dataRecorder;
+  std::string axis = "i";
+  for(const auto &e : {EXTENT_i, EXTENT_j, EXTENT_k, EXTENT_m, EXTENT_n}) {
+    dataRecorder.setDefaultValue("extent_" + axis, e);
+    axis[0]++;
+  }
+
   int cufft_major_version, cufft_minor_version, cufft_patch_level;
   cufftAlwaysCheck(cufftGetProperty(MAJOR_VERSION, &cufft_major_version));
   cufftAlwaysCheck(cufftGetProperty(MINOR_VERSION, &cufft_minor_version));
@@ -792,14 +844,21 @@ int main(int argc, char **argv)
             << std::setw(colWidth) << "time(ms)" 
             << std::endl;
   // time cufft for arrays
+  dataRecorder.setDefaultValue("Layout", "array");
   if(run_1d_j_array)
   {
+    dataRecorder.newRow();
     nvtxRangePushA("cufft_1d_j_array_callback");
     double cufft_1d_j_array_callback_num_seconds = complex_to_complex_1d_j_fft_array_callback(in_arr, out_check_arr, warmup, iter);
     std::cout << std::setw(colWidth) << "cufft_1d_j_array_callback "
               << std::setw(colWidth) << 1000 * cufft_1d_j_array_callback_num_seconds
               << std::endl;
     nvtxRangePop();
+    dataRecorder.record("transpose", "false");
+    dataRecorder.record("callback", "true");
+    dataRecorder.record("avgtime(s)", cufft_1d_j_array_callback_num_seconds);
+
+    dataRecorder.newRow();
     nvtxRangePushA("cufft_1d_j_array_transpose");
     double cufft_1d_j_array_transpose_num_seconds = complex_to_complex_1d_j_fft_array_transpose(in_arr, out_arr, warmup, iter);
     std::cout << std::setw(colWidth) << "cufft_1d_j_array_transpose "
@@ -807,6 +866,11 @@ int main(int argc, char **argv)
               << std::endl;
     nvtxRangePop();
     check_close(out_check_arr, out_arr, NUM_ELEMENTS, "Mismatch between cufft_1d_j_array_callback and cufft_1d_j_array_transpose");
+    dataRecorder.record("transpose", "true");
+    dataRecorder.record("callback", "false");
+    dataRecorder.record("avgtime(s)", cufft_1d_j_array_transpose_num_seconds);
+
+    dataRecorder.newRow();
     nvtxRangePushA("cufft_1d_j_array");
     double cufft_1d_j_array_num_seconds = complex_to_complex_1d_j_fft_array(in_arr, out_arr, warmup, iter);
     std::cout << std::setw(colWidth) << "cufft_1d_j_array "
@@ -814,19 +878,34 @@ int main(int argc, char **argv)
               << std::endl;
     nvtxRangePop();
     check_close(out_check_arr, out_arr, NUM_ELEMENTS, "Mismatch between cufft_1d_j_array and cufft_1d_j_array_transpose");
+    dataRecorder.record("transpose", "false");
+    dataRecorder.record("callback", "false");
+    dataRecorder.record("avgtime(s)", cufft_1d_j_array_num_seconds);
   }
+
   // time cufft for bricks
+  axis = "i";
+  for(const auto &e : {BDIM_i, BDIM_j, BDIM_k, BDIM_m, BDIM_n}) {
+    dataRecorder.setDefaultValue("brickdim_" + axis, e);
+    axis[0]++;
+  }
+  dataRecorder.setDefaultValue("Layout", "bricks");
   if(run_1d_j_brick)
   {
     // re-zero out out_arr
     #pragma omp parallel
     for(unsigned i = 0; i < NUM_ELEMENTS; ++i) out_arr[i] = 0.0;
+    dataRecorder.newRow();
     nvtxRangePushA("cufft_1d_j_brick_transpose");
     double cufft_1d_j_brick_transpose_num_seconds = complex_to_complex_1d_j_fft_brick_transpose(in_arr, out_arr, warmup, iter);
     std::cout << std::setw(colWidth) << "cufft_1d_j_brick_transpose"
               << std::setw(colWidth) << 1000 * cufft_1d_j_brick_transpose_num_seconds
               << std::endl;
     nvtxRangePop();
+    dataRecorder.record("transpose", "true");
+    dataRecorder.record("callback", "true");
+    dataRecorder.record("avgtime(s)", cufft_1d_j_brick_transpose_num_seconds);
+
     // run correctness check
     if(run_1d_j_array)
     {
@@ -835,6 +914,7 @@ int main(int argc, char **argv)
     // re-zero out out_arr
     #pragma omp parallel
     for(unsigned i = 0; i < NUM_ELEMENTS; ++i) out_arr[i] = 0.0;
+    dataRecorder.newRow();
     nvtxRangePushA("cufft_1d_j_brick");
     double cufft_1d_j_brick_num_seconds = complex_to_complex_1d_j_fft_brick(in_arr, out_arr, warmup, iter);
     std::cout << std::setw(colWidth) << "cufft_1d_j_brick "
@@ -846,6 +926,9 @@ int main(int argc, char **argv)
     {
       check_close(out_check_arr, out_arr, NUM_ELEMENTS, "Mismatch between 1d_j_array and 1d_j_brick");
     }
+    dataRecorder.record("transpose", "false");
+    dataRecorder.record("callback", "true");
+    dataRecorder.record("avgtime(s)", cufft_1d_j_brick_num_seconds);
   }
   if(run_1d_collapsed_ij_brick)
   {
@@ -863,4 +946,7 @@ int main(int argc, char **argv)
   // free memory
   free(out_arr);
   free(in_arr);
+
+  // TODO: MAKE FILENAME CLI PARAMETER
+  dataRecorder.writeToFile("fft_results.csv", true);
 }

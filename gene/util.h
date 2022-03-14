@@ -5,6 +5,8 @@
 #ifndef BRICK_GENE_UTIL_H
 #define BRICK_GENE_UTIL_H
 
+#include "brick-mpi.h"
+
 #include <cassert>
 #include <fstream>
 #include <sstream>
@@ -12,8 +14,7 @@
 #include <map>
 #include <string>
 #include <utility>
-
-#include "brick-stencils.h"
+#include <vector>
 
 struct trial_iter_count {
   int num_warmups, num_iters;
