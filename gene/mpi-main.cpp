@@ -318,7 +318,7 @@ int main(int argc, char **argv) {
     numThreads = omp_get_num_threads();
     long page_size = sysconf(_SC_PAGESIZE);
     size_t totElems =
-        std::accumulate(globalExtent.begin(), globalExtent.end(), 1, std::multiplies<>());
+        std::accumulate(perProcessExtent.begin(), perProcessExtent.end(), 1, std::multiplies<>());
     int io_col_width = 30;
     dataRecorder.setDefaultValue("PageSize", page_size);
     dataRecorder.setDefaultValue("MPISize", size);
