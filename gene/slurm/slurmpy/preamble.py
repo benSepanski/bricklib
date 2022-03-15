@@ -3,16 +3,25 @@ Created by Ben Sepanski
 """
 
 from machineconfig import MachineConfig
+from mailtypes import MailType
+from typing import Union, Iterable
 
 
 def build_slurm_gpu_preamble(config, num_gpus, job_name,
-                             num_nodes=None,
-                             num_cpus_per_task=None,
-                             email_address=None,
-                             account_name=None,
-                             time_limit=None):
+                             num_nodes: int = None,
+                             num_cpus_per_task: int = None,
+                             email_address: str = None,
+                             account_name: str = None,
+                             time_limit: str = None,
+                             mail_type: Union[MailType, Iterable[MailType]] = None):
     if not isinstance(config, MachineConfig):
         raise TypeError(f"Expected config to be of type {MachineConfig.__class__.__name__}, not {type(config)}")
+
+    if mail_type is None:
+        mail_type = MailType.FAIL
+    if isinstance(mail_type, MailType):
+        mail_type = [mail_type]
+    mail_type = tuple(mail_type)
 
     min_num_nodes = (num_gpus + config.gpus_per_node - 1) // config.gpus_per_node
     if num_nodes is None:
@@ -45,5 +54,5 @@ def build_slurm_gpu_preamble(config, num_gpus, job_name,
         preamble += f"\n#SBATCH -A {account_name}"
     if email_address is not None:
         preamble += f"""\n#SBATCH --mail-user={email_address}
-#SBATCH --mail-type=FAIL"""
+#SBATCH --mail-type={','.join(map(lambda m: m.name, mail_type))}"""
     return preamble
