@@ -89,6 +89,9 @@ auto buildArakawaGTensorKernel(const gt::gtensor_span<gt::complex<bElem>, 6UL, S
                                const gt::gtensor<bElem, 6UL, Space> &arakawaCoeff,
                                unsigned numGhostZonesToSkip) {
   using namespace gt::placeholders;
+  if(numGhostZonesToSkip < 1 && (complexArray6D::PADDING(2) < 2 || complexArray6D::PADDING(3) < 2)) {
+    throw std::runtime_error("Must pad by at least two if computing on entire array");
+  }
 
   auto coeff = [numGhostZonesToSkip, &arakawaCoeff](int s) {
     auto skipGZ = [=](int axis) -> auto {
