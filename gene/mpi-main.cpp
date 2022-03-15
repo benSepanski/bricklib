@@ -28,12 +28,14 @@
  * @param[in] in input data (has ghost-zones)
  * @param[in] coeffs input coefficients (has ghost-zones)
  * @param[in] mpiHandle the mpi handle
+ * @param[in] mpiGhostDepth depth of transfer for ghost exchange
  * @param[in] numGhostZones the number of ghost zones to use
  * @param[in] totalExchangeSize the total exchange side, just used for logging output
  * @param[in, out] csvDataRecorder records data for CSV output if rank is zero
  */
 void semiArakawaDistributedGTensor(complexArray6D out, const complexArray6D& in,
                                    const realArray6D& coeffs, GeneMPIHandle &mpiHandle,
+                                   std::array<unsigned, RANK> mpiGhostDepth,
                                    int numGhostZones, size_t totalExchangeSize,
                                    CSVDataRecorder &csvDataRecorder) {
   complexArray6D inCopy(
@@ -71,11 +73,10 @@ void semiArakawaDistributedGTensor(complexArray6D out, const complexArray6D& in,
   auto out_dev = out.allocateOnDevice();
   auto gt_out_dev = gt::adapt_device((gt::complex<bElem> *)out_dev.getData().get(), shape6D);
   // set up MPI types for transfer
-  std::array<unsigned, RANK> ghostDepth{0, 0, 2 * (unsigned) numGhostZones, 2 * (unsigned) numGhostZones, 0, 0};
-  auto complexFieldMPIArrayTypesHandle = mpiHandle.buildArrayTypesHandle(inCopy, ghostDepth);
+  auto complexFieldMPIArrayTypesHandle = mpiHandle.buildArrayTypesHandle(inCopy, mpiGhostDepth);
 
   // get the gtensor kernel
-  unsigned numGhostZonesToSkip = 0;
+  unsigned numGhostZonesToSkip = 1;
   auto gtensorKernelInToOut =
       buildArakawaGTensorKernel<gt::space::device>(gt_in_dev, gt_out_dev, gt_coeff_dev, numGhostZonesToSkip);
   auto gtensorKernelOutToIn =
@@ -87,7 +88,7 @@ void semiArakawaDistributedGTensor(complexArray6D out, const complexArray6D& in,
     double st = omp_get_wtime();
     toExchange.copyFromDevice(toExchange_dev); ///< Copy device -> host
     movetime += omp_get_wtime() - st;
-    mpiHandle.exchangeArray(toExchange, ghostDepth); ///< Exchange on host
+    mpiHandle.exchangeArray(toExchange, mpiGhostDepth); ///< Exchange on host
     st = omp_get_wtime();
     toExchange.copyToDevice(toExchange_dev); ///< Copy host -> device
     movetime += omp_get_wtime() - st;
@@ -185,11 +186,12 @@ void semiArakawaDistributedBrick(complexArray6D out, const complexArray6D &in,
   BrickedArakawaCoeffArray bCoeffArray(coeffLayout);
   bCoeffArray.loadFrom(coeffs);
 
-  auto arakawaBrickKernel = buildBricksArakawaKernel(fieldLayout, bCoeffArray, kernelType);
+  unsigned numGhostZonesToSkip = 1;
+  auto arakawaBrickKernel = buildBricksArakawaKernel(fieldLayout, bCoeffArray, kernelType,
+                                                     numGhostZonesToSkip);
 
   // set up on device
   bInArray.copyToDevice();
-  bCoeffArray.copyToDevice();
   FieldBrick_kl bIn_dev = bInArray.viewBricksOnDevice<CommIn_kl>();
   FieldBrick_kl bOut_dev = bOutArray.viewBricksOnDevice<CommIn_kl>();
 
@@ -260,9 +262,14 @@ void semiArakawaDistributedBrick(complexArray6D out, const complexArray6D &in,
   timeAndPrintMPIStats(brickFunc, totalExchangeSize, (double)in.numElements, numGhostZones, csvDataRecorder);
 
   // Copy back
-  auto finalOutputBrickedArray = inToOut ? bInArray : bOutArray;
-  finalOutputBrickedArray.copyFromDevice();
-  finalOutputBrickedArray.storeTo(out);
+  BrickedFieldArray *finalOutputBrickedArray = nullptr;
+  if(inToOut) {
+    finalOutputBrickedArray = &bInArray;
+  } else {
+    finalOutputBrickedArray = &bOutArray;
+  }
+  finalOutputBrickedArray->copyFromDevice();
+  finalOutputBrickedArray->storeTo(out);
 }
 
 /**
@@ -432,7 +439,8 @@ int main(int argc, char **argv) {
   }
 
   complexArray6D in{complexArray6D::random(perProcessExtentWithGZ)},
-      arrayOut{perProcessExtentWithGZ, 0.0}, brickOut{perProcessExtentWithGZ, 0.0};
+      arrayOut{perProcessExtentWithGZ, -1.0},
+      brickOut{perProcessExtentWithGZ, -1.0};
   unsigned idx = 0;
   for(auto &val : in) {
     val = idx++;
@@ -508,7 +516,6 @@ int main(int argc, char **argv) {
   }
   // initialize my coefficients to random data, and receive coefficients for ghost-zones
   realArray6D coeffs{realArray6D::random(coeffExtentWithGZ)};
-#pragma omp parallel
   for(auto &val : coeffs) {
     // Expected value of each coefficient is 0.5.
     // Each iteration will (on average) grow each input point by 5 * 0.5 = 2.5
@@ -521,11 +528,12 @@ int main(int argc, char **argv) {
     std::cout << "Beginning coefficient exchange" << std::endl;
   }
   brick::MPIHandle<RANK, CommIn_kl> coeffMPIHandle(cartesianComm);
+  assert(coeffMPIHandle.rank_map == mpiLayout.getBrickDecompPtr()->rank_map);
 #if defined(USE_TYPES)
-  auto coeffMPIArrayTypesHandle = coeffMPIHandle.buildArrayTypesHandle(coeffs, coeffGhostDepth);
+  auto coeffMPIArrayTypesHandle = coeffMPIHandle.buildArrayTypesHandle(coeffs, coeffMPIGhostZoneDepth);
   coeffMPIHandle.exchangeArray(coeffs, coeffMPIArrayTypesHandle);
 #else
-  coeffMPIHandle.exchangeArray(coeffs, coeffGhostDepth);
+  coeffMPIHandle.exchangeArray(coeffs, coeffMPIGhostZoneDepth);
 #endif
 
   // get total exchange size
@@ -545,7 +553,8 @@ int main(int argc, char **argv) {
     }
   }
   // run array computation
-  semiArakawaDistributedGTensor(arrayOut, in, coeffs, mpiHandle, numGhostZones, totalExchangeSize, dataRecorder);
+  semiArakawaDistributedGTensor(arrayOut, in, coeffs, mpiHandle, fieldMPIGhostZoneDepth,
+                                numGhostZones, totalExchangeSize, dataRecorder);
   if (rank == 0) {
     std::cout << "Array computation complete. Beginning bricks computation" << std::endl;
     dataRecorder.setDefaultValue("CUDA_AWARE", bricksCudaAware);
@@ -557,8 +566,8 @@ int main(int argc, char **argv) {
       dataRecorder.setDefaultValue((std::string) "BrickVecDim_" + dimNames[d], BRICK_VECTOR_DIM[d]);
     }
   }
-  std::array<BricksArakawaKernelType, 1> kernelTypes = {
-      //SIMPLE_KLIJMN,
+  std::vector<BricksArakawaKernelType> kernelTypes = {
+//      SIMPLE_KLIJMN,
       OPT_IJKLMN,
 //      OPT_IKJLMN,
 //      OPT_IKLJMN,
@@ -573,7 +582,10 @@ int main(int argc, char **argv) {
       std::cout << "Trying with iteration order " << toString(kernelType) << std::endl;
     }
     semiArakawaDistributedBrick(brickOut, in, coeffs, mpiLayout, kernelType, numGhostZones, totalExchangeSize, dataRecorder);
+
+    std::cout << "Beginning error check against array output" << std::endl;
     checkClose(brickOut, arrayOut, ghostZoneDepth);
+    std::cout << "PASS" << std::endl;
     // clear out brick to be sure correct values don't propagate through loop
     brickOut.set(0.0);
   }
