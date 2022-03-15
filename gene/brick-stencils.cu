@@ -180,8 +180,8 @@ semiArakawaBrickKernelOptimized(brick::Array<unsigned, RANK, brick::Padding<>, u
     bFieldIndex = grid.atFlatIndex(bFieldGridIndex);
     // IJKLMN -> IKLMN -> CoefficientAxisIKLMN
     unsigned bCoeffGridIndex =
-        (bFieldGridIndex % extent[0]) + extent[0] * (bFieldGridIndex / (extent[0] * extent[1]));
-    bCoeffIndex = grid.atFlatIndex(bCoeffGridIndex);
+        (bFieldGridIndex % extent[0]) + extent[0] * (bFieldGridIndex / stride[2]);
+    bCoeffIndex = coeffGrid.atFlatIndex(bCoeffGridIndex);
   }
 
   brick("semi_arakawa_stencil.py", "CUDA", (GENE6D_BRICK_DIM), (GENE6D_VEC_DIM), bFieldIndex);
