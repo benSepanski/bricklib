@@ -88,7 +88,7 @@ private:
       if(ghost[d] > 0 && !CommunicatingDims::communicatesInDim(d)) {
         throw std::runtime_error("Ghost dimension must be zero in dimensions which do not communicate");
       }
-      if (a.extent[d] <= 3 * ghost[d]) {
+      if (a.extent[d] < 3 * ghost[d]) {
         throw std::runtime_error("Extents in ghostExtent-dimension must be at least 3 * ghostExtent size");
       }
     }
