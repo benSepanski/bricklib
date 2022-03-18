@@ -88,7 +88,11 @@ void semiArakawaDistributedGTensor(complexArray6D out, const complexArray6D& in,
     double st = omp_get_wtime();
     toExchange.copyFromDevice(toExchange_dev); ///< Copy device -> host
     movetime += omp_get_wtime() - st;
+#ifdef USE_TYPES
+    mpiHandle.exchangeArray(toExchange, complexFieldMPIArrayTypesHandle);
+#else
     mpiHandle.exchangeArray(toExchange, mpiGhostDepth); ///< Exchange on host
+#endif
     st = omp_get_wtime();
     toExchange.copyToDevice(toExchange_dev); ///< Copy host -> device
     movetime += omp_get_wtime() - st;
@@ -197,9 +201,12 @@ void semiArakawaDistributedBrick(complexArray6D out, const complexArray6D &in,
 
   // setup function to exchange
 #ifndef DECOMP_PAGEUNALIGN
-  ExchangeView ev = mpiLayout.buildBrickedArrayMMAPExchangeView(bInArray);
-#endif
+  ExchangeView evIn = mpiLayout.buildBrickedArrayMMAPExchangeView(bInArray);
+  ExchangeView evOut = mpiLayout.buildBrickedArrayMMAPExchangeView(bOutArray);
+  auto exchange = [&](BrickedFieldArray &toExchange, ExchangeView &ev) -> void {
+#else
   auto exchange = [&](BrickedFieldArray &toExchange) -> void {
+#endif
 #ifndef CUDA_AWARE
     {
       double t_a = omp_get_wtime();
@@ -233,9 +240,17 @@ void semiArakawaDistributedBrick(complexArray6D out, const complexArray6D &in,
 
     // perform the exchange
     if(inToOut) {
+#ifndef DECOMP_PAGEUNALIGN
+      exchange(bInArray, evIn);
+#else
       exchange(bInArray);
+#endif
     } else {
+#ifndef DECOMP_PAGEUNALIGN
+      exchange(bOutArray, evOut);
+#else
       exchange(bOutArray);
+#endif
     }
 
     // perform the computation
@@ -441,10 +456,6 @@ int main(int argc, char **argv) {
   complexArray6D in{complexArray6D::random(perProcessExtentWithGZ)},
       arrayOut{perProcessExtentWithGZ, -1.0},
       brickOut{perProcessExtentWithGZ, -1.0};
-  unsigned idx = 0;
-  for(auto &val : in) {
-    val = idx++;
-  }
 
   if (rank == 0) {
     std::cout << "Input arrays built. Setting up brick decomposition..." << std::endl;
@@ -514,14 +525,34 @@ int main(int argc, char **argv) {
   if (rank == 0) {
     std::cout << "Brick decomposition setup complete. Beginning coefficient setup..." << std::endl;
   }
-  // initialize my coefficients to random data, and receive coefficients for ghost-zones
+  // initialize my coefficients to random data
   realArray6D coeffs{realArray6D::random(coeffExtentWithGZ)};
-  for(auto &val : coeffs) {
-    // Expected value of each coefficient is 0.5.
-    // Each iteration will (on average) grow each input point by 5 * 0.5 = 2.5
-    // Divide out by this value so that each iteration will hopefully keep the
-    // output array of similar norm to the input array
-    val /= 2.5;
+  // Make sure that, when each field element is "scattered", the total mass
+  // in the field remains constant (to avoid numerical errors)
+#pragma omp parallel for
+#pragma omp collapse(4)
+  for(int n = 0; n < coeffs.extent[5]; ++n) {
+    for (int m = 0; m < coeffs.extent[4]; ++m) {
+      for (int l = 2; l < coeffs.extent[3] - 2; ++l) {
+        for (int k = 2; k < coeffs.extent[2] - 2; ++k) {
+          for (int i = 0; i < coeffs.extent[1]; ++i) {
+            constexpr std::array<int, ARAKAWA_STENCIL_SIZE> deltaK = {0, -1, 0,  1, -2, -1, 0,
+                                                                      1, 2,  -1, 0, 1,  0},
+                                                            deltaL = {-2, -1, -1, -1, 0, 0, 0,
+                                                                      0,  0,  1,  1,  1, 2};
+            double outMass = 0.0;
+#pragma unroll
+            for (unsigned s = 0; s < ARAKAWA_STENCIL_SIZE; ++s) {
+              outMass += coeffs(s, i, k - deltaK[s], l - deltaL[s], m, n);
+            }
+#pragma unroll
+            for (unsigned s = 0; s < ARAKAWA_STENCIL_SIZE; ++s) {
+              coeffs(s, i, k - deltaK[s], l - deltaL[s], m, n) /= outMass;
+            }
+          }
+        }
+      }
+    }
   }
 
   if (rank == 0) {
