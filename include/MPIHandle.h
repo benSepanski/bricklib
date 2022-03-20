@@ -191,8 +191,8 @@ public:
   template <typename DataType, typename ArrPadding, typename ArrSizeType,
             typename ArrIndexType>
   void exchangeArray(
-      Array<DataType, RANK, ArrPadding, ArrSizeType, ArrIndexType> arr,
-      MPIArrayTypesHandle handle) {
+      Array<DataType, RANK, ArrPadding, ArrSizeType, ArrIndexType> &arr,
+      MPIArrayTypesHandle &handle) {
     std::vector<long> padding;
     padding.reserve(RANK);
     for (unsigned d = 0; d < RANK; ++d) {
