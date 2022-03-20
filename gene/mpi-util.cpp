@@ -67,12 +67,13 @@ void timeAndPrintMPIStats(std::function<void(void)> func, size_t totalExchangeSi
       mpi_statistics(totalExchangeSize / 1.0e9 / packtime * totalNumIters, MPI_COMM_WORLD);
   mpi_stats mpiCallTimeStats = mpi_statistics(calltime / totalNumIters, MPI_COMM_WORLD);
   mpi_stats mpiWaitTimeStats = mpi_statistics(waittime / totalNumIters, MPI_COMM_WORLD);
+  mpi_stats gpuCopyTimeStats = mpi_statistics(movetime / totalNumIters, MPI_COMM_WORLD);
   mpi_stats mpiSpeedStats = mpi_statistics(
       totalExchangeSize / 1.0e9 / (calltime + waittime) * totalNumIters, MPI_COMM_WORLD);
   mpi_stats mpiExchangeSizeStats =
       mpi_statistics((double)totalExchangeSize * 1.0e-6, MPI_COMM_WORLD);
-  double total =
-      calcTimeStats.avg + mpiWaitTimeStats.avg + mpiCallTimeStats.avg + packTimeStats.avg;
+  double total = calcTimeStats.avg + mpiWaitTimeStats.avg + mpiCallTimeStats.avg +
+                 packTimeStats.avg + gpuCopyTimeStats.avg;
 
   int rank;
   check_MPI(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
@@ -90,6 +91,8 @@ void timeAndPrintMPIStats(std::function<void(void)> func, size_t totalExchangeSi
     dataRecorder.recordMPIStats("packTime(s)", packTimeStats);
     std::cout << "  | Pack speed (GB/s): " << packSpeedStats << std::endl;
     dataRecorder.recordMPIStats("PackSpeed(GStencil/s)", packSpeedStats);
+    std::cout << "gpuCopy " << gpuCopyTimeStats << std::endl;
+    dataRecorder.recordMPIStats("gpuCopyTime(s)", gpuCopyTimeStats);
     std::cout << "call " << mpiCallTimeStats << std::endl;
     dataRecorder.recordMPIStats("MPICallTime(s)", mpiCallTimeStats);
     std::cout << "wait " << mpiWaitTimeStats << std::endl;
