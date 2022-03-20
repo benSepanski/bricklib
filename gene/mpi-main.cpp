@@ -97,7 +97,6 @@ void semiArakawaDistributedGTensor(complexArray6D out, const complexArray6D& in,
     toExchange.copyToDevice(toExchange_dev); ///< Copy host -> device
     movetime += omp_get_wtime() - st;
 #else
-    mpiCheckCudaAware();
     mpiHandle.exchangeArray(toExchange_dev, complexFieldMPIArrayTypesHandle);
 #endif
   };
@@ -224,7 +223,6 @@ void semiArakawaDistributedBrick(complexArray6D out, const complexArray6D &in,
       movetime += t_b - t_a;
     }
 #else
-    mpiCheckCudaAware();
     mpiLayout.exchangeCudaBrickedArray(toExchange);
 #endif
   };
@@ -291,6 +289,7 @@ void semiArakawaDistributedBrick(complexArray6D out, const complexArray6D &in,
  * @brief Run weak-scaling gene6d benchmark
  */
 int main(int argc, char **argv) {
+  std::cout << "Initializing MPI..." << std::endl;
   int provided;
   // setup MPI environment
   check_MPI(MPI_Init_thread(&argc, &argv, MPI_THREAD_SERIALIZED, &provided));
@@ -298,6 +297,34 @@ int main(int argc, char **argv) {
     check_MPI(MPI_Finalize());
     return 1;
   }
+  std::cout << "MPI Initialized" << std::endl;
+#ifdef CUDA_AWARE
+  mpiCheckCudaAware();
+#endif
+  int rank, size;
+  check_MPI(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
+  check_MPI(MPI_Comm_size(MPI_COMM_WORLD, &size));
+  // copied from https://docs.nersc.gov/jobs/affinity/#gpus
+  int deviceCount = 0;
+  gpuCheck(cudaGetDeviceCount(&deviceCount));
+
+  check_MPI(MPI_Barrier(MPI_COMM_WORLD));
+  std::cout << "Rank " << rank << " out of " << size << "processes: I see "
+            << deviceCount << " GPU(s)." << std::endl;
+  check_MPI(MPI_Barrier(MPI_COMM_WORLD));
+
+  int dev, len = 15;
+  char gpu_id[15];
+  cudaDeviceProp deviceProp;
+
+  for (dev = 0; dev < deviceCount; ++dev) {
+    gpuCheck(cudaSetDevice(dev));
+    gpuCheck(cudaGetDeviceProperties(&deviceProp, dev));
+    gpuCheck(cudaDeviceGetPCIBusId(gpu_id, len, dev));
+    std::cout << dev << " for rank " << rank << ": " << gpu_id << std::endl;
+  }
+  check_MPI(MPI_Barrier(MPI_COMM_WORLD));
+
   std::array<int, RANK> numProcsPerDim{}, globalExtent{}, perProcessExtent{};
   std::stringstream input_stream;
   for (int i = 1; i < argc; ++i) {
@@ -323,9 +350,6 @@ int main(int argc, char **argv) {
 
   // Print information about setup (copied and modified from Tuowen Zhao's args.cpp)
   // https://github.com/CtopCsUtahEdu/bricklib/blob/ef28a307962fe319cd723a589df4ff6fb4a75d18/weak/args.cpp#L133-L144
-  int rank, size;
-  check_MPI(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
-  check_MPI(MPI_Comm_size(MPI_COMM_WORLD, &size));
   const char dimNames[RANK] = {'i', 'j', 'k', 'l', 'm', 'n'};
   if (rank == 0) {
     int numThreads;
@@ -405,6 +429,11 @@ int main(int argc, char **argv) {
   bool gtensorMPITypes = mpiTypes;
   bool gtensorCudaAware = cudaAware & gtensorMPITypes;
   bool bricksCudaAware = cudaAware;
+  if(rank == 0) {
+    std::cout << "GTensor Cuda Aware: " << gtensorCudaAware << "\n"
+              << "GTensor MPI Types: " << gtensorMPITypes << "\n"
+              << "Bricks Cuda Aware: " << bricksCudaAware << std::endl;
+  }
 
   // build cartesian communicator and setup MEMFD
   bool allowRankReordering = false;
@@ -414,6 +443,20 @@ int main(int argc, char **argv) {
   allowRankReordering = true;
 #endif
   MPI_Comm cartesianComm = buildCartesianComm(numProcsPerDim, perProcessExtent, allowRankReordering);
+  std::array<int, RANK> myMPICoords{};
+  check_MPI(MPI_Cart_coords(cartesianComm, rank, RANK, myMPICoords.data()));
+  check_MPI(MPI_Barrier(cartesianComm));
+  std::cout << "Coords for rank " << rank << ": {";
+  for(unsigned d = 0; d < RANK; ++d) {
+    std::cout << myMPICoords[d];
+    if(d < RANK - 1) {
+      std::cout << ", ";
+    } else {
+      std::cout << "}" << std::endl;
+    }
+  }
+  check_MPI(MPI_Barrier(cartesianComm));
+
   MEMFD::setup_prefix("weak-gene-6d-main", rank);
   // get array/brick extents set up for my MPI process (all include ghost-zones)
   std::array<int, RANK> perProcessExtentWithGZ{}, per_process_extent_with_padding{};
