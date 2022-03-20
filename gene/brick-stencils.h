@@ -25,7 +25,7 @@
 // useful constants
 constexpr unsigned RANK = 6;
 #ifndef GENE6D_BRICK_DIM
-#define GENE6D_BRICK_DIM 1,1,2,2,32,2
+#define GENE6D_BRICK_DIM 1,1,2,2,16,2
 #endif
 #ifndef GENE6D_VEC_DIM
 #define GENE6D_VEC_DIM 1,1,1,1,16,2
