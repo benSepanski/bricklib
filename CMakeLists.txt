@@ -171,7 +171,7 @@ endif()
 if(PERLMUTTER)
     # https://docs.nersc.gov/current/ as of Jan 3, 2022
     include_directories(
-        "$ENV{CRAY_CUDATOOLKIT_DIR}/../../math_libs/11.4/include"
+        "$ENV{CRAY_CUDATOOLKIT_DIR}/../../math_libs/${CMAKE_CUDA_COMPILER_VERSION}/include"
     )
 endif()
 
