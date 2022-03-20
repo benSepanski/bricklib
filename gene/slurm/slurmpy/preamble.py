@@ -50,11 +50,10 @@ def build_slurm_gpu_preamble(config, num_gpus, job_name,
     preamble = f"""#!/bin/bash
 #SBATCH -C gpu
 #SBATCH -N {num_nodes}
-#SBATCH -G {num_gpus}
+#SBATCH -G {min(num_gpus, num_nodes * config.gpus_per_node)}
 #SBATCH -n {num_mpi_tasks}
 #SBATCH -c {num_cpus_per_task}
-#SBATCH --gpus-per-task 1
-#SBATCH --gpu-bind single:1
+#SBATCH --gpus-per-node {min(num_gpus, config.gpus_per_node)}
 #SBATCH -q regular
 #SBATCH -J {job_name}
 #SBATCH -o {output_file_name}
