@@ -182,6 +182,7 @@ private:
   std::shared_ptr<BrickDecomp<BrickDims, CommunicatingDims>> brickDecompPtr;
   brick::BrickLayout<RANK> brickLayout;
   std::vector<long> ghost{}, extent{};
+  int myRank;
 
 public:
   // public methods
@@ -214,6 +215,8 @@ public:
       this->extent.push_back(arrayExtent[d]);
       this->ghost.push_back(ghostDepth[d]);
     }
+    // record my rank
+    this->myRank = mpiHandle.myRank();
   }
 
   /**
@@ -273,7 +276,7 @@ public:
   template<typename ... T>
   void exchangeCudaBrickedArray(brick::BrickedArray<T...> &brickedArray) {
     BrickStorage storage = brickedArray.getCudaStorage();
-    brickDecompPtr->exchange(storage);
+    brickDecompPtr->exchangeWithoutMPITransferToSelf(storage, myRank, true);
   }
 
   /**

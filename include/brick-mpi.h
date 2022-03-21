@@ -21,6 +21,11 @@
 #include "bitset.h"
 #include "memfd.h"
 
+#if defined(__CUDACC__) && defined(BRICK_BRICK_CUDA_H)
+#define BRICK_MPI_CUDA_SUPPORT_ENABLED
+#include "brick-gpu.h"
+#endif
+
 extern double packtime, calltime, waittime, movetime, calctime;
 
 /**
@@ -314,6 +319,22 @@ private:
     _adj_populate(i, dim - 1, 0, adj, grid_size);
   }
 
+  inline
+  void asyncReceiveGhostOverMPI(BrickStorage &bStorage, g_region &ghost_region, int tag, MPI_Request &mpiRequest) {
+    // receive to ghost
+    MPI_Irecv(&(bStorage.dat.get()[(ghost_region.pos + ghost_region.first_pad) * bStorage.step]),
+              (ghost_region.len - ghost_region.first_pad - ghost_region.last_pad) * bStorage.step * sizeof(bElem),
+              MPI_CHAR, rank_map[ghost_region.neighbor.set], tag, comm, &mpiRequest);
+  }
+
+  inline
+  void asyncSendSkinOverMPI(BrickStorage &bStorage, g_region &skin_region, int tag, MPI_Request &mpiRequest) {
+    // send from skin
+    MPI_Isend(&(bStorage.dat.get()[(skin_region.pos + skin_region.first_pad) * bStorage.step]),
+              (skin_region.len - skin_region.first_pad - skin_region.last_pad) * bStorage.step * sizeof(bElem),
+              MPI_CHAR, rank_map[skin_region.neighbor.set], tag, comm, &mpiRequest);
+  }
+
 public:
   MPI_Comm comm;        ///< MPI communicator it is attached to
 
@@ -554,6 +575,68 @@ public:
   }
 
   /**
+   * Perform ghost exchange while avoiding using MPI to copy to self
+   *
+   * @param bStorage the brick storage
+   * @param myRank the rank of this process
+   * @param onGPU true if brick storage's data is allocated on GPU
+   */
+  void exchangeWithoutMPITransferToSelf(BrickStorage &bStorage, int myRank, bool onGPU) {
+    size_t maxNumRequests = ghost.size() * 2;
+    std::vector<MPI_Request> requests(maxNumRequests);
+    std::vector<MPI_Status> stats(requests.size());
+
+#ifdef BARRIER_TIMESTEP
+    MPI_Barrier(comm);
+#endif
+
+    double st = omp_get_wtime(), ed;
+
+    int numRequests = 0;
+    for (int i = 0; i < ghost.size(); ++i) {
+      bool sendingToSelf = (rank_map[ghost[i].neighbor.set] == myRank);
+      assert(!sendingToSelf ^ (rank_map[skin[i].neighbor.set] == myRank));
+      if (!sendingToSelf) {
+        // receive to ghost[i]
+        asyncReceiveGhostOverMPI(bStorage, ghost[i], i, requests[numRequests++]);
+        // send from skin[i]
+        asyncSendSkinOverMPI(bStorage, skin[i], i, requests[numRequests++]);
+      } else {
+        int numElements = (ghost[i].len - ghost[i].first_pad - ghost[i].last_pad) * bStorage.step;
+        assert(numElements == (skin[i].len - skin[i].first_pad - skin[i].last_pad) * bStorage.step);
+
+        bElem *ghostStart =
+            &(bStorage.dat.get()[(ghost[i].pos + ghost[i].first_pad) * bStorage.step]);
+        bElem *skinStart =
+            &(bStorage.dat.get()[(skin[i].pos + skin[i].first_pad) * bStorage.step]);
+        if (onGPU) {
+#ifdef BRICK_MPI_CUDA_SUPPORT_ENABLED
+          gpuCheck(gpuMemcpy(ghostStart, skinStart, numElements * sizeof(bElem), cudaMemcpyDeviceToDevice));
+#else
+          throw std::runtime_error("Non-CUDA devices not yet supported for this function");
+#endif
+        } else {
+#pragma omp parallel for
+          for (int idx = 0; idx < numElements; ++idx) {
+            ghostStart[idx] = skinStart[idx];
+          }
+        }
+      }
+    }
+
+    ed = omp_get_wtime();
+    calltime += ed - st;
+    st = ed;
+
+    assert(numRequests <= requests.size());
+    assert(numRequests <= stats.size());
+    MPI_Waitall(numRequests, requests.data(), stats.data());
+
+    ed = omp_get_wtime();
+    waittime += ed - st;
+  }
+
+  /**
    * @brief Minimal PUT exchange without mmap
    * @param bStorage a brick storage created using this decomposition
    */
@@ -569,13 +652,9 @@ public:
 
     for (int i = 0; i < ghost.size(); ++i) {
       // receive to ghost[i]
-      MPI_Irecv(&(bStorage.dat.get()[(ghost[i].pos + ghost[i].first_pad) * bStorage.step]),
-                (ghost[i].len - ghost[i].first_pad - ghost[i].last_pad) * bStorage.step * sizeof(bElem),
-                MPI_CHAR, rank_map[ghost[i].neighbor.set], i, comm, &(requests[i << 1]));
+      asyncReceiveGhostOverMPI(bStorage, ghost[i], i, requests[i << 1]);
       // send from skin[i]
-      MPI_Isend(&(bStorage.dat.get()[(skin[i].pos + skin[i].first_pad) * bStorage.step]),
-                (skin[i].len - skin[i].first_pad - skin[i].last_pad) * bStorage.step * sizeof(bElem),
-                MPI_CHAR, rank_map[skin[i].neighbor.set], i, comm, &(requests[(i << 1) + 1]));
+      asyncSendSkinOverMPI(bStorage, skin[i], i, requests[(i << 1) + 1]);
     }
 
     ed = omp_get_wtime();

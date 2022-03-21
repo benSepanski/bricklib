@@ -76,6 +76,13 @@ public:
   // public constexprs/typedefs
   using CommunicatingDims = CommDims<CommInDim...>;
   static constexpr unsigned RANK = Rank;
+
+  /// members
+private:
+  // private members
+  int rank, size; // MPI Rank/size
+public:
+  // public members
   MPI_Comm comm;
   std::unordered_map<uint64_t, int> rank_map;    ///< Mapping from neighbor to each neighbor's rank
 
@@ -102,7 +109,6 @@ public:
    */
   MPIHandle(MPI_Comm cartesianComm) : comm(cartesianComm) {
     // get rank, size
-    int rank, size;
     check_MPI(MPI_Comm_rank(cartesianComm, &rank));
     check_MPI(MPI_Comm_size(cartesianComm, &size));
     std::array<int, Rank> coordsOfProc{};
@@ -115,6 +121,14 @@ public:
    */
   MPI_Comm & getMPIComm() {
     return this->comm;
+  }
+
+  inline int myRank() const {
+    return this->rank;
+  }
+
+  inline int commSize() const {
+    return this->size;
   }
 
   /**
