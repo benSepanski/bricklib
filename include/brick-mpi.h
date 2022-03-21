@@ -23,6 +23,7 @@
 
 #if defined(__CUDACC__) && defined(BRICK_BRICK_CUDA_H)
 #define BRICK_MPI_CUDA_SUPPORT_ENABLED
+#include <cuda_runtime.h>
 #include "brick-gpu.h"
 #endif
 
@@ -592,6 +593,10 @@ public:
 
     double st = omp_get_wtime(), ed;
 
+#ifdef BRICK_MPI_CUDA_SUPPORT_ENABLED
+    std::vector<cudaStream_t> cudaStreams;
+    cudaStreams.reserve(ghost.size());
+#endif
     int numRequests = 0;
     for (int i = 0; i < ghost.size(); ++i) {
       bool sendingToSelf = (rank_map[ghost[i].neighbor.set] == myRank);
@@ -611,7 +616,11 @@ public:
             &(bStorage.dat.get()[(skin[i].pos + skin[i].first_pad) * bStorage.step]);
         if (onGPU) {
 #ifdef BRICK_MPI_CUDA_SUPPORT_ENABLED
-          gpuCheck(gpuMemcpy(ghostStart, skinStart, numElements * sizeof(bElem), cudaMemcpyDeviceToDevice));
+          cudaStream_t stream;
+          gpuCheck(cudaStreamCreate(&stream));
+          // TODO: SWITCH CUDA-SPECIFIC FUNCTIONS TO MORE PORTABLE IMPLEMENTATION
+          gpuCheck(cudaMemcpyAsync(ghostStart, skinStart, numElements * sizeof(bElem), cudaMemcpyDeviceToDevice));
+          cudaStreams.push_back(stream);
 #else
           throw std::runtime_error("Non-CUDA devices not yet supported for this function");
 #endif
@@ -627,6 +636,13 @@ public:
     ed = omp_get_wtime();
     calltime += ed - st;
     st = ed;
+
+#ifdef BRICK_MPI_CUDA_SUPPORT_ENABLED
+    for(auto stream : cudaStreams) {
+      gpuCheck(cudaStreamSynchronize(stream));
+      gpuCheck(cudaStreamDestroy(stream));
+    }
+#endif
 
     assert(numRequests <= requests.size());
     assert(numRequests <= stats.size());
