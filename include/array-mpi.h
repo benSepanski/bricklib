@@ -299,12 +299,107 @@ template<> inline MPI_Datatype get_scalar_MPI_Datatype<bComplexElem>() {
 }
 
 /**
+ * Build MPI sub-array type
+ *
+ * @tparam elemType type of the elements
+ * @param size extent of full array in each dimension
+ * @param subsize extent of sub-array in each dimension
+ * @param start offset of sub-array into full array in each dimension
+ * @return an MPI type representing the sub-array with any contiguous dimensions collapsed
+ */
+template<typename elemType>
+inline MPI_Datatype build_mpi_subarray_type(const std::vector<int> &size,
+                                            const std::vector<int> &subsize,
+                                            const std::vector<int> &start) {
+  int ndims = static_cast<int>(size.size());
+  assert(ndims == subsize.size() && ndims == start.size());
+  if(ndims <= 0) {
+    throw std::runtime_error("ndims must be positive");
+  }
+  MPI_Datatype ret, scalar_mpi_datatype = get_scalar_MPI_Datatype<elemType>();
+  // Subarray is most contiguous dimension first (largest index)
+  MPI_Type_create_subarray(ndims, size.data(), subsize.data(), start.data(), MPI_ORDER_C,
+                           scalar_mpi_datatype, &ret);
+  return ret;
+}
+
+/**
+ * Collapse any contiguous dimensions in the subarray and return the MPI type
+ *
+ * @tparam elemType type of the elements
+ * @param size extent of full array in each dimension
+ * @param subsize extent of sub-array in each dimension
+ * @param start offset of sub-array into full array in each dimension
+ * @return an MPI type representing the sub-array with any contiguous dimensions collapsed
+ */
+template<typename elemType>
+inline MPI_Datatype collapse_contiguous_dims(const std::vector<int> &size,
+                                             const std::vector<int> &subsize,
+                                             const std::vector<int> &start) {
+  long ndims = static_cast<long>(size.size());
+  assert(ndims == subsize.size() && ndims == start.size());
+
+  // NB: We're going to compute the collapsed arrays in reverse order for convenience
+  //     (since we don't know the number of collapsed dimensions ahead of time),
+  //     then reverse the computed array
+  std::vector<int> collapsed_size, collapsed_subsize, collapsed_start;
+  collapsed_size.reserve(ndims);
+  collapsed_subsize.reserve(ndims);
+  collapsed_start.reserve(ndims);
+  for(long collapsed_dd = ndims - 1; collapsed_dd >= 0; --collapsed_dd) {
+    int cur_collapsed_size = 1, cur_collapsed_subsize = 1;
+    // collapse any contiguous dimensions until hit end of the array or non-contiguous dimensions
+    while((collapsed_dd >= 0) && (start[collapsed_dd] == 0) && (subsize[collapsed_dd] == size[collapsed_dd])) {
+      cur_collapsed_size *= size[collapsed_dd];
+      cur_collapsed_subsize *= subsize[collapsed_dd];
+      collapsed_dd--;
+    }
+    // If didn't hit end of array, tack on that dimension's size and start from its
+    // starting point
+    if(collapsed_dd > 0) {
+      collapsed_start.push_back(start[collapsed_dd] * cur_collapsed_size);
+      cur_collapsed_size *= size[collapsed_dd];
+      cur_collapsed_subsize *= subsize[collapsed_dd];
+    } else {
+      collapsed_start.push_back(0);
+    }
+    collapsed_size.push_back(cur_collapsed_size);
+    collapsed_subsize.push_back(cur_collapsed_subsize);
+    // Some sanity checks
+    assert(cur_collapsed_size > 0);
+    assert(cur_collapsed_subsize > 0);
+    assert(cur_collapsed_size <= cur_collapsed_size);
+    assert(collapsed_start.back() >= 0);
+    assert(collapsed_start.back() + cur_collapsed_subsize <= cur_collapsed_size);
+  }
+  int collapsedNDims = static_cast<int>(collapsed_size.size());
+  assert(collapsedNDims > 0);
+
+  // sanity check
+#ifndef NDEBUG
+  size_t totalCollapsedSize = std::accumulate(collapsed_size.begin(), collapsed_size.end(), 1, std::multiplies<>());
+  size_t totalSize = std::accumulate(size.begin(), size.end(), 1, std::multiplies<>());
+  assert(totalSize == totalCollapsedSize);
+  size_t totalCollapsedSubSize = std::accumulate(collapsed_subsize.begin(), collapsed_subsize.end(), 1, std::multiplies<>());
+  size_t totalSubSize = std::accumulate(subsize.begin(), subsize.end(), 1, std::multiplies<>());
+  assert(totalSubSize == totalCollapsedSubSize);
+#endif
+
+  std::reverse(collapsed_size.begin(), collapsed_size.end());
+  std::reverse(collapsed_subsize.begin(), collapsed_subsize.end());
+  std::reverse(collapsed_start.begin(), collapsed_start.end());
+
+  return build_mpi_subarray_type<elemType>(collapsed_size, collapsed_subsize, collapsed_start);
+}
+
+/**
  * @return MPI_Datatype a sub-array mpi datatype of the appropriate size/type,
  *         or MPI_DATATYPE_NULL if the sub-array is of size 0
  */
 template<typename elemType = bElem>
-inline MPI_Datatype pack_type(BitSet neighbor, const std::vector<long> &dimlist, const std::vector<long> &padding,
-                       const std::vector<long> &ghost) {
+inline MPI_Datatype pack_type(BitSet neighbor, const std::vector<long> &dimlist,
+                              const std::vector<long> &padding,
+                              const std::vector<long> &ghost) {
   int ndims = dimlist.size();
   std::vector<int> size(ndims), subsize(ndims), start(ndims);
   for (long dd = 0; dd < dimlist.size(); ++dd) {
@@ -330,10 +425,7 @@ inline MPI_Datatype pack_type(BitSet neighbor, const std::vector<long> &dimlist,
       return MPI_DATATYPE_NULL;
     }
   }
-  MPI_Datatype ret, scalar_mpi_datatype = get_scalar_MPI_Datatype<elemType>();
-  // Subarray is most contiguous dimension first (largest index)
-  MPI_Type_create_subarray(ndims, size.data(), subsize.data(), start.data(), MPI_ORDER_C, scalar_mpi_datatype, &ret);
-  return ret;
+  return collapse_contiguous_dims<elemType>(size, subsize, start);
 }
 
 /**
@@ -346,6 +438,7 @@ inline MPI_Datatype unpack_type(BitSet neighbor, const std::vector<long> &dimlis
                                 const std::vector<long> &ghost) {
   int ndims = dimlist.size();
   std::vector<int> size(ndims), subsize(ndims), start(ndims);
+  long firstNonContiguousDim = ndims, lastNonContiguousDim = 0;
   for (long dd = 0; dd < dimlist.size(); ++dd) {
     long d = (long)dimlist.size() - dd - 1;
     size[dd] = dimlist[d] + 2 * (padding[d] + ghost[d]);
@@ -364,15 +457,17 @@ inline MPI_Datatype unpack_type(BitSet neighbor, const std::vector<long> &dimlis
       subsize[dd] = dimlist[d];
       start[dd] = padding[d] + ghost[d];
     }
+    bool dimIsContiguous = (start[dd] == 0) && (subsize[dd] == size[dd] - 1);
+    if(!dimIsContiguous) {
+      firstNonContiguousDim = std::min(firstNonContiguousDim, dd);
+      lastNonContiguousDim = std::max(lastNonContiguousDim, dd);
+    }
     // Handle size == 0 case
     if(subsize[dd] <= 0) {
       return MPI_DATATYPE_NULL;
     }
   }
-  MPI_Datatype ret, scalar_mpi_datatype = get_scalar_MPI_Datatype<elemType>();
-  // Subarray is most contiguous dimension first (largest index)
-  MPI_Type_create_subarray(ndims, size.data(), subsize.data(), start.data(), MPI_ORDER_C, scalar_mpi_datatype, &ret);
-  return ret;
+  return collapse_contiguous_dims<elemType>(size, subsize, start);
 }
 
 template<unsigned dim, typename elemType = bElem>
