@@ -9,7 +9,6 @@ unsigned NUM_EXCHANGES; ///< how many mpi exchanges?
 unsigned NUM_WARMUPS;   ///< how many warmup iters?
 
 MPI_Comm buildCartesianComm(std::array<int, RANK> numProcsPerDim,
-                            std::array<int, RANK> perProcessExtent,
                             bool allowRankReordering) {
   // get number of MPI processes and my rank
   int size, rank;
@@ -31,6 +30,7 @@ MPI_Comm buildCartesianComm(std::array<int, RANK> numProcsPerDim,
   for (int i = 0; i < RANK; ++i) {
     periodic[i] = true;
   }
+  std::reverse(numProcsPerDim.begin(), numProcsPerDim.end());  ///< MPI uses higher=more contiguous
   MPI_Comm cartesianComm;
   check_MPI(MPI_Cart_create(MPI_COMM_WORLD, RANK, numProcsPerDim.data(), periodic.data(),
                             allowRankReordering, &cartesianComm));

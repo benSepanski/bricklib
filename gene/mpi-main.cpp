@@ -442,11 +442,12 @@ int main(int argc, char **argv) {
   //        rank reordering provokes an error on Perlmutter
   allowRankReordering = true;
 #endif
-  MPI_Comm cartesianComm = buildCartesianComm(numProcsPerDim, perProcessExtent, allowRankReordering);
+  MPI_Comm cartesianComm = buildCartesianComm(numProcsPerDim, allowRankReordering);
   std::array<int, RANK> myMPICoords{};
   check_MPI(MPI_Cart_coords(cartesianComm, rank, RANK, myMPICoords.data()));
+  std::reverse(myMPICoords.begin(), myMPICoords.end());
   check_MPI(MPI_Barrier(cartesianComm));
-  std::cout << "Coords for rank " << rank << ": {";
+  std::cout << "Coords for rank " << rank << ": {I, J, K, L, M, N} = {";
   for(unsigned d = 0; d < RANK; ++d) {
     std::cout << myMPICoords[d];
     if(d < RANK - 1) {

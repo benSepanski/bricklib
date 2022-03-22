@@ -27,13 +27,14 @@ extern unsigned NUM_WARMUPS;   ///< how many warmup iters?
  *
  * @param[in] numProcsPerDim the number of MPI processes to put in each dimension.
  *                                  Product must match the number of MPI processes.
- * @param[in] perProcessExtent extent in each dimension for each individual MPI processes.
+ *                           NOTE: This argument should be passed with most contiguous
+ *                           dimension first, i.e. IJKLMN.
+ *                           Note that this is the opposite of MPI ordering
  * @param[in] allowRankReordering if true, allow ranks in the cartesian communicator
  *                                to be different than the ranks in MPI_COMM_WORLD
  * @return MPI_comm a cartesian communicator built from MPI_COMM_WORLD
  */
 MPI_Comm buildCartesianComm(std::array<int, RANK> numProcsPerDim,
-                            std::array<int, RANK> perProcessExtent,
                             bool allowRankReordering);
 
 /**
