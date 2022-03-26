@@ -356,7 +356,7 @@ inline MPI_Datatype collapse_contiguous_dims(const std::vector<int> &size,
     }
     // If didn't hit end of array, tack on that dimension's size and start from its
     // starting point
-    if(collapsed_dd > 0) {
+    if(collapsed_dd >= 0) {
       collapsed_start.push_back(start[collapsed_dd] * cur_collapsed_size);
       cur_collapsed_size *= size[collapsed_dd];
       cur_collapsed_subsize *= subsize[collapsed_dd];
