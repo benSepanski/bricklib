@@ -57,6 +57,8 @@ private:
    * @param arrayExtent the extent of the array (excluding ghost elements)
    * @param ghostDepth the number of ghost elements
    * @param skinlist the skin-list to use for building the BrickDecomp
+   * @param matchMPICartShiftOrder true if should match MPI cart shift order along each
+   *                               axis, false otherwise
    * @return a pointer to the brickDecomp
    */
   template <typename ExtentDataType = unsigned, typename GZDataType = unsigned>
@@ -64,7 +66,8 @@ private:
   static buildBrickDecomp(brick::MPIHandle<RANK, CommunicatingDims> &mpiHandle,
                           const std::array<ExtentDataType, RANK> &arrayExtent,
                           const std::array<GZDataType, RANK> &ghostDepth,
-                          const std::vector<BitSet> &skinlist) {
+                          const std::vector<BitSet> &skinlist,
+                          bool matchMPICartShiftOrder) {
     // check skinlist
     for (const BitSet &b : skinlist) {
       for (long potentialElement = -32; potentialElement < 32;
@@ -91,7 +94,7 @@ private:
         std::vector<unsigned>(ghostDepth.cbegin(), ghostDepth.cend())));
     // populate neighbors and build from skinlist
     brickDecompPtr->comm = mpiHandle.getMPIComm();
-    populate(mpiHandle.getMPIComm(), *brickDecompPtr, 0, 1, coordsOfProc.data());
+    populate(mpiHandle.getMPIComm(), *brickDecompPtr, 0, 1, coordsOfProc.data(), matchMPICartShiftOrder);
     brickDecompPtr->initialize(skinlist);
 
     assert(brickDecompPtr->rank_map.size() == mpiHandle.rank_map.size());
@@ -195,13 +198,16 @@ public:
    * @param arrayExtent the extent of the array (in elements)
    * @param ghostDepth the number of ghostExtent elements on each axis
    * @param skinlist the order in which neighbor-data is stored
+   * @param matchMPICartShiftOrder true if should match MPI cart shift order along each
+   *                               axis, false if should be reversed
    */
   template <typename ExtentDataType = unsigned, typename GZDataType = unsigned>
   MPILayout(brick::MPIHandle<RANK, CommunicatingDims> &mpiHandle,
             const std::array<ExtentDataType, RANK> &arrayExtent,
             const std::array<GZDataType, RANK> &ghostDepth,
-            const std::vector<BitSet> &skinlist)
-      : brickDecompPtr{buildBrickDecomp(mpiHandle, arrayExtent, ghostDepth, skinlist)},
+            const std::vector<BitSet> &skinlist,
+            bool matchMPICartShiftOrder = true)
+      : brickDecompPtr{buildBrickDecomp(mpiHandle, arrayExtent, ghostDepth, skinlist, matchMPICartShiftOrder)},
         brickLayout{buildBrickLayout(brickDecompPtr, arrayExtent, ghostDepth)} {
     static_assert(std::is_convertible<ExtentDataType, unsigned>::value,
                   "ExtentDataType not convertible to unsigned");

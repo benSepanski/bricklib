@@ -106,14 +106,16 @@ public:
   /**
    * Create an MPI Handle on the provided cartesian communicator
    * @param cartesianComm a cartesian communicator in a space of ambient dimension Rank
+   * @param matchMPICartShiftOrder true if should match MPI cart shift order along each
+   *                               axis, false otherwise
    */
-  MPIHandle(MPI_Comm cartesianComm) : comm(cartesianComm) {
+  MPIHandle(MPI_Comm cartesianComm, bool matchMPICartShiftOrder = true) : comm(cartesianComm) {
     // get rank, size
     check_MPI(MPI_Comm_rank(cartesianComm, &rank));
     check_MPI(MPI_Comm_size(cartesianComm, &size));
     std::array<int, Rank> coordsOfProc{};
     check_MPI(MPI_Cart_coords(cartesianComm, rank, Rank, coordsOfProc.data()));
-    populate<Rank, CommunicatingDims>(cartesianComm, this->rank_map, 0, 1, coordsOfProc.data());
+    populate<Rank, CommunicatingDims>(cartesianComm, this->rank_map, 0, 1, coordsOfProc.data(), matchMPICartShiftOrder);
   }
 
   /**

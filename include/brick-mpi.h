@@ -910,7 +910,8 @@ public:
  * @see populate(MPI_Comm&, BrickDecomp<Dim<BDims...>, CommunicatingDims>, BitSet, int, int*)
  */
 template<unsigned Rank, typename CommunicatingDims>
-void populate(MPI_Comm &comm, std::unordered_map<uint64_t, int> &rank_map, BitSet neighbor, int d, int *coo) {
+void populate(MPI_Comm &comm, std::unordered_map<uint64_t, int> &rank_map, BitSet neighbor, int d, int *coo,
+              bool upIsPositive = false) {
   if (d > Rank) {
     int rank;
     MPI_Cart_rank(comm, coo, &rank);
@@ -921,16 +922,16 @@ void populate(MPI_Comm &comm, std::unordered_map<uint64_t, int> &rank_map, BitSe
   int dd = Rank - d;
   int c = coo[dd];
   neighbor.flip(d);
-  coo[dd] = c - 1;
-  populate<Rank, CommunicatingDims>(comm, rank_map, neighbor, d + 1, coo);
+  coo[dd] = c + (upIsPositive ? 1 : -1);
+  populate<Rank, CommunicatingDims>(comm, rank_map, neighbor, d + 1, coo, upIsPositive);
   neighbor.flip(d);
   // Not picked
   coo[dd] = c;
-  populate<Rank, CommunicatingDims>(comm, rank_map, neighbor, d + 1, coo);
+  populate<Rank, CommunicatingDims>(comm, rank_map, neighbor, d + 1, coo, upIsPositive);
   // Picked -
   neighbor.flip(-d);
-  coo[dd] = c + 1;
-  populate<Rank, CommunicatingDims>(comm, rank_map, neighbor, d + 1, coo);
+  coo[dd] = c + (upIsPositive ? -1 : 1);
+  populate<Rank, CommunicatingDims>(comm, rank_map, neighbor, d + 1, coo, upIsPositive);
   coo[dd] = c;
 }
 
@@ -943,6 +944,9 @@ void populate(MPI_Comm &comm, std::unordered_map<uint64_t, int> &rank_map, BitSe
  * @param neighbor
  * @param d current dimension
  * @param coo This rank's coo
+ * @param upIsPositive If true, then the rank map built corresponds to MPI_Cart_Shift.
+ *                     Otherwise, along each axis it is in the opposite order of
+ *                     MPI_Cart_Shift.
  *
  * Example:
  * @code{.cpp}
@@ -950,8 +954,9 @@ void populate(MPI_Comm &comm, std::unordered_map<uint64_t, int> &rank_map, BitSe
  * @endcode
  */
 template<unsigned ...BDims, typename CommunicatingDims>
-void populate(MPI_Comm &comm, BrickDecomp<Dim<BDims...>, CommunicatingDims> &bDecomp, BitSet neighbor, int d, int *coo) {
-  populate<sizeof...(BDims), CommunicatingDims>(comm, bDecomp.rank_map, neighbor, d, coo);
+void populate(MPI_Comm &comm, BrickDecomp<Dim<BDims...>, CommunicatingDims> &bDecomp, BitSet neighbor, int d, int *coo,
+              bool upIsPositive = false) {
+  populate<sizeof...(BDims), CommunicatingDims>(comm, bDecomp.rank_map, neighbor, d, coo, upIsPositive);
 }
 
 /**
