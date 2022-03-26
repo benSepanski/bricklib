@@ -6,7 +6,9 @@
 #define BRICK_GTENSOR_STENCILS_H
 
 #include "brick-stencils.h"
+#ifndef GTENSOR_DEFAULT_DEVICE_ALLOCATOR
 #define GTENSOR_DEFAULT_DEVICE_ALLOCATOR(T) gt::device_allocator<T>
+#endif
 #include <gtensor/gtensor.h>
 
 /**

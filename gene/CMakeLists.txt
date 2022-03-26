@@ -33,8 +33,9 @@ if(gtensor_FOUND AND CMAKE_CUDA_COMPILER)
 
     # mpi computation
     if(MPI_FOUND)
-        add_executable(mpi-gene6d mpi-main.cpp ${VSTARGET_GENE6D_STENCILS_OUTPUT} mpi-util.cpp util.cpp)
-        target_gtensor_sources(mpi-gene6d PRIVATE mpi-main.cpp gtensor-stencils.h)
+        add_executable(mpi-gene6d mpi-main.cpp ${VSTARGET_GENE6D_STENCILS_OUTPUT} mpi-util.cpp util.cpp
+                       mpi-gtensor.cu)
+        target_gtensor_sources(mpi-gene6d PRIVATE mpi-main.cpp gtensor-stencils.h mpi-gtensor.cuh mpi-gtensor.cu)
         target_link_libraries(mpi-gene6d
                               brick brickhelper
                               gtensor::gtensor

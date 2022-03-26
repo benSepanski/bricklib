@@ -16,6 +16,7 @@
 
 #include "brick-stencils.h"
 #include "gtensor-stencils.h"
+#include "mpi-gtensor.cuh"
 #include "mpi-util.h"
 #include "util.h"
 
@@ -82,24 +83,15 @@ void semiArakawaDistributedGTensor(complexArray6D out, const complexArray6D& in,
   auto gtensorKernelOutToIn =
       buildArakawaGTensorKernel<gt::space::device>(gt_out_dev, gt_in_dev, gt_coeff_dev, numGhostZonesToSkip);
 
-  // build a function to perform an exchange
-  auto exchange = [&](complexArray6D &toExchange, complexArray6D &toExchange_dev) -> void {
-#if !defined(CUDA_AWARE) || !defined(USE_TYPES)
-    double st = omp_get_wtime();
-    toExchange.copyFromDevice(toExchange_dev); ///< Copy device -> host
-    movetime += omp_get_wtime() - st;
-#ifdef USE_TYPES
-    mpiHandle.exchangeArray(toExchange, complexFieldMPIArrayTypesHandle);
-#else
-    mpiHandle.exchangeArray(toExchange, mpiGhostDepth); ///< Exchange on host
-#endif
-    st = omp_get_wtime();
-    toExchange.copyToDevice(toExchange_dev); ///< Copy host -> device
-    movetime += omp_get_wtime() - st;
-#else
-    mpiHandle.exchangeArray(toExchange_dev, complexFieldMPIArrayTypesHandle);
-#endif
-  };
+  MPI_Comm comm = mpiHandle.getMPIComm();
+  int rankV, numProcsV;
+  std::array<int, RANK> mpiCoords{}, mpiSize{}, mpiPeriodic{};
+  check_MPI(MPI_Cart_get(comm, RANK, mpiSize.data(), mpiCoords.data(), mpiPeriodic.data()));
+  std::reverse(mpiCoords.begin(), mpiCoords.end());
+  rankV = mpiCoords[4];
+  numProcsV = mpiSize[4];
+
+  gt::gtensor<bElem, 3, gt::space::device> dummyPBPhaseFac;
 
   // build a function which computes our stencil
   bool inToOut = true;
@@ -111,11 +103,17 @@ void semiArakawaDistributedGTensor(complexArray6D out, const complexArray6D& in,
     gpuCheck(cudaEventCreate(&c_1));
 
     // perform exchange
+    double st = omp_get_wtime(), ed;
+    static_assert(PADDING[0] == 0 && PADDING[1] == 0 && PADDING[2] == 0 && PADDING[3] == 0
+                  && PADDING[4] == 0 && PADDING[5] == 0,
+                  "Can't have padding for GENE exchange");
     if(inToOut) {
-      exchange(inCopy, in_dev);
+      geneExchangeZV(gt_in_dev, comm, numGhostZones * 2, dummyPBPhaseFac, rankV, numProcsV);
     } else {
-      exchange(out, out_dev);
+      geneExchangeZV(gt_out_dev, comm, numGhostZones * 2, dummyPBPhaseFac, rankV, numProcsV);
     }
+    ed = omp_get_wtime();
+    waittime += ed - st;
 
     // perform computation
     gpuCheck(cudaEventRecord(c_0));
