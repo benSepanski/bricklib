@@ -170,9 +170,9 @@ endif()
 
 if(PERLMUTTER)
     # https://docs.nersc.gov/current/ as of Jan 3, 2022
-    include_directories(
-        "$ENV{CRAY_CUDATOOLKIT_DIR}/../../math_libs/${CMAKE_CUDA_COMPILER_VERSION}/include"
-    )
+    set(CUFFT_INCLUDE_DIR "$ENV{CRAY_CUDATOOLKIT_DIR}/../../math_libs/${CUDAToolkit_VERSION_MAJOR}.${CUDAToolkit_VERSION_MINOR}/include")
+    include_directories( "${CUFFT_INCLUDE_DIR}" )
+    message(STATUS "Including directories ${CUFFT_INCLUDE_DIR}")
 endif()
 
 add_subdirectory(src)
