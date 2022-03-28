@@ -75,6 +75,7 @@ if __name__ == "__main__":
     build_dir = os.path.abspath(f"cmake-builds/mpi/{machine_config.name}_brick_{'_'.join(map(str, brick_shape))}")
     executable_name = "gene/mpi-gene6d"
 
+
     def get_build_dir(cuda_aware: Union[bool, str]) -> str:
         if isinstance(cuda_aware, bool):
             cuda_aware = "ON" if cuda_aware else "OFF"
@@ -125,7 +126,6 @@ fi
 #https://docs.nersc.gov/jobs/affinity/#openmp-environment-variables
 export OMP_PLACES=threads
 export OMP_PROC_BIND=true
-export gtensor_DIR={gtensor_dir}
 export MPICH_RANK_REORDER_METHOD=3 #https://docs.nersc.gov/jobs/best-practices/#grid_order
 """
 
@@ -172,7 +172,7 @@ export MPICH_RANK_REORDER_METHOD=3 #https://docs.nersc.gov/jobs/best-practices/#
             return self.per_process_extent == that.per_process_extent \
                    and self.procs_per_dim == that.procs_per_dim \
                    and self.num_gz == that.num_gz \
-                   and self.cuda_aware == that.cuda_aware \
+                   and self.cuda_aware == that.cuda_aware
 
         def __ne__(self, that):
             return not (self == that)
@@ -186,8 +186,8 @@ export MPICH_RANK_REORDER_METHOD=3 #https://docs.nersc.gov/jobs/best-practices/#
         ghost_depth = (0, 0, 2 * num_gz, 2 * num_gz, 0, 0)
         min_extent = tuple(map(lambda g: max(1, 3 * g), ghost_depth))
         seen_procs_per_dim = set()
-        for m in filter(lambda m: per_process_extent[3] % m == 0 and num_gpus % m == 0, range(1, num_gpus+1)):
-            for k in filter(lambda k: num_gpus % (k*m) == 0, range(1, num_gpus + 1)):
+        for m in filter(lambda m: per_process_extent[3] % m == 0 and num_gpus % m == 0, range(1, num_gpus + 1)):
+            for k in filter(lambda k: num_gpus % (k * m) == 0, range(1, num_gpus + 1)):
                 ell = num_gpus // (k * m)
                 assert m * k * ell == num_gpus
                 procs_per_dim = (1, 1, k, ell, m, 1)
@@ -236,8 +236,9 @@ export MPICH_RANK_REORDER_METHOD=3 #https://docs.nersc.gov/jobs/best-practices/#
                                         output_file_name=f"{slurm_output_dir}/{job_name}_%a.out",
                                         error_file_name=f"{slurm_error_dir}/{job_name}_%a.err"
                                         )
-    build_scripts = ["#!/bin/bash"] + [build_job(brick_shape, vec_shape, cuda_aware)
-                                       for cuda_aware in cuda_aware_vals]
+    build_scripts = ["#!/bin/bash", f"export gtensor_DIR={gtensor_dir}"] + [
+        build_job(brick_shape, vec_shape, cuda_aware)
+        for cuda_aware in cuda_aware_vals]
     build_script_filename = os.path.abspath(f"{generated_scripts_dir}/build_{job_name}.sh")
     print(f"Writing build script to {build_script_filename}")
     with open(build_script_filename, 'w') as build_script_file:
@@ -286,6 +287,7 @@ export MPICH_RANK_REORDER_METHOD=3 #https://docs.nersc.gov/jobs/best-practices/#
         values_as_array += "\n" + " " * indent + ")"
         return f"{array_var_name}={values_as_array}"
 
+
     for name, values in zip(job_var_names, job_var_values):
         environment_setup += "\n" + make_bash_array(name, values)
 
@@ -296,19 +298,25 @@ export MPICH_RANK_REORDER_METHOD=3 #https://docs.nersc.gov/jobs/best-practices/#
 
     # Finally, build the job script
     build_dir = get_build_dir(f"${{{cuda_aware_var_name}}}")
-    srun_args = [f"-n {num_gpus}", "--cpu-bind=cores"]
-    srun_cmd = f"srun {' '.join(srun_args)}"
     mpich_rank_reorder_dir = os.path.abspath(f"{generated_scripts_dir}/reorder_files")
     if not os.path.exists(mpich_rank_reorder_dir):
         os.mkdir(mpich_rank_reorder_dir)
-    mpich_rank_reorder_file = f"{mpich_rank_reorder_dir}/MPICH_RANK_ORDER_{num_gpus}gpus_job${{SLURM_ARRAY_TASK_ID}}"
-    job_script = f"""export CUDA_VISIBLE_DEVICES=${{SLURM_LOCALID}}
+    mpich_rank_reorder_file = f"{mpich_rank_reorder_dir}/MPICH_RANK_ORDER_{num_gpus}" + \
+        f"gpus_{'weak_' if weak_scaling else ''}job${{SLURM_ARRAY_TASK_ID}}"
+    environment_setup += "\n" + f"""export CUDA_VISIBLE_DEVICES=${{SLURM_LOCALID}}
 export MPICH_RANK_REORDER_FILE={mpich_rank_reorder_file}
 grid_order -C -c ${{{node_local_procs_per_dim_var_name}}} -g ${{{procs_per_dim_var_name}}} > ${{MPICH_RANK_REORDER_FILE}}
+"""
+    job_script = f"""export MPICH_RANK_REORDER_METHOD=3 #https://docs.nersc.gov/jobs/best-practices/#grid_order
+export CUDA_VISIBLE_DEVICES=${{SLURM_LOCALID}}
+export MPICH_RANK_REORDER_FILE=${{1}}
+export {per_process_extent_var_name}=${{2}}
+export {procs_per_dim_var_name}=${{3}}
+export {cuda_aware_var_name}=${{4}}
 {build_dir}/{executable_name} \\
         -d ${{{per_process_extent_var_name}}} \\
         -p ${{{procs_per_dim_var_name}}} \\
-        -I 25 -W 2 -a -G {num_gz} \\
+        -I 25 -W 5 -a -G {num_gz} \\
         -o {output_file} \\
         || echo \"{'weak ' if weak_scaling else ''}Failed with {num_gpus} gpus, cuda_aware ${{{cuda_aware_var_name}}}, """ \
                  f"""extent ${{{per_process_extent_var_name}}}, procs per dim ${{{procs_per_dim_var_name}}}""" \
@@ -317,12 +325,22 @@ grid_order -C -c ${{{node_local_procs_per_dim_var_name}}} -g ${{{procs_per_dim_v
     exec_script_filename = os.path.abspath(f"{generated_scripts_dir}/{job_name}.sh")
     print(f"Writing exec script to {exec_script_filename}")
     with open(exec_script_filename, 'w') as exec_script_file:
-        exec_script_file.write("\n".join(["#!/bin/bash", environment_setup, job_script]))
+        exec_script_file.write("\n".join(["#!/bin/bash", job_script]))
 
     slurm_script_filename = os.path.abspath(f"{generated_scripts_dir}/{job_name}.slurm")
     print(f"Writing slurm script to {slurm_script_filename}")
+    srun_args = [f"-n {num_gpus}",
+                 "--cpu-bind=cores",
+                 exec_script_filename,
+                 "${MPICH_RANK_REORDER_FILE}",
+                 f"${{{per_process_extent_var_name}}}",
+                 f"${{{procs_per_dim_var_name}}}",
+                 f"${{{cuda_aware_var_name}}}",
+                 ]
+    srun_cmd = f"srun {' '.join(srun_args)}"
     with open(slurm_script_filename, 'w') as slurm_script_file:
-        slurm_script_file.write("\n".join([preamble, "# Run job", f"{srun_cmd} {exec_script_filename}"]))
+        slurm_script_file.write("\n".join([preamble, "# Run job", environment_setup,
+                                           "srun " + " \\\n     ".join(srun_args)]))
 
     build_cmd = f"{build_script_filename}"
     submit_file_name = os.path.abspath(f"{generated_scripts_dir}/{job_name}.submit")
@@ -330,7 +348,7 @@ grid_order -C -c ${{{node_local_procs_per_dim_var_name}}} -g ${{{procs_per_dim_v
         submit_file.write("\n".join(["#!/bin/bash",
                                      "# Build",
                                      build_cmd,
-                                     f"sbatch --array=0-{len(jobs)-1} {slurm_script_filename}",
+                                     f"sbatch --array=0-{len(jobs) - 1} {slurm_script_filename}",
                                      ]) + "\n")
     print(f"Writing submit file to {submit_file_name}")
 
