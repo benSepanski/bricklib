@@ -16,7 +16,7 @@
 
 #include "brick-stencils.h"
 #include "gtensor-stencils.h"
-#include "mpi-gtensor.cuh"
+#include "mpi-gene.cuh"
 #include "mpi-util.h"
 #include "util.h"
 
@@ -73,8 +73,6 @@ void semiArakawaDistributedGTensor(complexArray6D out, const complexArray6D& in,
   // declare our out-array
   auto out_dev = out.allocateOnDevice();
   auto gt_out_dev = gt::adapt_device((gt::complex<bElem> *)out_dev.getData().get(), shape6D);
-  // set up MPI types for transfer
-  auto complexFieldMPIArrayTypesHandle = mpiHandle.buildArrayTypesHandle(inCopy, mpiGhostDepth);
 
   // get the gtensor kernel
   unsigned numGhostZonesToSkip = 1;
@@ -84,14 +82,12 @@ void semiArakawaDistributedGTensor(complexArray6D out, const complexArray6D& in,
       buildArakawaGTensorKernel<gt::space::device>(gt_out_dev, gt_in_dev, gt_coeff_dev, numGhostZonesToSkip);
 
   MPI_Comm comm = mpiHandle.getMPIComm();
-  int rankV, numProcsV;
-  std::array<int, RANK> mpiCoords{}, mpiSize{}, mpiPeriodic{};
-  check_MPI(MPI_Cart_get(comm, RANK, mpiSize.data(), mpiCoords.data(), mpiPeriodic.data()));
-  std::reverse(mpiCoords.begin(), mpiCoords.end());
-  rankV = mpiCoords[4];
-  numProcsV = mpiSize[4];
 
+  // build our ghost exchange
   gt::gtensor<bElem, 3, gt::space::device> dummyPBPhaseFac;
+  auto exchange = buildGeneExchangeZV(shape6D, comm, numGhostZones * 2, dummyPBPhaseFac);
+  GeneExchangeBuffers geneExchangeBufZ(shape6D, numGhostZones * 2, 2),
+      geneExchangeBufV(shape6D, numGhostZones * 2, 3);
 
   // build a function which computes our stencil
   bool inToOut = true;
@@ -103,17 +99,14 @@ void semiArakawaDistributedGTensor(complexArray6D out, const complexArray6D& in,
     gpuCheck(cudaEventCreate(&c_1));
 
     // perform exchange
-    double st = omp_get_wtime(), ed;
     static_assert(PADDING[0] == 0 && PADDING[1] == 0 && PADDING[2] == 0 && PADDING[3] == 0
                   && PADDING[4] == 0 && PADDING[5] == 0,
                   "Can't have padding for GENE exchange");
     if(inToOut) {
-      geneExchangeZV(gt_in_dev, comm, numGhostZones * 2, dummyPBPhaseFac, rankV, numProcsV);
+      exchange(gt_in_dev, geneExchangeBufZ, geneExchangeBufV);
     } else {
-      geneExchangeZV(gt_out_dev, comm, numGhostZones * 2, dummyPBPhaseFac, rankV, numProcsV);
+      exchange(gt_out_dev, geneExchangeBufZ, geneExchangeBufV);
     }
-    ed = omp_get_wtime();
-    waittime += ed - st;
 
     // perform computation
     gpuCheck(cudaEventRecord(c_0));
@@ -420,16 +413,10 @@ int main(int argc, char **argv) {
 #ifdef CUDA_AWARE
   cudaAware = true;
 #endif
-  bool mpiTypes = false;
-#ifdef USE_TYPES
-  mpiTypes = true;
-#endif
-  bool gtensorMPITypes = mpiTypes;
-  bool gtensorCudaAware = cudaAware & gtensorMPITypes;
+  bool gtensorCudaAware = cudaAware;
   bool bricksCudaAware = cudaAware;
   if(rank == 0) {
     std::cout << "GTensor Cuda Aware: " << gtensorCudaAware << "\n"
-              << "GTensor MPI Types: " << gtensorMPITypes << "\n"
               << "Bricks Cuda Aware: " << bricksCudaAware << std::endl;
   }
 
@@ -618,7 +605,6 @@ int main(int argc, char **argv) {
   if (rank == 0) {
     std::cout << "Coefficient exchange complete. Beginning array computation" << std::endl;
     dataRecorder.setDefaultValue("CUDA_AWARE", gtensorCudaAware);
-    dataRecorder.setDefaultValue("MPI_TYPES", gtensorMPITypes);
     dataRecorder.setDefaultValue("Layout", "array");
 
     for(unsigned d = 0; d < RANK; ++d) {
@@ -656,7 +642,7 @@ int main(int argc, char **argv) {
     }
     semiArakawaDistributedBrick(brickOut, in, coeffs, mpiLayout, kernelType, numGhostZones, totalExchangeSize, dataRecorder);
 
-    std::cout << "Beginning error check against array output" << std::endl;
+    std::cout << "Beginning error check against array output (rank " << rank << ")" << std::endl;
     checkClose(brickOut, arrayOut, ghostZoneDepth);
     std::cout << "PASS" << std::endl;
     // clear out brick to be sure correct values don't propagate through loop

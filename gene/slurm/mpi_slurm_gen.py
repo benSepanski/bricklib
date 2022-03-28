@@ -20,8 +20,6 @@ if __name__ == "__main__":
     parser.add_argument("--compiler", type=str, help="Compiler being used for affinity check", default="gnu")
     parser.add_argument("-w", "--weak", action='store_true', help="Perform weak scaling instead of strong scaling")
     parser.add_argument("--always-cuda-aware", action='store_true', help="Only use jobs which use CUDA-Aware MPI")
-    parser.add_argument("--no-mpi-types-cuda-aware", action='store_true',
-                        help="Don't run jobs with both cuda-aware and MPI types")
     parser.add_argument("-d", "--per-process-domain-size", type=str,
                         help="Per-process domain extent formatted as I,J,K,L,M,N",
                         default=None)
@@ -47,7 +45,6 @@ if __name__ == "__main__":
 
     weak_scaling: bool = args["weak"]
     always_cuda_aware: bool = args["always_cuda_aware"]
-    no_mpi_types_cuda_aware: bool = args["no_mpi_types_cuda_aware"]
 
     if args["per_process_domain_size"] is not None:
         per_process_extent = tuple(map(int, args["per_process_domain_size"].split(',')))
@@ -77,32 +74,24 @@ if __name__ == "__main__":
 
     build_dir = os.path.abspath(f"cmake-builds/mpi/{machine_config.name}_brick_{'_'.join(map(str, brick_shape))}")
     executable_name = "gene/mpi-gene6d"
-    environment_setup = f"""
-if [[ ! -f "{build_dir}" ]] ; then
-    mkdir -p "{build_dir}"
-fi
-"""
 
-
-    def get_build_dir(use_types: Union[bool, str], cuda_aware: Union[bool, str]) -> str:
-        if isinstance(use_types, bool):
-            use_types = "ON" if use_types else "OFF"
+    def get_build_dir(cuda_aware: Union[bool, str]) -> str:
         if isinstance(cuda_aware, bool):
             cuda_aware = "ON" if cuda_aware else "OFF"
-        return os.path.abspath(f"{build_dir}/use_types_{use_types}_cuda_aware_{cuda_aware}")
+        return os.path.abspath(f"{build_dir}/cuda_aware_{cuda_aware}")
 
 
-    def build_job(brick_dim, vec_dim, use_types: bool, cuda_aware: bool):
-        current_build_dir = get_build_dir(use_types, cuda_aware)
+    def build_job(brick_dim, vec_dim, cuda_aware: bool):
+        current_build_dir = get_build_dir(cuda_aware)
         return f"""
 if [[ ! -d {current_build_dir} ]] ; then 
     mkdir -p {current_build_dir}
-    echo "Building brick-dim {brick_dim} with vec dim {vec_dim}, use_types={use_types}, cuda_aware={cuda_aware}" ; 
+    echo "Building brick-dim {brick_dim} with vec dim {vec_dim}, cuda_aware={cuda_aware}" ; 
     cmake -S {os.path.abspath(os.path.join(os.path.pardir, os.path.pardir))} \\
         -B {current_build_dir} \\
         -DCMAKE_CUDA_ARCHITECTURES={machine_config.cuda_arch} \\
         -DCMAKE_INSTALL_PREFIX=bin \\
-        -DGENE6D_USE_TYPES={"ON" if use_types else "OFF"} \\
+        -DGENE6D_USE_TYPES=OFF \\
         -DGENE6D_CUDA_AWARE={"ON" if cuda_aware else "OFF"} \\
         -DGENE6D_BRICK_DIM={','.join(map(str, reversed(brick_dim)))} \\
         -DGENE6D_VEC_DIM={','.join(map(str, reversed(vec_dim)))} \\
@@ -132,12 +121,11 @@ fi
 """
 
 
-    environment_setup += f"""module unload darshan
+    environment_setup = f"""module unload darshan
 #https://docs.nersc.gov/jobs/affinity/#openmp-environment-variables
 export OMP_PLACES=threads
 export OMP_PROC_BIND=true
 export gtensor_DIR={gtensor_dir}
-export CUDA_VISIBLE_DEVICES=${{SLURM_LOCALID}}
 export MPICH_RANK_REORDER_METHOD=3 #https://docs.nersc.gov/jobs/best-practices/#grid_order
 """
 
@@ -148,14 +136,13 @@ export MPICH_RANK_REORDER_METHOD=3 #https://docs.nersc.gov/jobs/best-practices/#
         """
 
         # noinspection PyShadowingNames
-        def __init__(self, per_process_extent, procs_per_dim, use_types: bool, cuda_aware: bool):
+        def __init__(self, per_process_extent, procs_per_dim, cuda_aware: bool):
             global num_gz
             global output_file
             self.per_process_extent = tuple(per_process_extent)
             self.procs_per_dim = tuple(procs_per_dim)
             self.num_gz = num_gz
             self.output_file = output_file
-            self.use_types = use_types
             self.cuda_aware = cuda_aware
 
         def get_node_local_procs_per_dim(self, config: MachineConfig) -> Tuple[int, int, int, int, int, int]:
@@ -186,7 +173,6 @@ export MPICH_RANK_REORDER_METHOD=3 #https://docs.nersc.gov/jobs/best-practices/#
                    and self.procs_per_dim == that.procs_per_dim \
                    and self.num_gz == that.num_gz \
                    and self.cuda_aware == that.cuda_aware \
-                   and self.use_types == that.use_types
 
         def __ne__(self, that):
             return not (self == that)
@@ -195,7 +181,7 @@ export MPICH_RANK_REORDER_METHOD=3 #https://docs.nersc.gov/jobs/best-practices/#
             return hash((self.per_process_extent, self.procs_per_dim, self.num_gz))
 
 
-    def run_jobs(use_types: bool, cuda_aware: bool) -> List[JobDescription]:
+    def run_jobs(cuda_aware: bool) -> List[JobDescription]:
         jobs_to_run = []
         ghost_depth = (0, 0, 2 * num_gz, 2 * num_gz, 0, 0)
         min_extent = tuple(map(lambda g: max(1, 3 * g), ghost_depth))
@@ -213,7 +199,7 @@ export MPICH_RANK_REORDER_METHOD=3 #https://docs.nersc.gov/jobs/best-practices/#
                 if weak_scaling:
                     # weak scaling jobs:
                     job = JobDescription(per_process_extent=per_process_extent, procs_per_dim=procs_per_dim,
-                                         use_types=use_types, cuda_aware=cuda_aware)
+                                         cuda_aware=cuda_aware)
                     jobs_to_run.append(job)
                 elif all([extent % num_procs == 0 for extent, num_procs in zip(per_process_extent, procs_per_dim)]):
                     # strong scaling jobs
@@ -223,18 +209,16 @@ export MPICH_RANK_REORDER_METHOD=3 #https://docs.nersc.gov/jobs/best-practices/#
                     for i, extent in enumerate(divided_extent):
                         divided_extent[i] = max(extent, min_extent[i])
                     job = JobDescription(per_process_extent=divided_extent, procs_per_dim=procs_per_dim,
-                                         use_types=use_types, cuda_aware=cuda_aware)
+                                         cuda_aware=cuda_aware)
                     jobs_to_run.append(job)
 
-        print(f"{len(jobs_to_run)} jobs for use_types={use_types}, cuda_aware={cuda_aware}")
+        print(f"{len(jobs_to_run)} jobs for cuda_aware={cuda_aware}")
         return jobs_to_run
 
 
-    use_types_cuda_aware_vals: List[Tuple[bool, bool]] = [(False, True), (False, False), (True, False), (True, True)]
+    cuda_aware_vals: List[bool] = [True, False]
     if always_cuda_aware:
-        use_types_cuda_aware_vals = list(filter(lambda x: x[1], use_types_cuda_aware_vals))
-    if no_mpi_types_cuda_aware:
-        use_types_cuda_aware_vals.remove((True, True))
+        cuda_aware_vals = [True]
 
     generated_scripts_dir = "generated-scripts"
     slurm_error_dir = f"{generated_scripts_dir}/error"
@@ -252,8 +236,8 @@ export MPICH_RANK_REORDER_METHOD=3 #https://docs.nersc.gov/jobs/best-practices/#
                                         output_file_name=f"{slurm_output_dir}/{job_name}_%a.out",
                                         error_file_name=f"{slurm_error_dir}/{job_name}_%a.err"
                                         )
-    build_scripts = ["#!/bin/bash"] + [build_job(brick_shape, vec_shape, use_types, cuda_aware)
-                                       for use_types, cuda_aware in use_types_cuda_aware_vals]
+    build_scripts = ["#!/bin/bash"] + [build_job(brick_shape, vec_shape, cuda_aware)
+                                       for cuda_aware in cuda_aware_vals]
     build_script_filename = os.path.abspath(f"{generated_scripts_dir}/build_{job_name}.sh")
     print(f"Writing build script to {build_script_filename}")
     with open(build_script_filename, 'w') as build_script_file:
@@ -263,17 +247,15 @@ export MPICH_RANK_REORDER_METHOD=3 #https://docs.nersc.gov/jobs/best-practices/#
     per_process_extent_var_name = "per_process_extent"
     procs_per_dim_var_name = "procs_per_dim"
     node_local_procs_per_dim_var_name = "node_local_procs_per_dim"
-    use_types_var_name = "use_types"
     cuda_aware_var_name = "cuda_aware"
     job_var_names = [per_process_extent_var_name,
                      procs_per_dim_var_name,
                      node_local_procs_per_dim_var_name,
-                     use_types_var_name,
                      cuda_aware_var_name,
                      ]
 
     jobs: List[JobDescription] = \
-        [job for use_types, cuda_aware in use_types_cuda_aware_vals for job in run_jobs(use_types, cuda_aware)]
+        [job for cuda_aware in cuda_aware_vals for job in run_jobs(cuda_aware)]
 
     # setup job script variable arrays
     per_process_extents = list(map(lambda job: ','.join(map(str, job.per_process_extent)), jobs))
@@ -282,12 +264,10 @@ export MPICH_RANK_REORDER_METHOD=3 #https://docs.nersc.gov/jobs/best-practices/#
                                                                   job.get_node_local_procs_per_dim(machine_config))
                                                               ),
                                          jobs))
-    use_types_values = list(map(lambda job: "ON" if job.use_types else "OFF", jobs))
     cuda_aware_values = list(map(lambda job: "ON" if job.cuda_aware else "OFF", jobs))
     job_var_values = [per_process_extents,
                       procs_per_dims,
                       node_local_procs_per_dims,
-                      use_types_values,
                       cuda_aware_values,
                       ]
     assert len(job_var_values) == len(job_var_names)
@@ -315,30 +295,36 @@ export MPICH_RANK_REORDER_METHOD=3 #https://docs.nersc.gov/jobs/best-practices/#
         environment_setup += "\n" + f"{name}=${{{array_name}[${{SLURM_ARRAY_TASK_ID}}]}}"
 
     # Finally, build the job script
-    build_dir = get_build_dir(f"${{{use_types_var_name}}}", f"${{{cuda_aware_var_name}}}")
+    build_dir = get_build_dir(f"${{{cuda_aware_var_name}}}")
     srun_args = [f"-n {num_gpus}", "--cpu-bind=cores"]
     srun_cmd = f"srun {' '.join(srun_args)}"
     mpich_rank_reorder_dir = os.path.abspath(f"{generated_scripts_dir}/reorder_files")
     if not os.path.exists(mpich_rank_reorder_dir):
         os.mkdir(mpich_rank_reorder_dir)
     mpich_rank_reorder_file = f"{mpich_rank_reorder_dir}/MPICH_RANK_ORDER_{num_gpus}gpus_job${{SLURM_ARRAY_TASK_ID}}"
-    job_script = f"""export MPICH_RANK_REORDER_FILE={mpich_rank_reorder_file}
+    job_script = f"""export CUDA_VISIBLE_DEVICES=${{SLURM_LOCALID}}
+export MPICH_RANK_REORDER_FILE={mpich_rank_reorder_file}
 grid_order -C -c ${{{node_local_procs_per_dim_var_name}}} -g ${{{procs_per_dim_var_name}}} > ${{MPICH_RANK_REORDER_FILE}}
-{srun_cmd} {build_dir}/{executable_name} \\
+{build_dir}/{executable_name} \\
         -d ${{{per_process_extent_var_name}}} \\
         -p ${{{procs_per_dim_var_name}}} \\
         -I 25 -W 2 -a -G {num_gz} \\
         -o {output_file} \\
-        || echo \"{'weak ' if weak_scaling else ''}Failed with {num_gpus} gpus, cuda_aware ${{{cuda_aware_var_name}}}, use_types ${{{use_types_var_name}}}, """ \
+        || echo \"{'weak ' if weak_scaling else ''}Failed with {num_gpus} gpus, cuda_aware ${{{cuda_aware_var_name}}}, """ \
                  f"""extent ${{{per_process_extent_var_name}}}, procs per dim ${{{procs_per_dim_var_name}}}""" \
                  f""" and {num_gz} ghost-zones\" >> mpi_failures.txt"""
 
-    build_cmd = f"{build_script_filename}"
+    exec_script_filename = os.path.abspath(f"{generated_scripts_dir}/{job_name}.sh")
+    print(f"Writing exec script to {exec_script_filename}")
+    with open(exec_script_filename, 'w') as exec_script_file:
+        exec_script_file.write("\n".join(["#!/bin/bash", environment_setup, job_script]))
+
     slurm_script_filename = os.path.abspath(f"{generated_scripts_dir}/{job_name}.slurm")
     print(f"Writing slurm script to {slurm_script_filename}")
     with open(slurm_script_filename, 'w') as slurm_script_file:
-        slurm_script_file.write("\n".join([preamble, environment_setup, "# Run job", job_script]))
+        slurm_script_file.write("\n".join([preamble, "# Run job", f"{srun_cmd} {exec_script_filename}"]))
 
+    build_cmd = f"{build_script_filename}"
     submit_file_name = os.path.abspath(f"{generated_scripts_dir}/{job_name}.submit")
     with open(submit_file_name, 'w') as submit_file:
         submit_file.write("\n".join(["#!/bin/bash",
@@ -349,6 +335,6 @@ grid_order -C -c ${{{node_local_procs_per_dim_var_name}}} -g ${{{procs_per_dim_v
     print(f"Writing submit file to {submit_file_name}")
 
     # make files executable
-    for file_name in [submit_file_name, slurm_script_filename, build_script_filename]:
+    for file_name in [submit_file_name, slurm_script_filename, exec_script_filename, build_script_filename]:
         st = os.stat(file_name)
         os.chmod(file_name, st.st_mode | stat.S_IEXEC)
