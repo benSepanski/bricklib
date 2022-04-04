@@ -18,10 +18,9 @@ if __name__ == "__main__":
     parser.add_argument("-A", "--account", type=str, help="slurm account to charge")
     parser.add_argument("-t", "--time-limit", type=str, help="Time limit, in format for slurm", default="01:00:00")
     parser.add_argument("--compiler", type=str, help="Compiler being used for affinity check", default="gnu")
-    parser.add_argument("-w", "--weak", action='store_true', help="Perform weak scaling instead of strong scaling")
     parser.add_argument("--always-cuda-aware", action='store_true', help="Only use jobs which use CUDA-Aware MPI")
-    parser.add_argument("-d", "--per-process-domain-size", type=str,
-                        help="Per-process domain extent formatted as I,J,K,L,M,N",
+    parser.add_argument("-d", "--domain-size", type=str,
+                        help="global domain extent formatted as I,J,K,L,M,N",
                         default=None)
     parser.add_argument("--num-gz", type=int, help="Number of ghost-zones to use", default=1)
     parser.add_argument("-J", "--job-name", type=str, help="Name of job", default=None)
@@ -43,20 +42,17 @@ if __name__ == "__main__":
     time_limit = args["time_limit"]
     compiler = args["compiler"]
 
-    weak_scaling: bool = args["weak"]
     always_cuda_aware: bool = args["always_cuda_aware"]
 
-    if args["per_process_domain_size"] is not None:
-        per_process_extent = tuple(map(int, args["per_process_domain_size"].split(',')))
-    elif weak_scaling:
-        per_process_extent = (72, 32, 32, 32, 32, 2)
+    if args["domain_size"] is not None:
+        global_extent = tuple(map(int, args["domain_size"].split(',')))
     else:
-        per_process_extent = (72, 32, 64, 64, 32, 2)
+        global_extent = (72, 32, 64, 64, 32, 2)
     num_gz = args["num_gz"]
 
     job_name = args["job_name"]
     if job_name is None:
-        job_name = f"mpi_{num_gpus}{'_weak' if weak_scaling else ''}"
+        job_name = f"mpi_{num_gpus}"
     output_file = args["output_file"]
     if output_file is None:
         output_file = f"{job_name}.csv"
@@ -186,25 +182,19 @@ export MPICH_RANK_REORDER_METHOD=3 #https://docs.nersc.gov/jobs/best-practices/#
         ghost_depth = (0, 0, 2 * num_gz, 2 * num_gz, 0, 0)
         min_extent = tuple(map(lambda g: max(1, 3 * g), ghost_depth))
         seen_procs_per_dim = set()
-        for m in filter(lambda m: per_process_extent[3] % m == 0 and num_gpus % m == 0, range(1, num_gpus + 1)):
-            for k in filter(lambda k: num_gpus % (k * m) == 0, range(1, num_gpus + 1)):
+        for m in filter(lambda m: global_extent[4] % m == 0 and num_gpus % m == 0, range(1, num_gpus + 1)):
+            for k in filter(lambda k: num_gpus % (k * m) == 0 and global_extent[2] % k == 0, range(1, num_gpus + 1)):
                 ell = num_gpus // (k * m)
                 assert m * k * ell == num_gpus
                 procs_per_dim = (1, 1, k, ell, m, 1)
-                if procs_per_dim in seen_procs_per_dim:
+                if procs_per_dim in seen_procs_per_dim or global_extent[3] % ell != 0:
                     continue
                 else:
                     seen_procs_per_dim.add(tuple(procs_per_dim))
                     assert procs_per_dim in seen_procs_per_dim
-                if weak_scaling:
-                    # weak scaling jobs:
-                    job = JobDescription(per_process_extent=per_process_extent, procs_per_dim=procs_per_dim,
-                                         cuda_aware=cuda_aware)
-                    jobs_to_run.append(job)
-                elif all([extent % num_procs == 0 for extent, num_procs in zip(per_process_extent, procs_per_dim)]):
-                    # strong scaling jobs
+                if all([extent % num_procs == 0 for extent, num_procs in zip(global_extent, procs_per_dim)]):
                     divided_extent = [extent // num_procs
-                                      for extent, num_procs in zip(per_process_extent, procs_per_dim)]
+                                      for extent, num_procs in zip(global_extent, procs_per_dim)]
                     # noinspection PyShadowingNames
                     for i, extent in enumerate(divided_extent):
                         divided_extent[i] = max(extent, min_extent[i])
@@ -302,7 +292,7 @@ export MPICH_RANK_REORDER_METHOD=3 #https://docs.nersc.gov/jobs/best-practices/#
     if not os.path.exists(mpich_rank_reorder_dir):
         os.mkdir(mpich_rank_reorder_dir)
     mpich_rank_reorder_file = f"{mpich_rank_reorder_dir}/MPICH_RANK_ORDER_{num_gpus}" + \
-        f"gpus_{'weak_' if weak_scaling else ''}job${{SLURM_ARRAY_TASK_ID}}"
+        f"gpus_job${{SLURM_ARRAY_TASK_ID}}"
     environment_setup += "\n" + f"""export CUDA_VISIBLE_DEVICES=${{SLURM_LOCALID}}
 export MPICH_RANK_REORDER_FILE={mpich_rank_reorder_file}
 grid_order -C -c ${{{node_local_procs_per_dim_var_name}}} -g ${{{procs_per_dim_var_name}}} > ${{MPICH_RANK_REORDER_FILE}}
@@ -318,7 +308,7 @@ export {cuda_aware_var_name}=${{4}}
         -p ${{{procs_per_dim_var_name}}} \\
         -I 25 -W 5 -a -G {num_gz} \\
         -o {output_file} \\
-        || echo \"{'weak ' if weak_scaling else ''}Failed with {num_gpus} gpus, cuda_aware ${{{cuda_aware_var_name}}}, """ \
+        || echo \"Failed with {num_gpus} gpus, cuda_aware ${{{cuda_aware_var_name}}}, """ \
                  f"""extent ${{{per_process_extent_var_name}}}, procs per dim ${{{procs_per_dim_var_name}}}""" \
                  f""" and {num_gz} ghost-zones\" >> mpi_failures.txt"""
 
