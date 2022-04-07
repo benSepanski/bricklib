@@ -12,11 +12,18 @@ env:
 
 jobs:
   build:
-    # The CMake configure and build commands are platform agnostic and should work equally well on Windows or Mac.
-    # You can convert this to a matrix build if you need cross-platform coverage.
-    # See: https://docs.github.com/en/free-pro-team@latest/actions/learn-github-actions/managing-complex-workflows#using-a-build-matrix
     runs-on: ubuntu-latest
-
+    strategy:
+      matrix:
+        USE_MEMFD: [OFF]
+        PAGE_UNALIGN: [OFF]
+        CUDA_AWARE: [OFF]
+        # USE_HIP: [OFF, ON]
+        
+    env:
+      BUILD_DIR_NAME: build_USE_MEMFD_${{ matrix.USE_MEMFD }}_PAGE_UNALIGN_${{ matrix.PAGE_UNALIGN }}_CUDA_AWARE_${{ matrix.CUDA_AWARE }}
+      BUILD_DIR: ${{github.workspace}}/${{env.BUILD_DIR_NAME}}
+      
     steps:
     - uses: actions/checkout@v3
     
@@ -34,10 +41,15 @@ jobs:
 
     - name: Build
       # Build your program with the given configuration
-      run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
+      run: |
+        cmake --build ${{ env.BUILD_DIR }} \
+          -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
+          -DUSE_MEMFD=${{ matrix.USE_MEMFD }} \
+          -DPAGE_UNALIGN=${{ matrix.PAGE_UNALIGN }} \
+          -DCUDA_AWARE=${{ matrix.CUDA_AWARE }}
 
     - name: Test
-      working-directory: ${{github.workspace}}/build
+      working-directory: ${{ env.BUILD_DIR }}
       # Execute tests defined by the CMake configuration.  
       # See https://cmake.org/cmake/help/latest/manual/ctest.1.html for more detail
       run: ctest -C ${{env.BUILD_TYPE}}
