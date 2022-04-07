@@ -15,13 +15,13 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        USE_MEMFD: [OFF]
-        PAGE_UNALIGN: [OFF]
-        CUDA_AWARE: [OFF]
+        USE_MEMFD: [OFF, ON]
+        CUDA_AWARE: [OFF, ON]
+        USE_TYPES: [OFF, ON]
         # USE_HIP: [OFF, ON]
         
     env:
-      BUILD_DIR: ${{github.workspace}}/build_USE_MEMFD_${{ matrix.USE_MEMFD }}_PAGE_UNALIGN_${{ matrix.PAGE_UNALIGN }}_CUDA_AWARE_${{ matrix.CUDA_AWARE }}
+      BUILD_DIR: ${{github.workspace}}/build_USE_MEMFD_${{ matrix.USE_MEMFD }}_USE_TYPES_${{ matrix.USE_TYPES }}_CUDA_AWARE_${{ matrix.CUDA_AWARE }}
       
     steps:
     - uses: actions/checkout@v3
@@ -45,7 +45,7 @@ jobs:
           -B ${{ env.BUILD_DIR }} \
           -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
           -DUSE_MEMFD=${{ matrix.USE_MEMFD }} \
-          -DPAGE_UNALIGN=${{ matrix.PAGE_UNALIGN }} \
+          -DUSE_TYPES=${{ matrix.USE_TYPES }} \
           -DCUDA_AWARE=${{ matrix.CUDA_AWARE }}
           
     - name: CMake build
