@@ -22,7 +22,7 @@ jobs:
         
     env:
       BUILD_DIR_NAME: build_USE_MEMFD_${{ matrix.USE_MEMFD }}_PAGE_UNALIGN_${{ matrix.PAGE_UNALIGN }}_CUDA_AWARE_${{ matrix.CUDA_AWARE }}
-      BUILD_DIR: ${{github.workspace}}/${{env.BUILD_DIR_NAME}}
+      BUILD_DIR: ${{github.workspace}}/$BUILD_DIR_NAME
       
     steps:
     - uses: actions/checkout@v3
