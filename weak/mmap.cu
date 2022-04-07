@@ -3,13 +3,13 @@
 // Experiments using unified memory (through ATS)
 //
 
+#include <cuda.h>
 #include "stencils/fake.h"
 #include "stencils/stencils.h"
 #include <brick-cuda.h>
 #include <brick-mpi.h>
 #include <brick.h>
 #include <bricksetup.h>
-#include <cuda.h>
 #include <iostream>
 #include <mpi.h>
 

@@ -73,10 +73,7 @@ if(gtensor_FOUND AND CMAKE_CUDA_COMPILER)
             CUDA::cudart)
 
     set_target_properties(single-gene-6d
-            PROPERTIES OUTPUT_NAME single-gene6d)
-    target_include_directories(single-gene6d PUBLIC
-            "${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES}"
-            )
+            PROPERTIES OUTPUT_NAME single-gene-6d)
     set_gene6d_brick_dim(single-gene-6d)
 
     # FFT computation

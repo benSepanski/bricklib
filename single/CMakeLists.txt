@@ -81,25 +81,6 @@ if (USE_DPC)
    set_target_properties(single-dpc PROPERTIES OUTPUT_NAME dpc)
 endif ()
 
-if(gtensor_FOUND)
-#     get_target_property(GTENSOR_INCLUDES gtensor::gtensor INTERFACE_INCLUDE_DIRECTORIES)
-#     message(STATUS "Linking with gtensor from ${GTENSOR_INCLUDES}")
-#     set(GENE5D_INCLUDE_DIRS "${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES}" "${GTENSOR_INCLUDES}")
-
-#     VSTARGET(GENE5D ../stencils/gene-6d-main.cpp ../stencils/gene-6d-main-out.cpp)
-#     add_executable(single-gene6d ${VSTARGET_GENE5D_OUTPUT} ../stencils/gene-6d.cu)
-    add_executable(single-gene6d gene-6d-main.cpp ../stencils/gene-6d.cpp ../stencils/gene-6d.cu)
-#     target_gtensor_sources(single-gene6d PRIVATE ${VSTARGET_GENE5D_OUTPUT})
-    target_gtensor_sources(single-gene6d PRIVATE gene-6d-main.cpp ../stencils/gene-6d.cpp)
-    target_link_libraries(single-gene6d brickhelper gtensor::gtensor nvToolsExt)
-
-    set_target_properties(single-gene6d
-            PROPERTIES OUTPUT_NAME gene6d)
-    target_include_directories(single-gene6d PUBLIC
-            "${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES}"
-            )
-endif ()
-
 if(CMAKE_CUDA_COMPILER)
     # sample FFT
     add_executable(single-fft fft.cu)
