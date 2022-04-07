@@ -1,10 +1,7 @@
-//
-// Created by Tuowen Zhao on 2/17/19.
-//
-
 #include "stencils/fake.h"
 #include "stencils/stencils.h"
-#include <brick-cuda.h>
+#include <brick-hip.h>
+#include <brick-gpu.h>
 #include <brick-mpi.h>
 #include <brick.h>
 #include <bricksetup.h>
@@ -12,8 +9,8 @@
 #include <mpi.h>
 
 #include "bitset.h"
-#include "stencils/cudaarray.h"
-#include "stencils/cudavfold.h"
+#include "stencils/gpuarray.h"
+#include "stencils/hipvfold.h"
 #include <brickcompare.h>
 #include <multiarray.h>
 
@@ -51,7 +48,7 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  MPI_Comm cart = parseArgs(argc, argv, "cuda");
+  MPI_Comm cart = parseArgs(argc, argv, "hip");
 
   if (cart != MPI_COMM_NULL) {
 
@@ -76,7 +73,7 @@ int main(int argc, char **argv) {
 
     bElem *in_ptr = randomArray(stride);
 
-    BrickDecomp<Dim<BDIM> > bDecomp(dom_size, GZ);
+    BrickDecomp<3, BDIM> bDecomp(dom_size, GZ);
     bDecomp.comm = cart;
     populate(cart, bDecomp, 0, 1, coo);
 
@@ -142,9 +139,9 @@ int main(int argc, char **argv) {
                                {PADDING, PADDING, PADDING}, {GZ, GZ, GZ});
     auto arr_func = [&]() -> void {
       float elapsed;
-      cudaEvent_t c_0, c_1;
-      cudaEventCreate(&c_0);
-      cudaEventCreate(&c_1);
+      hipEvent_t c_0, c_1;
+      hipEventCreate(&c_0);
+      hipEventCreate(&c_1);
 #if !defined(CUDA_AWARE) || !defined(USE_TYPES)
       // Copy everything back from device
       double st = omp_get_wtime();
@@ -158,15 +155,15 @@ int main(int argc, char **argv) {
 #else
       exchangeArrTypes<3>(in_ptr_dev, cart, bDecomp.rank_map, stypemap, rtypemap);
 #endif
-      cudaEventRecord(c_0);
+      hipEventRecord(c_0);
       dim3 block(strideb[0], strideb[1], strideb[2]), thread(TILE, TILE, TILE);
       for (int i = 0; i < ST_ITER / 2; ++i) {
         arr_kernel<<<block, thread>>>(in_ptr_dev, out_ptr_dev, arr_stride_dev);
         arr_kernel<<<block, thread>>>(out_ptr_dev, in_ptr_dev, arr_stride_dev);
       }
-      cudaEventRecord(c_1);
-      cudaEventSynchronize(c_1);
-      cudaEventElapsedTime(&elapsed, c_0, c_1);
+      hipEventRecord(c_1);
+      hipEventSynchronize(c_1);
+      hipEventElapsedTime(&elapsed, c_0, c_1);
       calctime += elapsed / 1000.0;
     };
 
@@ -181,9 +178,9 @@ int main(int argc, char **argv) {
     // Copy back
     copyFromDevice(stride, out_ptr, out_ptr_dev);
 
-    cudaFree(in_ptr_dev);
-    cudaFree(out_ptr_dev);
-    cudaFree(arr_stride_dev);
+    hipFree(in_ptr_dev);
+    hipFree(out_ptr_dev);
+    hipFree(arr_stride_dev);
     {
       mpi_stats calc_s = mpi_statistics(calctime / cnt, MPI_COMM_WORLD);
       mpi_stats call_s = mpi_statistics(calltime / cnt, MPI_COMM_WORLD);
@@ -215,15 +212,15 @@ int main(int argc, char **argv) {
 
     // setup brick on device
     BrickInfo<3> *bInfo_dev;
-    auto _bInfo_dev = movBrickInfo(bInfo, cudaMemcpyHostToDevice);
+    auto _bInfo_dev = movBrickInfo(bInfo, hipMemcpyHostToDevice);
     {
       unsigned size = sizeof(BrickInfo<3>);
-      cudaMalloc(&bInfo_dev, size);
-      cudaMemcpy(bInfo_dev, &_bInfo_dev, size, cudaMemcpyHostToDevice);
+      hipMalloc(&bInfo_dev, size);
+      hipMemcpy(bInfo_dev, &_bInfo_dev, size, hipMemcpyHostToDevice);
     }
 
-    BrickStorage bStorage_dev = movBrickStorage(bStorage, cudaMemcpyHostToDevice);
-    BrickStorage bStorageOut_dev = movBrickStorage(bStorageOut, cudaMemcpyHostToDevice);
+    BrickStorage bStorage_dev = movBrickStorage(bStorage, hipMemcpyHostToDevice);
+    BrickStorage bStorageOut_dev = movBrickStorage(bStorageOut, hipMemcpyHostToDevice);
 
     Brick3D bIn_dev(bInfo_dev, bStorage_dev, 0);
     Brick3D bOut_dev(bInfo_dev, bStorageOut_dev, 0);
@@ -245,16 +242,16 @@ int main(int argc, char **argv) {
 
     auto brick_func = [&]() -> void {
       float elapsed;
-      cudaEvent_t c_0, c_1;
-      cudaEventCreate(&c_0);
-      cudaEventCreate(&c_1);
+      hipEvent_t c_0, c_1;
+      hipEventCreate(&c_0);
+      hipEventCreate(&c_1);
 #ifndef CUDA_AWARE
       {
         double t_a = omp_get_wtime();
-        cudaMemcpy(bStorage.dat.get() + bStorage.step * bDecomp.sep_pos[0],
-                   bStorage_dev.dat.get() + bStorage.step * bDecomp.sep_pos[0],
-                   bStorage.step * (bDecomp.sep_pos[1] - bDecomp.sep_pos[0]) * sizeof(bElem),
-                   cudaMemcpyDeviceToHost);
+        hipMemcpy(bStorage.dat.get() + bStorage.step * bDecomp.sep_pos[0],
+                  bStorage_dev.dat.get() + bStorage.step * bDecomp.sep_pos[0],
+                  bStorage.step * (bDecomp.sep_pos[1] - bDecomp.sep_pos[0]) * sizeof(bElem),
+                  hipMemcpyDeviceToHost);
         double t_b = omp_get_wtime();
         movetime += t_b - t_a;
 #ifdef DECOMP_PAGEUNALIGN
@@ -263,10 +260,10 @@ int main(int argc, char **argv) {
         ev.exchange();
 #endif
         t_a = omp_get_wtime();
-        cudaMemcpy(bStorage_dev.dat.get() + bStorage.step * bDecomp.sep_pos[1],
-                   bStorage.dat.get() + bStorage.step * bDecomp.sep_pos[1],
-                   bStorage.step * (bDecomp.sep_pos[2] - bDecomp.sep_pos[1]) * sizeof(bElem),
-                   cudaMemcpyHostToDevice);
+        hipMemcpy(bStorage_dev.dat.get() + bStorage.step * bDecomp.sep_pos[1],
+                  bStorage.dat.get() + bStorage.step * bDecomp.sep_pos[1],
+                  bStorage.step * (bDecomp.sep_pos[2] - bDecomp.sep_pos[1]) * sizeof(bElem),
+                  hipMemcpyHostToDevice);
         t_b = omp_get_wtime();
         movetime += t_b - t_a;
       }
@@ -274,15 +271,15 @@ int main(int argc, char **argv) {
       bDecomp.exchange(bStorage_dev);
 #endif
 
-      dim3 block(strideb[0], strideb[1], strideb[2]), thread(32);
-      cudaEventRecord(c_0);
+      dim3 block(strideb[0], strideb[1], strideb[2]), thread(64);
+      hipEventRecord(c_0);
       for (int i = 0; i < ST_ITER / 2; ++i) {
         brick_kernel<<<block, thread>>>(grid_dev_ptr, bIn_dev, bOut_dev, grid_stride_dev);
         brick_kernel<<<block, thread>>>(grid_dev_ptr, bOut_dev, bIn_dev, grid_stride_dev);
       }
-      cudaEventRecord(c_1);
-      cudaEventSynchronize(c_1);
-      cudaEventElapsedTime(&elapsed, c_0, c_1);
+      hipEventRecord(c_1);
+      hipEventSynchronize(c_1);
+      hipEventElapsedTime(&elapsed, c_0, c_1);
       calctime += elapsed / 1000.0;
     };
 
@@ -290,8 +287,8 @@ int main(int argc, char **argv) {
     cnt *= ST_ITER;
 
     // Copy back
-    cudaMemcpy(bStorageOut.dat.get(), bStorageOut_dev.dat.get(),
-               bStorageOut.step * bStorageOut.chunks * sizeof(bElem), cudaMemcpyDeviceToHost);
+    hipMemcpy(bStorageOut.dat.get(), bStorageOut_dev.dat.get(),
+              bStorageOut.step * bStorageOut.chunks * sizeof(bElem), hipMemcpyDeviceToHost);
     {
       mpi_stats calc_s = mpi_statistics(calctime / cnt, MPI_COMM_WORLD);
       mpi_stats call_s = mpi_statistics(calltime / cnt, MPI_COMM_WORLD);

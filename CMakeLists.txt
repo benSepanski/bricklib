@@ -22,6 +22,8 @@ endif()
 
 include(CheckLanguage)
 include(CheckCXXCompilerFlag)
+include(CMakePackageConfigHelpers)
+include(GNUInstallDirs)
 check_language(CUDA)
 
 if (CMAKE_CUDA_COMPILER)
@@ -52,6 +54,7 @@ endif ()
 
 # hip/samples/2_Cookbook/12_cmake_hip_add_executable
 if (USE_HIP)
+    cmake_minimum_required(VERSION 3.21)
     if(DEFINED ENV{HIP_PATH})
         set(HIP_PATH $ENV{HIP_PATH})
     else()
@@ -59,11 +62,13 @@ if (USE_HIP)
     endif()
     set(CMAKE_MODULE_PATH "${HIP_PATH}/cmake" ${CMAKE_MODULE_PATH})
     list(APPEND CMAKE_PREFIX_PATH "${HIP_PATH}" "${HIP_PATH}/..")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D__HIP_PLATFORM_AMD__")
     find_package(HIP MODULE)
     if (NOT HIP_FOUND)
         message(FATAL_ERROR "HIP not found with USE_HIP specified")
     endif()
     find_package(hip REQUIRED)
+    set(CMAKE_HIP_ARCHITECTURES gfx908 gfx90a)
 endif()
 
 find_package(OpenMP REQUIRED)
@@ -185,13 +190,50 @@ if (BRICK_BUILD_TEST)
     endif()
 endif ()
 
+# Generating html doc from doxygen output
+set(PROJECT_INC_DIRS "${PROJECT_SOURCE_DIR}/include")
+
+find_package(Doxygen
+        COMPONENTS dot)
+
+if (DOXYGEN_FOUND)
+    configure_file(docs/Doxyfile.in ${CMAKE_CURRENT_BINARY_DIR}/Doxyfile @ONLY)
+    add_custom_target(doxydoc
+            Doxygen::doxygen ${CMAKE_CURRENT_BINARY_DIR}/Doxyfile
+            WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+            COMMENT "Generating API documentation with Doxygen" VERBATIM
+            )
+endif ()
+
+# Install script
+
 # Install headers
-install(DIRECTORY include/ DESTINATION include/${CMAKE_PROJECT_NAME}
+install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/${CMAKE_PROJECT_NAME}
         FILES_MATCHING PATTERN "*.h")
 
 # Install codegen
-install(DIRECTORY codegen/ DESTINATION lib/${CMAKE_PROJECT_NAME}
+install(DIRECTORY codegen/ DESTINATION ${CMAKE_INSTALL_LIBDIR}/${CMAKE_PROJECT_NAME}/codegen
         PATTERN "__pycache__" EXCLUDE)
+
+# Install codegen config
+install(DIRECTORY cmake/ DESTINATION ${CMAKE_INSTALL_LIBDIR}/${CMAKE_PROJECT_NAME}/cmake
+        FILES_MATCHING PATTERN "*.cmake")
+
+configure_package_config_file(
+    "${PROJECT_SOURCE_DIR}/brickConfig.cmake.in"
+    "${PROJECT_BINARY_DIR}/brickConfig.cmake"
+    INSTALL_DESTINATION "${CMAKE_INSTALL_LIBDIR}/${PROJECT_NAME}/cmake")
+
+write_basic_package_version_file(
+    "${PROJECT_BINARY_DIR}/brickConfigVersion.cmake"
+    COMPATIBILITY AnyNewerVersion)
+
+install(EXPORT brick-targets
+    DESTINATION "${CMAKE_INSTALL_LIBDIR}/${PROJECT_NAME}/cmake")
+
+install(FILES "${CMAKE_CURRENT_BINARY_DIR}/brickConfig.cmake"
+              "${CMAKE_CURRENT_BINARY_DIR}/brickConfigVersion.cmake"
+        DESTINATION "${CMAKE_INSTALL_LIBDIR}/${PROJECT_NAME}/cmake")
 
 # testing copied and modified from
 # https://github.com/google/googletest/tree/master/googletest#incorporating-into-an-existing-cmake-project
@@ -214,18 +256,3 @@ if ((BUILD_TESTING))
 else()
     message(STATUS "${PROJECT_NAME}: build testing is OFF")
 endif()
-
-# Generating html doc from doxygen output
-set(PROJECT_INC_DIRS "${PROJECT_SOURCE_DIR}/include")
-
-find_package(Doxygen
-        COMPONENTS dot)
-
-if (DOXYGEN_FOUND)
-    configure_file(docs/Doxyfile.in ${CMAKE_CURRENT_BINARY_DIR}/Doxyfile @ONLY)
-    add_custom_target(doxydoc
-            Doxygen::doxygen ${CMAKE_CURRENT_BINARY_DIR}/Doxyfile
-            WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
-            COMMENT "Generating API documentation with Doxygen" VERBATIM
-            )
-endif ()

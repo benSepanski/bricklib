@@ -29,7 +29,7 @@ if(CMAKE_CUDA_COMPILER)
     )
     VSTARGET(C3MPI main.cu main-out.cu)
     add_executable(weak-cuda ${VSTARGET_C3MPI_OUTPUT} args.cpp)
-    target_compile_definitions(weak-cuda PRIVATE)
+    target_compile_definitions(weak-cuda PRIVATE DECOMP_PAGEUNALIGN)
     target_link_libraries(weak-cuda brick brick-mpi brickhelper ${MPI_CXX_LIBRARIES} ${LIBRT})
     set_target_properties(weak-cuda
             PROPERTIES OUTPUT_NAME cuda)
@@ -39,4 +39,24 @@ if(CMAKE_CUDA_COMPILER)
     target_link_libraries(weak-cuda-mmap brick brick-mpi brickhelper ${MPI_CXX_LIBRARIES} ${LIBRT} cuda)
     set_target_properties(weak-cuda-mmap
             PROPERTIES OUTPUT_NAME cuda-mmap)
+endif ()
+
+if (USE_HIP)
+    set(H3MPI_INCLUDE_DIRS "${HIP_PATH}/include")
+    VSTARGET(H3MPI main.hip.cpp main-out.hip.cpp)
+    set(HIP_SRCS ${VSTARGET_H3MPI_OUTPUT} args.cpp)
+    set_source_files_properties(${HIP_SRCS} PROPERTIES HIP_SOURCE_PROPERTY_FORMAT 1)
+    hip_add_executable(weak-hip ${HIP_SRCS} CLANG_OPTIONS ${CMAKE_CXX_FLAGS})
+    target_link_libraries(weak-hip brick brick-mpi brickhelper ${MPI_CXX_LIBRARIES} ${LIBRT} hip::host)
+    set_target_properties(weak-hip
+            PROPERTIES OUTPUT_NAME hip)
+
+    set(H3MPIMMAP_INCLUDE_DIRS "${HIP_PATH}/include")
+    VSTARGET(H3MPIMMAP mmap.hip.cpp mmap-out.hip.cpp)
+    set(HIP_SRCS ${VSTARGET_H3MPIMMAP_OUTPUT} args.cpp)
+    set_source_files_properties(${HIP_SRCS} PROPERTIES HIP_SOURCE_PROPERTY_FORMAT 1)
+    hip_add_executable(weak-hip-mmap ${HIP_SRCS} CLANG_OPTIONS ${CMAKE_CXX_FLAGS})
+    target_link_libraries(weak-hip-mmap brick brick-mpi brickhelper ${MPI_CXX_LIBRARIES} ${LIBRT} hip::host)
+    set_target_properties(weak-hip-mmap
+            PROPERTIES OUTPUT_NAME hip-mmap)
 endif ()
