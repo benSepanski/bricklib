@@ -109,7 +109,7 @@ class BackendAVX512(Backend):
 
     def declare_vec(self, name, block: CodeBlock, complex_valued: bool):
         if complex_valued:
-            raise ValueError("Complex values not supported yet in AVX")
+            raise NotImplementedError("Complex values not supported yet in AVX")
         block.append("__m512i {};".format(name))
 
     def store_vecbuf(self, vecbuf_name, reg_name, block: CodeBlock):

@@ -18,7 +18,7 @@ class BackendFlex(BackendAVX512):
     def checkConfig(self):
         super().checkConfig()
 
-    def declare_vec(self, name, block: CodeBlock):
+    def declare_vec(self, name, block: CodeBlock, complex_valued: bool):
         raise RuntimeError("No vector with flex")
 
     def store_vecbuf(self, vecbuf_name, reg_name, block: CodeBlock):

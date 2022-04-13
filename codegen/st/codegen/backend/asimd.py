@@ -14,9 +14,9 @@ class BackendASIMD(BackendAVX512):
         if tuple(layout.fold) != (self.VECLEN,):
             raise ValueError("Fold and vector type (ASIMD) mismatch")
 
-    def declare_vec(self, name, block: CodeBlock, complex_valued: bool = False):
+    def declare_vec(self, name, block: CodeBlock, complex_valued: bool):
         if complex_valued:
-            raise ValueError("Complex values not supported yet in AVX")
+            raise NotImplementedError("Complex values not supported yet in AVX")
         block.append("uint32x4_t {};".format(name))
 
     def store_vecbuf(self, vecbuf_name, reg_name, block: CodeBlock):
@@ -46,7 +46,9 @@ class BackendSVE(BackendAVX512):
         if tuple(layout.fold) != (self.VECLEN,):
             raise ValueError("Fold and vector type (ASIMD) mismatch")
 
-    def declare_vec(self, name, block: CodeBlock):
+    def declare_vec(self, name, block: CodeBlock, complex_valued: bool):
+        if complex_valued:
+            raise NotImplementedError("Complex values not supported yet in SVE")
         block.append("svuint32_t {};".format(name))
 
     def store_vecbuf(self, vecbuf_name, reg_name, block: CodeBlock):

@@ -1,8 +1,7 @@
-from st.codegen.backend.base import CodeBlock, Backend, Buffer, PrinterRed
+from st.codegen.backend.base import CodeBlock, Backend, Buffer, PrinterRed, get_element_type
 from st.grid import Grid, GridRef
 from st.expr import Expr
 from typing import List, Dict
-
 
 class PrinterScalar(PrinterRed):
     def __init__(self):
@@ -121,11 +120,13 @@ class BackendScalar(Backend):
         self.printer.dim_to_loop_var = dict(dim_to_loop_var)
         return self.printer.print_str(comp)
 
-    def declare_reg(self, name, block: CodeBlock):
-        block.append("bElem {};".format(name))
+    def declare_reg(self, name, block: CodeBlock, complex_valued: bool):
+        element_type = get_element_type(complex_valued)
+        block.append("{} {};".format(element_type, name))
 
-    def declare_vec(self, name, block: CodeBlock):
-        block.append("bElem {};".format(name))
+    def declare_vec(self, name, block: CodeBlock, complex_valued: bool):
+        element_type = get_element_type(complex_valued)
+        block.append("{} {};".format(element_type, name))
 
     def store_vecbuf(self, vecbuf_name, reg_name, block: CodeBlock):
         block.append("{} = {};".format(reg_name, vecbuf_name))
