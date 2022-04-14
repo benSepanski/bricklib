@@ -79,6 +79,7 @@ RUN cmake -S . -B build \
   -DPERLMUTTER=${BUILDING_IMAGE_ON_PERLMUTTER} `#Only switch to ON if building *image* on Perlmutter, not necessary to run container on Perlmutter` \
   -DCMAKE_CUDA_FLAGS="-lineinfo -gencode arch=compute_${CUDA_ARCHITECTURE},code=[sm_${CUDA_ARCHITECTURE},lto_${CUDA_ARCHITECTURE}]"
 RUN cmake --build build --parallel
+ENV bricklib_SRCDIR=${HOME}/bricklib
 
 WORKDIR ${HOME}
 ENTRYPOINT "cd ${HOME}/bricklib"
