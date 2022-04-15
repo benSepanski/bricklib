@@ -86,7 +86,7 @@ if __name__ == "__main__":
                                 brick_dims.append((i, j, k, ell, m, n))
                                 vector_dims.append(tuple(vec_dim))
 
-    build_dir = f"cmake-builds/single/{machine_config.name}"
+    build_dir = os.path.abspath(f"cmake-builds/single/{machine_config.name}")
     preamble += f"""
 if [[ ! -f "{build_dir}" ]] ; then
     mkdir -p "{build_dir}"
@@ -109,7 +109,7 @@ fi
         -DCMAKE_BUILD_TYPE=Release \\
         -DPERLMUTTER={"ON" if machine_config.name == "perlmutter" else "OFF"} \\
     || exit 1
-    {shifter_args} (cd {build_dir} && make clean && make -j 20 single-gene-6d 2> "${{ptx_info_file}}") || exit 1
+    {shifter_args} "(cd {build_dir} && make clean && make -j 20 single-gene-6d 2> \\"${{ptx_info_file}}\\") || exit 1"
     {shifter_args} python3 get_ptx_info.py
 """
 

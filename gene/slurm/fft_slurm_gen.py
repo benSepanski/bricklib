@@ -53,15 +53,13 @@ if __name__ == "__main__":
                 (2, 2, 8, 1, 1, 1)
                 ]
 
-
-    build_dir = f"cmake-builds/single/{machine_config.name}"
+    build_dir = os.path.abspath(f"cmake-builds/single/{machine_config.name}")
     preamble += f"""
 if [[ ! -f "{build_dir}" ]] ; then
     mkdir -p "{build_dir}"
 fi
 """
     shifter_args = "" if image_name is None else "shifter --module=gpu"
-
 
     def build_job(brick_dim, vec_dim):
         return f"""{shifter_args} cmake -S {bricklib_src_dir} \\
@@ -76,7 +74,7 @@ fi
         -DCMAKE_BUILD_TYPE=Release \\
         -DPERLMUTTER={"ON" if machine_config.name == "perlmutter" else "OFF"} \\
     || exit 1
-    {shifter_args} (cd {build_dir} && make clean && make -j 20 single-fft-gene-6d) || exit 1
+    {shifter_args} "(cd {build_dir} && make clean && make -j 20 single-fft-gene-6d) || exit 1"
 """
 
     def run_job(brick_dim = None):
