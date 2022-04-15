@@ -97,7 +97,7 @@ Next, download the Bricks library.
 cd ${WORK_DIR}
 git clone https://github.com/benSepanski/bricklib.git # (While waiting for PR to work its way through bitbucket, pull from fork)
 cd bricklib
-git checkout 5abff1121025a04858f4b85ec2260de435169b27 # TODO: Switch to tag once finalized
+git checkout tags/sc22_artifact1.1
 ```
 For consistency with the instructions for the shifter image instructions, go ahead and
 store the location of the Bricks library in the environment variable `bricklib_SRCDIR`.
