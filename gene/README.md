@@ -66,6 +66,9 @@ Now you're ready to start [running the benchmarks](#running-the-benchmarks)!
 
 ### Manual setup
 
+Make sure you've run the setup file [`perlmutter_setup.sh`](https://github.com/benSepanski/bricklib/blob/sc-22-artifact/gene/docker/perlmutter_setup.sh)
+script to ensure you have the necessary modules.
+
 First, download the GTensor library and checkout the commit used in our experiments.
 ```bash
 WORK_DIR="`pwd`"
@@ -98,8 +101,7 @@ store the location of the Bricks library in the environment variable `bricklib_S
 ```bash
 bricklib_SRCDIR="`pwd`"
 ```
-If you are building on the Perlmutter machine, you will need to pass the cmake variable 
-***FIXME: FINISH THESE INSTRUCTIONS***
+We'll assume you are building on the Perlmutter machine.
 ```bash
 export BUILDING_IMAGE_ON_PERLMUTTER=ON
 export CUDA_ARCHITECTURE=80
