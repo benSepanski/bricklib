@@ -74,9 +74,10 @@ RUN /sbin/ldconfig
 ENV PERLMUTTER_CXX_FLAGS="-march=znver3 -mmmx -mno-3dnow -msse -msse2 -msse3 -mssse3 -msse4a -mcx16 -msahf -mmovbe -maes -msha -mpclmul -mpopcnt -mabm -mno-lwp -mfma -mno-fma4 -mno-xop -mbmi -mno-sgx -mbmi2 -mno-pconfig -mwbnoinvd -mno-tbm -mavx -mavx2 -msse4.2 -msse4.1 -mlzcnt -mno-rtm -mno-hle -mrdrnd -mf16c -mfsgsbase -mrdseed -mprfchw -madx -mfxsr -mxsave -mxsaveopt -mno-avx512f -mno-avx512er -mno-avx512cd -mno-avx512pf -mno-prefetchwt1 -mclflushopt -mxsavec -mxsaves -mno-avx512dq -mno-avx512bw -mno-avx512vl -mno-avx512ifma -mno-avx512vbmi -mno-avx5124fmaps -mno-avx5124vnniw -mclwb -mmwaitx -mclzero -mpku -mrdpid -mno-gfni -mshstk -mno-avx512vbmi2 -mno-avx512vnni -mvaes -mvpclmulqdq -mno-avx512bitalg -mno-avx512vpopcntdq -mno-movdiri -mno-movdir64b -mno-waitpkg -mno-cldemote -mno-ptwrite -mno-avx512bf16 -mno-enqcmd -mno-avx512vp2intersect --param l1-cache-size=32 --param l1-cache-line-size=64 --param l2-cache-size=512 -mtune=znver3"
 
 # download and build gtensor
-RUN git clone https://github.com/wdmapp/gtensor.git
+RUN git clone https://github.com/wdmapp/gtensor.git && \
+    cd gtensor && \
+    git reset --hard 455afd5839243cca2fa59b129fa14deff7bf038a
 WORKDIR ${BRICKS_DEPS}/gtensor 
-RUN git reset --hard 455afd5839243cca2fa59b129fa14deff7bf038a
 RUN cmake -S . -B build \
         -DGTENSOR_DEVICE=cuda \
         -DCMAKE_INSTALL_PREFIX=bin \
@@ -94,9 +95,10 @@ RUN git clone https://github.com/KhronosGroup/OpenCL-CLHPP.git && \
 
 # download and build bricks
 WORKDIR ${HOME}
-RUN git clone https://github.com/benSepanski/bricklib.git # (While waiting for PR to work its way through bitbucket, pull from fork)
+RUN git clone https://github.com/benSepanski/bricklib.git `# (While waiting for PR to work its way through bitbucket, pull from fork)` && \
+    cd bricklib && \
+    git reset --hard a726127ad803bf60a6e913ede3e41344b395c414 `# TODO: Switch to tag once finalized`
 WORKDIR bricklib
-RUN git checkout 106dc93581fc354094f73ece0c4ab9e150d2aca7 # TODO: Switch to tag once finalized
 RUN cmake -S . -B build \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_INSTALL_PREFIX=bin \
