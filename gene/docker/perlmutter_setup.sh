@@ -4,8 +4,6 @@ export CUDA_VERSION=11.4
 # Use gnu programming env
 module load PrgEnv-gnu
 module load cudatoolkit/${CUDA_VERSION}
-#module load e4s/21.11-lmod
-#module swap gcc gcc/9.3.0
 module swap craype-network-ofi craype-network-ucx
 module swap cray-mpich cray-mpich-ucx
 module load cpe-cuda
