@@ -41,6 +41,7 @@ if __name__ == "__main__":
                                         account_name=account_name,
                                         time_limit=time_limit,
                                         image_name=image_name,
+                                        mail_type=[MailType.BEGIN, MailType.FAIL],
                                         )
 
     per_process_extent = tuple(map(int, args["per_process_domain_size"].split(',')))

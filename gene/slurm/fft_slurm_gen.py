@@ -35,6 +35,7 @@ if __name__ == "__main__":
                                         account_name=account_name,
                                         time_limit=time_limit,
                                         image_name=image_name,
+                                        mail_type=[MailType.BEGIN, MailType.FAIL],
                                         )
 
     brick_dims = [(2, 32, 2, 2, 1, 1),
