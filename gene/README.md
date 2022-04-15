@@ -21,6 +21,11 @@ The Dockerfile is located in the `docker` directory, if you wish to see the setu
 To replicate the results, please follow [the Shifter setup instructions](#setup-using-shifter-on-perlmutter)
 below. Then, follow the instructions in the [running the benchmarks section](#running-the-benchmarks) below.
 
+To use the same modules and environment setup outside of the container, run the [`perlmutter_setup.sh`](https://github.com/benSepanski/bricklib/blob/sc-22-artifact/gene/docker/perlmutter_setup.sh) script.
+```bash
+source perlmutter_setup.sh
+```
+
 ### Setup using Shifter on Perlmutter
 
 These instructions are used to set up the results on the [NERSC Perlmutter cluster](https://docs.nersc.gov/systems/perlmutter/).
@@ -128,7 +133,7 @@ and run the `shifter` image.
 For example, on perlmutter you might run
 ```bash
 # Shifter build:
-salloc -C gpu -N 1 -G 4 -n 4 -c 20 -t 00:30:00 -q interactive --image=bensepanski/2022_sc_bricks:perlmutter_0.1
+salloc -C gpu -N 1 -G 4 -n 4 -c 20 -t 00:30:00 -q interactive --image=${BRICKS_SHIFTER_IMG}
 shifter ${BRICKS_SHIFTER_ARGS} /bin/bash
 # Manual build:
 salloc -C gpu -N 1 -G 4 -n 4 -c 20 -t 00:30:00 -q interactive
@@ -195,7 +200,6 @@ To see further command line options, run
 ```bash
 mpi-gene6d -h
 ```
-
 
 ### Batch jobs
 
