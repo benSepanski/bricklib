@@ -30,9 +30,19 @@ RUN for program in gcc g++ ; do \
         update-alternatives --install /usr/bin/${program} ${program} /usr/bin/${program}-10 10 ; \
         update-alternatives --set ${program} /usr/bin/${program}-10 ; \
     done ; \
-    ln -sfn /usr/bin/cpp-10 /usr/bin/cpp
+    ln -sfn /usr/bin/cpp-10 /usr/bin/cpp ; \
+    update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.8 38 ; \
+    update-alternatives --set python3 /usr/bin/python3.8 ; \
+    update-alternatives --install /usr/bin/python python /usr/bin/python3.8 38 ; \
+    update-alternatives --set python /usr/bin/python3.8 ;
 ENV CC=gcc
 ENV CXX=g++
+
+# Based on running the following on perlmutter on April 14, 2022
+# g++ -march=native -E -v - </dev/null 2>&1 | grep cc1
+# taken from https://stackoverflow.com/questions/5470257/how-to-see-which-flags-march-native-will-activate
+ENV PERLMUTTER_CXX_FLAGS="-march=znver3 -mmmx -mno-3dnow -msse -msse2 -msse3 -mssse3 -msse4a -mcx16 -msahf -mmovbe -maes -msha -mpclmul -mpopcnt -mabm -mno-lwp -mfma -mno-fma4 -mno-xop -mbmi -mno-sgx -mbmi2 -mno-pconfig -mwbnoinvd -mno-tbm -mavx -mavx2 -msse4.2 -msse4.1 -mlzcnt -mno-rtm -mno-hle -mrdrnd -mf16c -mfsgsbase -mrdseed -mprfchw -madx -mfxsr -mxsave -mxsaveopt -mno-avx512f -mno-avx512er -mno-avx512cd -mno-avx512pf -mno-prefetchwt1 -mclflushopt -mxsavec -mxsaves -mno-avx512dq -mno-avx512bw -mno-avx512vl -mno-avx512ifma -mno-avx512vbmi -mno-avx5124fmaps -mno-avx5124vnniw -mclwb -mmwaitx -mclzero -mpku -mrdpid -mno-gfni -mshstk -mno-avx512vbmi2 -mno-avx512vnni -mvaes -mvpclmulqdq -mno-avx512bitalg -mno-avx512vpopcntdq -mno-movdiri -mno-movdir64b -mno-waitpkg -mno-cldemote -mno-ptwrite -mno-avx512bf16 -mno-enqcmd -mno-avx512vp2intersect --param l1-cache-size=32 --param l1-cache-line-size=64 --param l2-cache-size=512 -mtune=znver3"
+ENV CXXFLAGS="${PERLMUTTER_CXX_FLAGS}"
 
 # Install CMake 3.23
 WORKDIR ${BRICKS_DEPS}
@@ -68,11 +78,6 @@ RUN \
 
 RUN /sbin/ldconfig
 
-# Based on running the following on perlmutter on April 14, 2022
-# g++ -march=native -E -v - </dev/null 2>&1 | grep cc1
-# taken from https://stackoverflow.com/questions/5470257/how-to-see-which-flags-march-native-will-activate
-ENV PERLMUTTER_CXX_FLAGS="-march=znver3 -mmmx -mno-3dnow -msse -msse2 -msse3 -mssse3 -msse4a -mcx16 -msahf -mmovbe -maes -msha -mpclmul -mpopcnt -mabm -mno-lwp -mfma -mno-fma4 -mno-xop -mbmi -mno-sgx -mbmi2 -mno-pconfig -mwbnoinvd -mno-tbm -mavx -mavx2 -msse4.2 -msse4.1 -mlzcnt -mno-rtm -mno-hle -mrdrnd -mf16c -mfsgsbase -mrdseed -mprfchw -madx -mfxsr -mxsave -mxsaveopt -mno-avx512f -mno-avx512er -mno-avx512cd -mno-avx512pf -mno-prefetchwt1 -mclflushopt -mxsavec -mxsaves -mno-avx512dq -mno-avx512bw -mno-avx512vl -mno-avx512ifma -mno-avx512vbmi -mno-avx5124fmaps -mno-avx5124vnniw -mclwb -mmwaitx -mclzero -mpku -mrdpid -mno-gfni -mshstk -mno-avx512vbmi2 -mno-avx512vnni -mvaes -mvpclmulqdq -mno-avx512bitalg -mno-avx512vpopcntdq -mno-movdiri -mno-movdir64b -mno-waitpkg -mno-cldemote -mno-ptwrite -mno-avx512bf16 -mno-enqcmd -mno-avx512vp2intersect --param l1-cache-size=32 --param l1-cache-line-size=64 --param l2-cache-size=512 -mtune=znver3"
-
 # download and build gtensor
 RUN git clone https://github.com/wdmapp/gtensor.git && \
     cd gtensor && \
@@ -82,8 +87,7 @@ RUN cmake -S . -B build \
         -DGTENSOR_DEVICE=cuda \
         -DCMAKE_INSTALL_PREFIX=bin \
         -DBUILD_TESTING=OFF \
-        -DCMAKE_BUILD_TYPE=Release \
-        -DCMAKE_CXX_FLAGS="${PERLMUTTER_CXX_FLAGS}" ; \
+        -DCMAKE_BUILD_TYPE=Release ; \
     cmake --build build --target install
 ENV gtensor_DIR=${BRICKS_DEPS}/gtensor/bin
 
@@ -97,7 +101,7 @@ RUN git clone https://github.com/KhronosGroup/OpenCL-CLHPP.git && \
 WORKDIR ${HOME}
 RUN git clone https://github.com/benSepanski/bricklib.git `# (While waiting for PR to work its way through bitbucket, pull from fork)` && \
     cd bricklib && \
-    git reset --hard a726127ad803bf60a6e913ede3e41344b395c414 `# TODO: Switch to tag once finalized`
+    git checkout 15e0b2d5fc6100d5c342312d776ebf7a97101272 `# TODO: Switch to tag once finalized`
 WORKDIR bricklib
 RUN cmake -S . -B build \
         -DCMAKE_BUILD_TYPE=Release \
