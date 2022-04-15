@@ -15,8 +15,9 @@ if __name__ == "__main__":
                         default="2,16,2,2,1,1")
     parser.add_argument('-M', "--machine", type=str, help=f"Machine name, one of {known_machines}")
     parser.add_argument("-e", "--email", type=str, help="Email address to notify on job completion")
+    parser.add_argument("-i", "--image", type=str, help="Shifter image to use", default=None)
     parser.add_argument("-A", "--account", type=str, help="slurm account to charge")
-    parser.add_argument("-t", "--time-limit", type=str, help="Time limit, in format for slurm", default="01:00:00")
+    parser.add_argument("-t", "--time-limit", type=str, help="Time limit, in format for slurm", default="00:03:00")
     parser.add_argument("--compiler", type=str, help="Compiler being used for affinity check", default="gnu")
     parser.add_argument("--always-cuda-aware", action='store_true', help="Only use jobs which use CUDA-Aware MPI")
     parser.add_argument("-d", "--domain-size", type=str,
@@ -41,6 +42,7 @@ if __name__ == "__main__":
     account_name = args["account"]
     time_limit = args["time_limit"]
     compiler = args["compiler"]
+    image_name = args["image"]
 
     always_cuda_aware: bool = args["always_cuda_aware"]
 
@@ -211,9 +213,10 @@ export MPICH_RANK_REORDER_METHOD=3 #https://docs.nersc.gov/jobs/best-practices/#
         cuda_aware_vals = [True]
 
     generated_scripts_dir = "generated-scripts"
-    slurm_error_dir = f"{generated_scripts_dir}/error"
-    slurm_output_dir = f"{generated_scripts_dir}/output"
-    for dir_to_make in [generated_scripts_dir, slurm_error_dir, slurm_output_dir]:
+    slurm_error_dir = f"{generated_scripts_dir}/mpi_error"
+    slurm_output_dir = f"{generated_scripts_dir}/mpi_output"
+    slurm_script_dir = f"{generated_scripts_dir}/mpi_slurm_scripts"
+    for dir_to_make in [generated_scripts_dir, slurm_error_dir, slurm_output_dir, slurm_script_dir]:
         if not os.path.isdir(dir_to_make):
             os.mkdir(dir_to_make)
 
@@ -224,12 +227,13 @@ export MPICH_RANK_REORDER_METHOD=3 #https://docs.nersc.gov/jobs/best-practices/#
                                         mail_type=[MailType.BEGIN, MailType.FAIL],
                                         # %a b/c job array, see https://slurm.schedmd.com/job_array.html#file_names
                                         output_file_name=f"{slurm_output_dir}/{job_name}_%a.out",
-                                        error_file_name=f"{slurm_error_dir}/{job_name}_%a.err"
+                                        error_file_name=f"{slurm_error_dir}/{job_name}_%a.err",
+                                        image_name=image_name,
                                         )
     build_scripts = ["#!/bin/bash", f"export gtensor_DIR={gtensor_dir}"] + [
         build_job(brick_shape, vec_shape, cuda_aware)
         for cuda_aware in cuda_aware_vals]
-    build_script_filename = os.path.abspath(f"{generated_scripts_dir}/build_{job_name}.sh")
+    build_script_filename = os.path.abspath(f"{slurm_script_dir}/build_{job_name}.sh")
     print(f"Writing build script to {build_script_filename}")
     with open(build_script_filename, 'w') as build_script_file:
         build_script_file.write("\n".join(build_scripts))
@@ -312,12 +316,12 @@ export {cuda_aware_var_name}=${{4}}
                  f"""extent ${{{per_process_extent_var_name}}}, procs per dim ${{{procs_per_dim_var_name}}}""" \
                  f""" and {num_gz} ghost-zones\" >> mpi_failures.txt"""
 
-    exec_script_filename = os.path.abspath(f"{generated_scripts_dir}/{job_name}.sh")
+    exec_script_filename = os.path.abspath(f"{slurm_script_dir}/{job_name}.sh")
     print(f"Writing exec script to {exec_script_filename}")
     with open(exec_script_filename, 'w') as exec_script_file:
         exec_script_file.write("\n".join(["#!/bin/bash", job_script]))
 
-    slurm_script_filename = os.path.abspath(f"{generated_scripts_dir}/{job_name}.slurm")
+    slurm_script_filename = os.path.abspath(f"{slurm_script_dir}/{job_name}.slurm")
     print(f"Writing slurm script to {slurm_script_filename}")
     srun_args = [f"-n {num_gpus}",
                  "--cpu-bind=cores",
@@ -327,13 +331,15 @@ export {cuda_aware_var_name}=${{4}}
                  f"${{{procs_per_dim_var_name}}}",
                  f"${{{cuda_aware_var_name}}}",
                  ]
+    if image_name is not None:
+        srun_args += ["shifter", "--module=gpu", "--module=cuda-mpich"]
     srun_cmd = f"srun {' '.join(srun_args)}"
     with open(slurm_script_filename, 'w') as slurm_script_file:
         slurm_script_file.write("\n".join([preamble, "# Run job", environment_setup,
                                            "srun " + " \\\n     ".join(srun_args)]))
 
     build_cmd = f"{build_script_filename}"
-    submit_file_name = os.path.abspath(f"{generated_scripts_dir}/{job_name}.submit")
+    submit_file_name = os.path.abspath(f"{generated_scripts_dir}/{job_name}.sh")
     with open(submit_file_name, 'w') as submit_file:
         submit_file.write("\n".join(["#!/bin/bash",
                                      "# Build",

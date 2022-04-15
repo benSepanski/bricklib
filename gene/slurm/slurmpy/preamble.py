@@ -15,7 +15,9 @@ def build_slurm_gpu_preamble(config, num_gpus, job_name,
                              time_limit: str = None,
                              mail_type: Union[MailType, Iterable[MailType]] = None,
                              output_file_name: str = None,
-                             error_file_name: str = None):
+                             error_file_name: str = None,
+                             image_name: str = None,
+                             ):
     if not isinstance(config, MachineConfig):
         raise TypeError(f"Expected config to be of type {MachineConfig.__class__.__name__}, not {type(config)}")
 
@@ -64,4 +66,6 @@ def build_slurm_gpu_preamble(config, num_gpus, job_name,
     if email_address is not None:
         preamble += f"""\n#SBATCH --mail-user={email_address}
 #SBATCH --mail-type={','.join(map(lambda m: m.name, mail_type))}"""
+    if image_name is not None:
+        preamble += f"\n#SBATCH --image={image_name}"
     return preamble

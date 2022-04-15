@@ -6,6 +6,9 @@ to port GENE to GPU
 (see [Toward exascale whole-device modeling of fusion devices: Porting the GENE gyrokinetic microturbulence code to GPU](https://aip.scitation.org/doi/10.1063/5.0046327)
  in Physics of Plasmas, 2021).
 
+If you just want the data and to make the plots yourself, you can download it
+at one of the author's [website](https://www.cs.utexas.edu/~bmsepan/projects/highDimensionalBricks/).
+
 ## Benchmark Structure
 
 This directory builds three benchmarks:
@@ -21,7 +24,7 @@ The Dockerfile is located in the `docker` directory, if you wish to see the setu
 To replicate the results, please follow [the Shifter setup instructions](#setup-using-shifter-on-perlmutter)
 below. Then, follow the instructions in the [running the benchmarks section](#running-the-benchmarks) below.
 
-To use the same modules and environment setup outside of the container, run the [`perlmutter_setup.sh`](https://github.com/benSepanski/bricklib/blob/sc-22-artifact/gene/docker/perlmutter_setup.sh) script.
+To use the same modules and environment setup outside the container, run the [`perlmutter_setup.sh`](https://github.com/benSepanski/bricklib/blob/sc-22-artifact/gene/docker/perlmutter_setup.sh) script.
 ```bash
 source perlmutter_setup.sh
 ```
@@ -56,7 +59,7 @@ exit
 command to exit the container.
 
 *Note:*
-Since image directories are mounted read-only at NERSC ([docs](https://docs.nersc.gov/development/shifter/how-to-use/#differences-between-shifter-and-docker),
+Since image directories are mounted read-only at NERSC [docs](https://docs.nersc.gov/development/shifter/how-to-use/#differences-between-shifter-and-docker),
 you won't be able to make any changes in the directory.
 Instead, we'll have to run everything from outside the `bricklib` directory.
 Feel free to move to a different directory if you wish to store the run output in a more persistent
@@ -128,7 +131,7 @@ yourself, or using [batch jobs](#batch-jobs) to run the same experiments as in t
 ### Running jobs interactively
 
 First, (outside the shifter image, if you are using the containerized setup)
-get a compute node interactively using salloc as described in the [NERSC docs](https://docs.nersc.gov/jobs/).
+get a compute node interactively using `salloc` as described in the [NERSC docs](https://docs.nersc.gov/jobs/).
 If you are using the  [shifter image](#setup-using-shifter-on-perlmutter) setup,
 you must use the extra argument `--image=bensepanski/2022_sc_bricks:perlmutter_0.1`,
 and run the `shifter` image.
@@ -177,7 +180,7 @@ For instance, to run with 5 warmup iterations and 100 measured iterations, run
 ```bash
 fft-gene-6d 5 100
 ```
-You can also choose to run only the array implementation, or only the bricks implementation.
+You can also choose to run only the array implementation, or only the Bricks implementation.
 ```bash
 fft-gene-6d 5 100 a  # Run array layout only
 fft-gene-6d 5 100 b  # Run bricks layout only
@@ -187,8 +190,7 @@ fft-gene-6d 5 100 b  # Run bricks layout only
 
 To run the `mpi-gene6d` benchmark you need to specify the array extents
 and the number of MPI ranks along each axis.
-Using the shifter setup, you'll need to run the benchmark from outside
-of the container to use more than one MPI rank.
+Using the shifter setup, you'll need to run the benchmark from outside the container to use more than one MPI rank.
 For example, you can run the benchmark with a global `I x J x K x L x M x N` grid
 of shape `72 x 32 x 24 x 24 x 32 x 2` (including ghost zones) split across
 2 MPI ranks in the k axis and 2 MPI ranks in the l axis by running
@@ -205,8 +207,80 @@ mpi-gene6d -h
 
 ### Batch jobs
 
-***FIXME: DESCRIBE HOW TO GENERATE JOBS***
+To run the batch jobs, we're going to first need to [build the slurm scripts](#building-the-slurm-scripts).
+The slurm scripts are submitted as [job arrays](https://docs.nersc.gov/jobs/examples/#job-arrays).
 
-***FIXME: DESCRIBE HOW TO SUBMIT JOBS***
+#### Building the slurm scripts
 
-***FIXME: DESCRIBE HOW TO GET RESULTS***
+
+If you're using shifter, go ahead and start running the container.
+```bash
+# Shifter build:
+shifter --image=${BRICKS_SHIFTER_IMG} ${BRICKS_SHIFTER_ARGS} /bin/bash
+```
+First, choose a directory you want to the builds and data to occur in.
+Let's call that directory `$BRICKS_WORKSPACE`. For example, you could use the scratch directory.
+Note that if you are using the shifter image, the directory will need to be outside the
+container filesystem, since NERSC loads shifter images as read-only.
+```bash
+export BRICKS_WORKSPACE="${SCRATCH}/bricks-benchmarks"
+cd "${BRICKS_WORKSPACE}"
+```
+
+Now we need to build the slurm scripts.
+If you wish to be emailed when the jobs start, or to charge a specific account,
+set the `BRICKS_ACCOUNT` or `BRICKS_EMAIL` environment variables.
+If you are planning to use the shifter image, make sure the `BRICKS_SHIFTER_IMG`
+variable is set as described [above](#setup-using-shifter-on-perlmutter).
+```bash
+cp -r "${bricklib_SRCDIR}/gene/slurm/*" .
+# make jobs with no email, no account
+make
+# make jobs with email and account
+BRICKS_ACCOUNT=<account> BRICKS_EMAIL=<email> make
+```
+This will create several files in the `generated-scripts` directory.
+* `generated-scripts/single-stencil.h`: Run the `single-gene-6d` benchmark.
+* `generated-scripts/fft.h`: Run the `fft-gene-6d` benchmark.
+* `generated-scripts/mpi_*.sh`: Submit several jobs to the `mpi-gene6d` benchmark. There are different scripts for the different number of MPI Ranks, and weak vs. strong scaling. Each script submits a job array. To see the actual slurm scripts, look at `generated-scripts/mpi_slurm_scripts/*.slurm`. 
+
+You can see customization options for the slurm scripts by running
+```bash
+python3 brick_shape_slurm_gen.py -h
+python3 fft_slurm_gen.py -h
+python3 mpi_slurm_gen.py -h
+```
+
+#### Submitting the jobs
+
+If you are not using the shifter image,
+make sure you've loaded the modules as in [`perlmutter_setup.sh`](https://github.com/benSepanski/bricklib/blob/sc-22-artifact/gene/docker/perlmutter_setup.sh).
+Submitting these scripts will cause some cmake builds to occur.
+Otherwise, make sure you're still running the container.
+
+Now we can submit the jobs. Make sure to run this from the `${BRICKS_WORKSPACE}` directory.
+```bash
+sbatch generated-scripts/single-stencil.h
+sbatch generated-scripts/fft.h
+for mpi_job_array_submit_script in generated-scripts/mpi_* ; do
+    ./${mpi_job_array_submit_script}
+done
+```
+Note that this process will trigger some builds into the `cmake-builds` directory.
+
+#### Finding the results
+
+All data will be stored in `.csv`s in  `${BRICKS_WORKSPACE}`.
+* Single-device stencils: Stored in 3 `.csv`s:
+  * `ncu_brick_shape_out.csv` Results from [NSight Compute](https://developer.nvidia.com/nsight-compute)
+  * `brick_shape_out.csv` Results from our timing
+  * `ptx_info_brick_shape.csv` Some results extracted from the `.ptx` files
+* FFT: `fft_results``
+* MPI: Stored in the `${BRICKS_WORKSPACE}/mpiData/` directory.
+  * Strong: `mpiData/mpi_<numgpus>.csv`
+  * Weak: `mpiData/mpi_<numgpus>_exascale_gene_domain.csv`
+
+You can plot the data using [RStudio](https://www.rstudio.com)
+with the scripts included with our data used in the submission at
+one of the author's [website](https://www.cs.utexas.edu/~bmsepan/projects/highDimensionalBricks/).
+  

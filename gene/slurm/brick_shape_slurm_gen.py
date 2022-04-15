@@ -11,6 +11,7 @@ if __name__ == "__main__":
     parser.add_argument("-J", "--job_name", type=str, help="Job name", default=None)
     parser.add_argument('-M', "--machine", type=str, help=f"Machine name, one of {known_machines}")
     parser.add_argument("-e", "--email", type=str, help="Email address to notify on job completion")
+    parser.add_argument("-i", "--image", type=str, help="Shifter image to use", default=None)
     parser.add_argument("-A", "--account", type=str, help="slurm account to charge")
     parser.add_argument("-t", "--time-limit", type=str, help="Time limit, in format for slurm", default="01:00:00")
     parser.add_argument("-d", "--per-process-domain-size", type=str,
@@ -31,13 +32,16 @@ if __name__ == "__main__":
     time_limit = args["time_limit"]
     account_name = args["account"]
     email_address = args["email"]
+    image_name = args["image"]
 
     preamble = build_slurm_gpu_preamble(config=machine_config,
                                         num_gpus=1,
                                         job_name=job_name,
                                         email_address=email_address,
                                         account_name=account_name,
-                                        time_limit=time_limit)
+                                        time_limit=time_limit,
+                                        image_name=image_name,
+                                        )
 
     per_process_extent = tuple(map(int, args["per_process_domain_size"].split(',')))
 
@@ -85,6 +89,7 @@ if [[ ! -f "{build_dir}" ]] ; then
 fi
 """
     brick_dim_var_name = "brick_dim"
+    shifter_args = "" if image_name is None else "shifter --module=gpu"
 
     def build_job(brick_dim, vec_dim):
         return f"""echo "Building brick-dim {brick_dim} with vec dim {vec_dim}" ; 
@@ -107,7 +112,7 @@ fi
     def run_job(extent, first_job: bool):
         tmp_file_name = "tmp" + str(random.randint(0, 1000000))
         return f"""echo "Running experiment with extent {extent}"
-    srun -n 1 {build_dir}/gene/single-gene6d -d {','.join(map(str,extent))} \\
+    srun -n 1 {shifter_args} {build_dir}/gene/single-gene6d -d {','.join(map(str,extent))} \\
         -o {args["output_file"]} \\
         -a \\
         -I 100 \\
@@ -128,7 +133,7 @@ rm {tmp_file_name}.tmp" > {tmp_file_name}.run
     # https://stackoverflow.com/questions/9522631/how-to-put-a-line-comment-for-a-multi-line-command
     
     # Now profile that file using ncu, collecting metrics into csv
-    srun -n 1 ncu --csv   `# output data as csv to console` \\
+    srun -n 1 {shifter_args} ncu --csv   `# output data as csv to console` \\
         --target-processes all `# profile child processes` \\
         --metrics $metncu11,$register_metrics,$l1_load_metrics,$lts_load_metrics,$occupancy_metrics \\
         {tmp_file_name}.run \\

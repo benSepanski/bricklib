@@ -8,6 +8,7 @@ if __name__ == "__main__":
     parser.add_argument("-J", "--job_name", type=str, help="Job name", default=None)
     parser.add_argument('-M', "--machine", type=str, help=f"Machine name, one of {known_machines}")
     parser.add_argument("-e", "--email", type=str, help="Email address to notify on job completion")
+    parser.add_argument("-i", "--image", type=str, help="Shifter image to use", default=None)
     parser.add_argument("-A", "--account", type=str, help="slurm account to charge")
     parser.add_argument("-t", "--time-limit", type=str, help="Time limit, in format for slurm", default="01:00:00")
     parser.add_argument("-o", "--output_file", type=str, help="Output file to write to", default="fft.csv")
@@ -25,13 +26,16 @@ if __name__ == "__main__":
     time_limit = args["time_limit"]
     account_name = args["account"]
     email_address = args["email"]
+    image_name = args["image"]
 
     preamble = build_slurm_gpu_preamble(config=machine_config,
                                         num_gpus=1,
                                         job_name=job_name,
                                         email_address=email_address,
                                         account_name=account_name,
-                                        time_limit=time_limit)
+                                        time_limit=time_limit,
+                                        image_name=image_name,
+                                        )
 
     brick_dims = [(2, 32, 2, 2, 1, 1),
                   (2, 16, 2, 2, 1, 1),
@@ -74,8 +78,9 @@ fi
             to_run = "a"
         else:
             to_run = "b"
+        shifter_args = "" if image_name is None else "shifter --module=gpu"
         return f"""echo "Running experiment with brick size {brick_dim}"
-    srun -n 1 {build_dir}/gene/fft-gene-6d 10 100 {to_run} || exit 1"""
+    srun -n 1 {shifter_args} {build_dir}/gene/fft-gene-6d 10 100 {to_run} || exit 1"""
 
     all_jobs = []
     for brick_dim, vec_dim in zip(brick_dims, vec_dims):
