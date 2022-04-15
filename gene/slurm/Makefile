@@ -1,21 +1,21 @@
 
 PYTHONPATH=$(shell pwd)/slurmpy:$(shell printenv PYTHONPATH)
 ifdef BRICKS_ACCOUNT
-  BRICKS_ACCOUNT= -A $$ACCOUNT
+  BRICKS_ACCOUNT=-A $(shell printenv ACCOUNT)
 else
   BRICKS_ACCOUNT=
 endif
 ifdef BRICKS_EMAIL
-  BRICKS_EMAIL= -e $$BRICKS_EMAIL
+  BRICKS_EMAIL=-e $(shell printenv BRICKS_EMAIL)
 else
   BRICKS_EMAIL=
 endif
-ifdef BRICKS_SHIFTER_IMAGE
-  BRICKS_SHIFTER_IMAGE= -i $$BRICKS_SHIFTER_IMAGE
+ifdef BRICKS_SHIFTER_IMG
+  BRICKS_SHIFTER_IMG=-i $(shell printenv BRICKS_SHIFTER_IMG)
 else
-  BRICKS_SHIFTER_IMAGE=
+  BRICKS_SHIFTER_IMG=
 endif
-ARGS=-M perlmutter$(BRICKS_ACCOUNT)$(BRICKS_EMAIL)$(BRICKS_SHIFTER_IMAGE)
+ARGS=-M perlmutter $(BRICKS_ACCOUNT) $(BRICKS_EMAIL) $(BRICKS_SHIFTER_IMG)
 MPI_ARGS=$(ARGS) --always-cuda-aware
 
 .PHONY: mpi-stencil mpi-stencil-strong mpi-stencil-weak

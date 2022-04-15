@@ -211,29 +211,38 @@ To run the batch jobs, we're going to first need to [build the slurm scripts](#b
 
 #### Building the slurm scripts
 
-
-If you're using shifter, go ahead and start running the container.
-```bash
-# Shifter build:
-shifter --image=${BRICKS_SHIFTER_IMG} ${BRICKS_SHIFTER_ARGS} /bin/bash
-```
 First, choose a directory you want to the builds and data to occur in.
 Let's call that directory `$BRICKS_WORKSPACE`. For example, you could use the scratch directory.
-Note that if you are using the shifter image, the directory will need to be outside the
-container filesystem, since NERSC loads shifter images as read-only.
+Do this outside of the container, if you are using the shifter image.
 ```bash
 export BRICKS_WORKSPACE="${SCRATCH}/bricks-benchmarks"
 mkdir -p "${BRICKS_WORKSPACE}"
 cd "${BRICKS_WORKSPACE}"
 ```
 
-Now we need to build the slurm scripts.
+If you're using shifter, go ahead and start running the container and move to your workspace directory.
+```bash
+# Shifter build:
+shifter --image=${BRICKS_SHIFTER_IMG} ${BRICKS_SHIFTER_ARGS} /bin/bash
+export BRICKS_WORKSPACE="${SCRATCH}/bricks-benchmarks"
+mkdir -p "${BRICKS_WORKSPACE}"
+cd "${BRICKS_WORKSPACE}"
+```
+
+Now we need to build the slurm scripts. First, let's get the necessary files into our workspace.
+```bash
+cp -r "${bricklib_SRCDIR}/gene/slurm/"* .
+````
+Now exit the container.
+```bash
+# Shifter build:
+exit
+```
 If you wish to be emailed when the jobs start, or to charge a specific account,
 set the `BRICKS_ACCOUNT` or `BRICKS_EMAIL` environment variables.
 If you are planning to use the shifter image, make sure the `BRICKS_SHIFTER_IMG`
 variable is set as described [above](#setup-using-shifter-on-perlmutter).
 ```bash
-cp -r "${bricklib_SRCDIR}/gene/slurm/"* .
 # make jobs with no email, no account
 make
 # make jobs with email and account
@@ -256,7 +265,7 @@ python3 mpi_slurm_gen.py -h
 If you are not using the shifter image,
 make sure you've loaded the modules as in [`perlmutter_setup.sh`](https://github.com/benSepanski/bricklib/blob/sc-22-artifact/gene/docker/perlmutter_setup.sh).
 Submitting these scripts will cause some cmake builds to occur.
-Otherwise, make sure you're still running the container.
+Otherwise, use `exit` to exit the container (`sbatch` is not defined in the container).
 
 Now we can submit the jobs. Make sure to run this from the `${BRICKS_WORKSPACE}` directory,
 outside the container.
