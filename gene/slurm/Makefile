@@ -29,7 +29,7 @@ all: generated-scripts/single-stencil.sh generated-scripts/fft.h mpi-stencil
 
 generated-scripts/single-stencil.sh:
 	mkdir -p generated-scripts
-	python3 brick_shape_slurm_gen.py $(ARGS) > generated-scripts/single-stencil.sh
+	python3 brick_shape_slurm_gen.py $(ARGS) -t 02:00:00 > generated-scripts/single-stencil.sh
 	chmod +x generated-scripts/single-stencil.sh
 
 generated-scripts/fft.h:
