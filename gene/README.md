@@ -161,7 +161,20 @@ single-gene-6d -h
 
 #### FFT
 
-***TODO***
+To run the FFT benchmark, run
+```bash
+fft-gene-6d
+```
+If you wish, you can specify the number of warmups iterations/measured iterations.
+For instance, to run with 5 warmup iterations and 100 measured iterations, run
+```bash
+fft-gene-6d 5 100
+```
+You can also choose to run only the array implementation, or only the bricks implementation.
+```bash
+fft-gene-6d 5 100 a  # Run array layout only
+fft-gene-6d 5 100 b  # Run bricks layout only
+```
 
 #### MPI Scaling for 2D Stencil
 
