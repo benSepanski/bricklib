@@ -194,7 +194,7 @@ of shape `72 x 32 x 24 x 24 x 32 x 2` (including ghost zones) split across
 2 MPI ranks in the k axis and 2 MPI ranks in the l axis by running
 ```bash
 # Shifter build: (NB: Don't use ${BRICKS_SHIFTER_ARGS} here! It will run from ENTRYPOINT instead of mpi-gene6d)
-srun -n 4 shifter --module=cuda-mpich --module=gpu mpi-gene6d -d 72,32,8,8,32,2 -p 1,1,2,2,1,1
+srun -n 4 shifter --module=gpu --module=cuda-mpich mpi-gene6d -d 72,32,24,24,32,2 -p 1,1,2,2,1,1
 # Manual build:
 srun -n 4 mpi-gene6d -d 72,32,8,8,32,2 -p 1,1,2,2,1,1
 ```
