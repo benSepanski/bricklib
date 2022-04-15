@@ -285,7 +285,7 @@ All data will be stored in `.csv`s in  `${BRICKS_WORKSPACE}`.
   * `ncu_brick_shape_out.csv` Results from [NSight Compute](https://developer.nvidia.com/nsight-compute)
   * `brick_shape_out.csv` Results from our timing
   * `ptx_info_brick_shape.csv` Some results extracted from the `.ptx` files
-* FFT: `fft_results``
+* FFT: `fft_results`
 * MPI: Stored in the `${BRICKS_WORKSPACE}/mpiData/` directory.
   * Strong: `mpiData/mpi_<numgpus>.csv`
   * Weak: `mpiData/mpi_<numgpus>_exascale_gene_domain.csv`
