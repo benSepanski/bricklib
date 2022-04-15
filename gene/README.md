@@ -34,20 +34,82 @@ ssh perlmutter
 Next, use `shifter` to set up the environment.
 First, pull the image down from DockerHub. This may a few minutes.
 ```bash
-shifterimg -v pull bensepanski/2022_sc_bricks:0.1
+export BRICKS_SHIFTER_IMG=docker:bensepanski/2022_sc_bricks:perlmutter_0.1
+shifterimg -v pull ${BRICKS_SHIFTER_IMG}
 ```
 Next, start the container and move to the `bricklib` directory.
 ```bash
-shifter --image=bensepanski/2022_sc_bricks:0.1 --module=gpu --module=cuda-mpich /bin/bash
-cd /bricks/sc_22_submission/bricklib/
+export BRICKS_SHIFTER_ARGS="--entrypoint --module=gpu --module=cuda-mpich"
+shifter --image=${BRICKS_SHIFTER_IMG} ${BRICKS_SHIFTER_ARGS} /bin/bash
 ```
-You should see all the directories and files in the `bricklib` library,
-including a pre-built `build/` directory and the source directory
-for these benchmarks (i.e. `gene/`).
+You should now be in the [`${SCRATCH}`](https://docs.nersc.gov/filesystems/#scratch) directory
+which contains a single directory: `bricklib`, containing pre-built executables in `bricklib/build`.
+Use the
+```bash
+exit
+```
+command to exit the container.
+
+*Note:*
+Since image directories are mounted read-only at NERSC ([docs](https://docs.nersc.gov/development/shifter/how-to-use/#differences-between-shifter-and-docker),
+you won't be able to make any changes in the directory.
+Instead, we'll have to run everything from outside the `bricklib` directory.
+Feel free to move to a different directory if you wish to store the run output in a more persistent
+directory than scratch.
+
+Now you're ready to start [running the benchmarks](#running-the-benchmarks)!
 
 ### Manual setup
 
-FIXME: DESCRIBE MANUAL SETUP HERE
+First, download the GTensor library and checkout the commit used in our experiments.
+```bash
+WORK_DIR="`pwd`"
+git clone https://github.com/wdmapp/gtensor.git
+cd gtensor 
+git reset --hard 41cf4fe26625f8d7ba2d0d3886a54ae6415a2017 
+```
+Then, install the GTensor library using cmake.
+```bash
+cmake -S . -B build -DGTENSOR_DEVICE=cuda \
+  -DCMAKE_INSTALL_PREFIX=bin \
+  -DBUILD_TESTING=OFF \
+  -DCMAKE_BUILD_TYPE=Release
+cmake --build build --target install
+```
+We also need to set an environment variable to help CMake find GTensor.
+```bash
+gtensor_DIR="${WORK_DIR}/gtensor/bin"
+````
+
+Next, download the Bricks library.
+```bash
+cd ${WORK_DIR}
+git clone https://github.com/benSepanski/bricklib.git # (While waiting for PR to work its way through bitbucket, pull from fork)
+cd bricklib
+git checkout 5abff1121025a04858f4b85ec2260de435169b27 # TODO: Switch to tag once finalized
+```
+For consistency with the instructions for the shifter image instructions, go ahead and
+store the location of the Bricks library in the environment variable `bricklib_SRCDIR`.
+```bash
+bricklib_SRCDIR="`pwd`"
+```
+If you are building on the Perlmutter machine, you will need to pass the cmake variable 
+***FIXME: FINISH THESE INSTRUCTIONS***
+```bash
+export BUILDING_IMAGE_ON_PERLMUTTER=ON
+export CUDA_ARCHITECTURE=80
+cmake -S . -B build \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_INSTALL_PREFIX=bin \
+  -DCMAKE_CUDA_ARCHITECTURES="${CUDA_ARCHITECTURE}" \
+  -DGENE6D_USE_TYPES=OFF  \
+  -DGENE6D_CUDA_AWARE=ON \
+  -DPERLMUTTER=${BUILDING_IMAGE_ON_PERLMUTTER} \
+  -DCMAKE_CUDA_FLAGS="-lineinfo -gencode arch=compute_${CUDA_ARCHITECTURE},code=[sm_${CUDA_ARCHITECTURE},lto_${CUDA_ARCHITECTURE}]"
+cmake --build build --parallel
+```
+
+Now you're ready to start [running the benchmarks](#running-the-benchmarks)!
 
 ## Running the benchmarks
 
@@ -60,26 +122,72 @@ yourself, or using [batch jobs](#batch-jobs) to run the same experiments as in t
 
 First, (outside the shifter image, if you are using the containerized setup)
 get a compute node interactively using salloc as described in the [NERSC docs](https://docs.nersc.gov/jobs/).
+If you are using the  [shifter image](#setup-using-shifter-on-perlmutter) setup,
+you must use the extra argument `--image=bensepanski/2022_sc_bricks:perlmutter_0.1`,
+and run the `shifter` image.
 For example, on perlmutter you might run
 ```bash
+# Shifter build:
+salloc -C gpu -N 1 -G 4 -n 4 -c 20 -t 00:30:00 -q interactive --image=bensepanski/2022_sc_bricks:perlmutter_0.1
+shifter ${BRICKS_SHIFTER_ARGS} /bin/bash
+# Manual build:
 salloc -C gpu -N 1 -G 4 -n 4 -c 20 -t 00:30:00 -q interactive
 ```
-to obtain a single node for 30 minutes. If you are using the [shifter image](#setup-using-shifter-on-perlmutter),
-activate it and move to the build directory.
+
+Now we can run the benchmarks interactively.
+We'll assume the Bricks library source is stored in `bricklib_SRCDIR` and has been
+built in `$bricklib_SRCDIR/build`.
+If you used the shifter image, all three benchmarks in the `build/` directory are already on your `PATH`.
+Otherwise, you need to move to the `${bricklib_SRCDIR}/build/gene` directory.
 ```bash
-shifter --image=bensepanski/2022_sc_bricks:0.1 --module=gpu --module=cuda-mpich /bin/bash
-cd /bricks/sc_22_submission/bricklib/build/
+# Shifter build:
+# Nothing to do!
+# Manual build:
+cd "${bricklib_SRCDIR}/build/gene"
 ```
 
-FIXME: DESCRIBE EXTRA SHIFTER SETUP FOR CUDA-AWARE MPI
+#### Single-Device Stencils
 
-FIXME: DESCRIBE HOW TO RUN ALL 3 BENCHMARKS
+To run the `single-gene-6d` benchmark you only need to specify the array extents.
+For example, you can run the benchmark with an `I x J x K x L x M x N` grid
+of shape `72 x 32 x 24 x 24 x 32 x 2` (including ghost zones) by running
+```bash
+single-gene-6d -d 72,32,24,24,32,2
+```
+To see further command line options, run
+```bash
+single-gene-6d -h
+```
+
+#### FFT
+
+***TODO***
+
+#### MPI Scaling for 2D Stencil
+
+To run the `mpi-gene6d` benchmark you need to specify the array extents
+and the number of MPI ranks along each axis.
+Using the shifter setup, you'll need to run the benchmark from outside
+of the container to use more than one MPI rank.
+For example, you can run the benchmark with a global `I x J x K x L x M x N` grid
+of shape `72 x 32 x 24 x 24 x 32 x 2` (including ghost zones) split across
+2 MPI ranks in the k axis and 2 MPI ranks in the l axis by running
+```bash
+# Shifter build: (NB: Don't use ${BRICKS_SHIFTER_ARGS} here! It will run from ENTRYPOINT instead of mpi-gene6d)
+srun -n 4 shifter --module=cuda-mpich --module=gpu mpi-gene6d -d 72,32,8,8,32,2 -p 1,1,2,2,1,1
+# Manual build:
+srun -n 4 mpi-gene6d -d 72,32,8,8,32,2 -p 1,1,2,2,1,1
+```
+To see further command line options, run
+```bash
+mpi-gene6d -h
+```
 
 
 ### Batch jobs
 
-FIXME: DESCRIBE HOW TO GENERATE JOBS
+***FIXME: DESCRIBE HOW TO GENERATE JOBS***
 
-FIXME: DESCRIBE HOW TO SUBMIT JOBS
+***FIXME: DESCRIBE HOW TO SUBMIT JOBS***
 
-FIXME: DESCRIBE HOW TO GET RESULTS
+***FIXME: DESCRIBE HOW TO GET RESULTS***
