@@ -93,7 +93,7 @@ if [[ ! -f "{build_dir}" ]] ; then
 fi
 """
     brick_dim_var_name = "brick_dim"
-    shifter_args = "" if image_name is None else "shifter --module=gpu"
+    shifter_args = "" if image_name is None else "shifter --module=gpu --module=cuda-mpich"
 
     def build_job(brick_dim, vec_dim):
         return f"""echo "Building brick-dim {brick_dim} with vec dim {vec_dim}" ; 
@@ -109,7 +109,8 @@ fi
         -DCMAKE_BUILD_TYPE=Release \\
         -DPERLMUTTER={"ON" if machine_config.name == "perlmutter" else "OFF"} \\
     || exit 1
-    {shifter_args} "(cd {build_dir} && make clean && make -j 20 single-gene-6d 2> \\"${{ptx_info_file}}\\") || exit 1"
+    {shifter_args} cmake --build {build_dir} --target clean || exit 1
+    {shifter_args} cmake --build {build_dir} --target single-gene-6d --parallel 2> \\"${{ptx_info_file}}\\" || exit 1
     {shifter_args} python3 `pwd`/get_ptx_info.py
 """
 
