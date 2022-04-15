@@ -225,7 +225,6 @@ If you're using shifter, go ahead and start running the container and move to yo
 # Shifter build:
 shifter --image=${BRICKS_SHIFTER_IMG} ${BRICKS_SHIFTER_ARGS} /bin/bash
 export BRICKS_WORKSPACE="${SCRATCH}/bricks-benchmarks"
-mkdir -p "${BRICKS_WORKSPACE}"
 cd "${BRICKS_WORKSPACE}"
 ```
 
@@ -276,7 +275,8 @@ for mpi_job_array_submit_script in generated-scripts/mpi_* ; do
     ./${mpi_job_array_submit_script}
 done
 ```
-Note that this process will trigger some builds into the `cmake-builds` directory.
+Note that submitting the MPI jobs will trigger a few builds into the `cmake-builds` directory
+the first time you submit.
 
 #### Finding the results
 

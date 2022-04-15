@@ -11,6 +11,7 @@ if __name__ == "__main__":
     known_machines = [machine for machine in machine_configurations]
     parser = argparse.ArgumentParser("Build slurm job file for MPI Gene")
     parser.add_argument("gpus", metavar="G", type=int, help="Number of GPUs")
+    parser.add_argument("bricklib-src-dir", type=str, help="Path to bricklib source directory")
     parser.add_argument("-B", "--brick_shape", metavar="BI,BJ,BK,BL,BM,BN", type=str, help="Brick shape",
                         default="2,16,2,2,1,1")
     parser.add_argument('-M', "--machine", type=str, help=f"Machine name, one of {known_machines}")
@@ -30,6 +31,7 @@ if __name__ == "__main__":
     args = vars(parser.parse_args())
 
     num_gpus = args["gpus"]
+    bricklib_src_dir = os.path.abspath(args["bricklib_src_dir"])
     brick_shape = tuple(map(int, args["brick_shape"].split(",")))
     assert len(brick_shape) == 6
     assert all([b > 0 for b in brick_shape])
@@ -86,7 +88,7 @@ if __name__ == "__main__":
 if [[ ! -d {current_build_dir} ]] ; then 
     mkdir -p {current_build_dir}
     echo "Building brick-dim {brick_dim} with vec dim {vec_dim}, cuda_aware={cuda_aware}" ; 
-    cmake -S {os.path.abspath(os.path.join(os.path.pardir, os.path.pardir))} \\
+    cmake -S {bricklib_src_dir} \\
         -B {current_build_dir} \\
         -DCMAKE_CUDA_ARCHITECTURES={machine_config.cuda_arch} \\
         -DCMAKE_INSTALL_PREFIX=bin \\
@@ -339,6 +341,8 @@ export {cuda_aware_var_name}=${{4}}
                                            "srun " + " \\\n     ".join(srun_args)]))
 
     build_cmd = f"{build_script_filename}"
+    if image_name is not None:
+        build_cmd = f"shifter --image={image_name} --module=gpu --module=cuda-mpich {build_cmd}"
     submit_file_name = os.path.abspath(f"{generated_scripts_dir}/{job_name}.sh")
     with open(submit_file_name, 'w') as submit_file:
         submit_file.write("\n".join(["#!/bin/bash",

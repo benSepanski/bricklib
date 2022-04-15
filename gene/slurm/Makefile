@@ -1,3 +1,8 @@
+ifndef bricklib_SRCDIR
+	$(error bricklib_SRCDIR is not defined)
+else
+	bricklib_SRCDIR = $(shell printenv bricklib_SRCDIR)
+endif
 
 PYTHONPATH=$(shell pwd)/slurmpy:$(shell printenv PYTHONPATH)
 ifdef BRICKS_ACCOUNT
@@ -15,7 +20,7 @@ ifdef BRICKS_SHIFTER_IMG
 else
   BRICKS_SHIFTER_IMG=
 endif
-ARGS=-M perlmutter $(BRICKS_ACCOUNT) $(BRICKS_EMAIL) $(BRICKS_SHIFTER_IMG)
+ARGS=$(bricklib_SRCDIR) -M perlmutter $(BRICKS_ACCOUNT) $(BRICKS_EMAIL) $(BRICKS_SHIFTER_IMG)
 MPI_ARGS=$(ARGS) --always-cuda-aware
 
 .PHONY: mpi-stencil mpi-stencil-strong mpi-stencil-weak

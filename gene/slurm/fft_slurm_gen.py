@@ -1,10 +1,12 @@
 import argparse
+import os
 
 from slurmpy import *
 
 if __name__ == "__main__":
     known_machines = [machine for machine in machine_configurations]
     parser = argparse.ArgumentParser("Build slurm job file for Single-device Gene FFT experiment")
+    parser.add_argument("bricklib-src-dir", type=str, help="Path to bricklib source directory")
     parser.add_argument("-J", "--job_name", type=str, help="Job name", default=None)
     parser.add_argument('-M', "--machine", type=str, help=f"Machine name, one of {known_machines}")
     parser.add_argument("-e", "--email", type=str, help="Email address to notify on job completion")
@@ -27,6 +29,7 @@ if __name__ == "__main__":
     account_name = args["account"]
     email_address = args["email"]
     image_name = args["image"]
+    bricklib_src_dir = os.path.abspath(args["bricklib_src_dir"])
 
     preamble = build_slurm_gpu_preamble(config=machine_config,
                                         num_gpus=1,
@@ -59,7 +62,7 @@ fi
 """
 
     def build_job(brick_dim, vec_dim):
-        return f"""cmake -S ../../ \\
+        return f"""cmake -S {bricklib_src_dir} \\
         -B {build_dir} \\
         -DCMAKE_CUDA_ARCHITECTURES={machine_config.cuda_arch} \\
         -DCMAKE_INSTALL_PREFIX=bin \\
