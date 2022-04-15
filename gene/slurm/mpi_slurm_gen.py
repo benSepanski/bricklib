@@ -326,15 +326,15 @@ export {cuda_aware_var_name}=${{4}}
     slurm_script_filename = os.path.abspath(f"{slurm_script_dir}/{job_name}.slurm")
     print(f"Writing slurm script to {slurm_script_filename}")
     srun_args = [f"-n {num_gpus}",
-                 "--cpu-bind=cores",
-                 exec_script_filename,
-                 "${MPICH_RANK_REORDER_FILE}",
-                 f"${{{per_process_extent_var_name}}}",
-                 f"${{{procs_per_dim_var_name}}}",
-                 f"${{{cuda_aware_var_name}}}",
-                 ]
+                 "--cpu-bind=cores"]
     if image_name is not None:
         srun_args += ["shifter", "--module=gpu", "--module=cuda-mpich"]
+    srun_args += [exec_script_filename,
+                  "${MPICH_RANK_REORDER_FILE}",
+                  f"${{{per_process_extent_var_name}}}",
+                  f"${{{procs_per_dim_var_name}}}",
+                  f"${{{cuda_aware_var_name}}}",
+                  ]
     srun_cmd = f"srun {' '.join(srun_args)}"
     with open(slurm_script_filename, 'w') as slurm_script_file:
         slurm_script_file.write("\n".join([preamble, "# Run job", environment_setup,
