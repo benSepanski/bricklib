@@ -98,7 +98,7 @@ RUN git clone https://github.com/benSepanski/bricklib.git # (While waiting for P
 WORKDIR bricklib
 RUN git checkout 5abff1121025a04858f4b85ec2260de435169b27 # TODO: Switch to tag once finalized
 RUN cmake -S . -B build \
-        -DCMAKE_BUILD_TYPE=Debug `# FIXME: Switch to release` \
+        -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_INSTALL_PREFIX=bin \
         -DCMAKE_CUDA_ARCHITECTURES="${CUDA_ARCHITECTURE}" \
         -DGENE6D_USE_TYPES=OFF  \
@@ -110,5 +110,10 @@ RUN cmake -S . -B build \
     cmake --build build --parallel
 # Put gene executables on path
 ENV PATH=${HOME}/bricklib/build/gene:${PATH}
+# put slurmpy on pythonpath for batch job generation
+ENV PYTHONPATH="${HOME}/bricklib/gene/slurm/slurmpy:${PYTHONPATH}"
+# Make sure to pre-load necessary librariesfor CUDA-Aware MPI (https://docs.nersc.gov/development/shifter/gpus/#shifter-cuda-mpich-module)
+ENV LD_PRELOAD="/opt/udiImage/modules/cuda-mpich/lib64/libmpi_gtl_cuda.so.0 ${LD_PRELOAD}"
+ENV MPICH_GPU_SUPPORT_ENABLED=1
 
 ENTRYPOINT /bin/bash --init-file <(echo "cd ${SCRATCH}; if [[ ! -L ${SCRATCH}/bricklib ]] ; then ln -s ${HOME}/bricklib ; fi ; export bricklib_SRCDIR=${SCRATCH}/bricklib")
