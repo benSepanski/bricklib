@@ -29,10 +29,6 @@ export CUFFT_INCLUDE_DIR="${CUDA_MATH_LIBS}/include"
 export UCX_TLS=rc,cuda_copy,cuda_ipc,gdr_copy
 export UCX_IB_GPU_DIRECT_RDMA=yes
 
-# Use custom cmake
-export PATH="/global/homes/b/bmsepan/usr/cmake-3.20.1/bin:${PATH}"
-export PATH="/opt/nvidia/hpc_sdk/Linux_x86_64/21.9/profilers/Nsight_Compute/:${PATH}"
-
 # Use wrappers
 export CXX=CC
 export CC=cc
