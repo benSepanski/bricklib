@@ -96,7 +96,7 @@ RUN git clone https://github.com/KhronosGroup/OpenCL-CLHPP.git && \
 WORKDIR ${HOME}
 RUN git clone https://github.com/benSepanski/bricklib.git # (While waiting for PR to work its way through bitbucket, pull from fork)
 WORKDIR bricklib
-RUN git checkout 5abff1121025a04858f4b85ec2260de435169b27 # TODO: Switch to tag once finalized
+RUN git checkout 106dc93581fc354094f73ece0c4ab9e150d2aca7 # TODO: Switch to tag once finalized
 RUN cmake -S . -B build \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_INSTALL_PREFIX=bin \

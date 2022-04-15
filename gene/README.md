@@ -208,7 +208,6 @@ mpi-gene6d -h
 ### Batch jobs
 
 To run the batch jobs, we're going to first need to [build the slurm scripts](#building-the-slurm-scripts).
-The slurm scripts are submitted as [job arrays](https://docs.nersc.gov/jobs/examples/#job-arrays).
 
 #### Building the slurm scripts
 
@@ -224,6 +223,7 @@ Note that if you are using the shifter image, the directory will need to be outs
 container filesystem, since NERSC loads shifter images as read-only.
 ```bash
 export BRICKS_WORKSPACE="${SCRATCH}/bricks-benchmarks"
+mkdir -p "${BRICKS_WORKSPACE}"
 cd "${BRICKS_WORKSPACE}"
 ```
 
@@ -233,7 +233,7 @@ set the `BRICKS_ACCOUNT` or `BRICKS_EMAIL` environment variables.
 If you are planning to use the shifter image, make sure the `BRICKS_SHIFTER_IMG`
 variable is set as described [above](#setup-using-shifter-on-perlmutter).
 ```bash
-cp -r "${bricklib_SRCDIR}/gene/slurm/*" .
+cp -r "${bricklib_SRCDIR}/gene/slurm/"* .
 # make jobs with no email, no account
 make
 # make jobs with email and account
@@ -242,7 +242,7 @@ BRICKS_ACCOUNT=<account> BRICKS_EMAIL=<email> make
 This will create several files in the `generated-scripts` directory.
 * `generated-scripts/single-stencil.h`: Run the `single-gene-6d` benchmark.
 * `generated-scripts/fft.h`: Run the `fft-gene-6d` benchmark.
-* `generated-scripts/mpi_*.sh`: Submit several jobs to the `mpi-gene6d` benchmark. There are different scripts for the different number of MPI Ranks, and weak vs. strong scaling. Each script submits a job array. To see the actual slurm scripts, look at `generated-scripts/mpi_slurm_scripts/*.slurm`. 
+* `generated-scripts/mpi_*.sh`: Submit several jobs to the `mpi-gene6d` benchmark. There are different scripts for the different number of MPI Ranks, and weak vs. strong scaling. Each script submits a [job arrays](https://docs.nersc.gov/jobs/examples/#job-arrays). To see the actual slurm scripts, look at `generated-scripts/mpi_slurm_scripts/*.slurm`. 
 
 You can see customization options for the slurm scripts by running
 ```bash
@@ -258,7 +258,8 @@ make sure you've loaded the modules as in [`perlmutter_setup.sh`](https://github
 Submitting these scripts will cause some cmake builds to occur.
 Otherwise, make sure you're still running the container.
 
-Now we can submit the jobs. Make sure to run this from the `${BRICKS_WORKSPACE}` directory.
+Now we can submit the jobs. Make sure to run this from the `${BRICKS_WORKSPACE}` directory,
+outside the container.
 ```bash
 sbatch generated-scripts/single-stencil.h
 sbatch generated-scripts/fft.h
