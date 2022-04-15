@@ -1,9 +1,3 @@
-ifndef bricklib_SRCDIR
-	$(error bricklib_SRCDIR is not defined)
-else
-	bricklib_SRCDIR = $(shell printenv bricklib_SRCDIR)
-endif
-
 PYTHONPATH=$(shell pwd)/slurmpy:$(shell printenv PYTHONPATH)
 ifdef BRICKS_ACCOUNT
   BRICKS_ACCOUNT=-A $(shell printenv ACCOUNT)
@@ -17,8 +11,15 @@ else
 endif
 ifdef BRICKS_SHIFTER_IMG
   BRICKS_SHIFTER_IMG=-i $(shell printenv BRICKS_SHIFTER_IMG)
+  bricklib_SRCDIR=/bricks/sc_22_submission/bricklib
+  gtensor_DIR=/bricks/sc_22_submission/deps/gtensor/bin
 else
   BRICKS_SHIFTER_IMG=
+  ifndef bricklib_SRCDIR
+    $(error bricklib_SRCDIR is not defined)
+  else
+    bricklib_SRCDIR = $(shell printenv bricklib_SRCDIR)
+  endif
 endif
 ARGS=$(bricklib_SRCDIR) -M perlmutter $(BRICKS_ACCOUNT) $(BRICKS_EMAIL) $(BRICKS_SHIFTER_IMG)
 MPI_ARGS=$(ARGS) --always-cuda-aware

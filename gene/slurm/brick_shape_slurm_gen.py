@@ -35,7 +35,7 @@ if __name__ == "__main__":
     account_name = args["account"]
     email_address = args["email"]
     image_name = args["image"]
-    bricklib_src_dir = os.path.abspath(args["bricklib_src_dir"])
+    bricklib_src_dir = os.path.abspath(args["bricklib-src-dir"])
 
     preamble = build_slurm_gpu_preamble(config=machine_config,
                                         num_gpus=1,
@@ -97,7 +97,7 @@ fi
 
     def build_job(brick_dim, vec_dim):
         return f"""echo "Building brick-dim {brick_dim} with vec dim {vec_dim}" ; 
-    cmake -S {bricklib_src_dir} \\
+    {shifter_args} cmake -S {bricklib_src_dir} \\
         -B {build_dir} \\
         -DCMAKE_CUDA_ARCHITECTURES={machine_config.cuda_arch} \\
         -DCMAKE_INSTALL_PREFIX=bin \\

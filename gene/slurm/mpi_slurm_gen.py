@@ -31,7 +31,7 @@ if __name__ == "__main__":
     args = vars(parser.parse_args())
 
     num_gpus = args["gpus"]
-    bricklib_src_dir = os.path.abspath(args["bricklib_src_dir"])
+    bricklib_src_dir = os.path.abspath(args["bricklib-src-dir"])
     brick_shape = tuple(map(int, args["brick_shape"].split(",")))
     assert len(brick_shape) == 6
     assert all([b > 0 for b in brick_shape])

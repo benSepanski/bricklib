@@ -29,7 +29,7 @@ if __name__ == "__main__":
     account_name = args["account"]
     email_address = args["email"]
     image_name = args["image"]
-    bricklib_src_dir = os.path.abspath(args["bricklib_src_dir"])
+    bricklib_src_dir = os.path.abspath(args["bricklib-src-dir"])
 
     preamble = build_slurm_gpu_preamble(config=machine_config,
                                         num_gpus=1,
@@ -60,9 +60,11 @@ if [[ ! -f "{build_dir}" ]] ; then
     mkdir -p "{build_dir}"
 fi
 """
+    shifter_args = "" if image_name is None else "shifter --module=gpu"
+
 
     def build_job(brick_dim, vec_dim):
-        return f"""cmake -S {bricklib_src_dir} \\
+        return f"""{shifter_args} cmake -S {bricklib_src_dir} \\
         -B {build_dir} \\
         -DCMAKE_CUDA_ARCHITECTURES={machine_config.cuda_arch} \\
         -DCMAKE_INSTALL_PREFIX=bin \\
@@ -82,7 +84,6 @@ fi
             to_run = "a"
         else:
             to_run = "b"
-        shifter_args = "" if image_name is None else "shifter --module=gpu"
         return f"""echo "Running experiment with brick size {brick_dim}"
     srun -n 1 {shifter_args} {build_dir}/gene/fft-gene-6d 10 100 {to_run} || exit 1"""
 
