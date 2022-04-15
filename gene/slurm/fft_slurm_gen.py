@@ -76,7 +76,7 @@ fi
         -DCMAKE_BUILD_TYPE=Release \\
         -DPERLMUTTER={"ON" if machine_config.name == "perlmutter" else "OFF"} \\
     || exit 1
-    (cd {build_dir} && make clean && make -j 20 single-fft-gene-6d) || exit 1
+    {shifter_args} (cd {build_dir} && make clean && make -j 20 single-fft-gene-6d) || exit 1
 """
 
     def run_job(brick_dim = None):

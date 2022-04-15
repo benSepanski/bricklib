@@ -109,8 +109,8 @@ fi
         -DCMAKE_BUILD_TYPE=Release \\
         -DPERLMUTTER={"ON" if machine_config.name == "perlmutter" else "OFF"} \\
     || exit 1
-    (cd {build_dir} && make clean && make -j 20 single-gene-6d 2> "${{ptx_info_file}}") || exit 1
-    python3 get_ptx_info.py
+    {shifter_args} (cd {build_dir} && make clean && make -j 20 single-gene-6d 2> "${{ptx_info_file}}") || exit 1
+    {shifter_args} python3 get_ptx_info.py
 """
 
     def run_job(extent, first_job: bool):
