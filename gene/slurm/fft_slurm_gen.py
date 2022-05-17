@@ -41,16 +41,16 @@ if __name__ == "__main__":
                                         mail_type=[MailType.BEGIN, MailType.FAIL],
                                         )
 
-    brick_dims = [(2, 32, 2, 2, 1, 1),
-                  (2, 16, 2, 2, 1, 1),
-                  (2, 8, 4, 2, 1, 1),
-                  (2, 4, 4, 4, 1, 1),
-                  (2, 2, 8, 4, 1, 1)]
-    vec_dims = [(2, 16, 1, 1, 1, 1),
-                (2, 16, 1, 1, 1, 1),
-                (2, 8, 2, 1, 1, 1),
-                (2, 4, 4, 1, 1, 1),
-                (2, 2, 8, 1, 1, 1)
+    brick_dims = [(2, 32, 2, 2,  1, 1),
+                  (2, 16, 2, 2,  2, 1),
+                  (2,  8, 2, 2,  4, 1),
+                  (2,  4, 2, 2,  8, 1),
+                  (2,  2, 2, 2, 16, 1)]
+    vec_dims = [(2, 16, 1, 1,  1, 1),
+                (2, 16, 1, 1,  2, 1),
+                (2,  8, 1, 1,  4, 1),
+                (2,  4, 1, 1,  8, 1),
+                (2,  2, 1, 1, 16, 1)
                 ]
 
     build_dir = os.path.abspath(f"cmake-builds/single/{machine_config.name}-fft")
@@ -84,12 +84,13 @@ fi
         else:
             to_run = "b"
         return f"""echo "Running experiment with brick size {brick_dim}"
-    srun -n 1 {shifter_args} {build_dir}/gene/fft-gene-6d 10 100 {to_run} || exit 1"""
+    srun -n 1 {shifter_args} {build_dir}/gene/fft-gene-6d 10 100 25 {to_run} || exit 1"""
 
     all_jobs = []
     for brick_dim, vec_dim in zip(brick_dims, vec_dims):
         all_jobs.append(build_job(brick_dim, vec_dim))
         all_jobs.append(run_job(brick_dim))
+    all_jobs.append(run_job())
 
     slurm_script = "\n\n".join([preamble] + all_jobs) + "\n"
 

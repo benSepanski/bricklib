@@ -677,17 +677,122 @@ double complex_to_complex_1d_j_fft_brick_transpose(bComplexElem *in_arr, bComple
   return num_seconds;
 }
 
+void runTrials(CSVDataRecorder &dataRecorder,
+               bComplexElem *in_arr, bComplexElem *out_arr, bComplexElem *out_check_arr,
+               bool run_1d_j_array, bool run_1d_j_brick,
+               int warmup, int iter
+               ) {
+  int colWidth = 30;
+  // time cufft for arrays
+  dataRecorder.setDefaultValue("Layout", "array");
+  if(run_1d_j_array)
+  {
+    dataRecorder.newRow();
+    nvtxRangePushA("cufft_1d_j_array_callback");
+    double cufft_1d_j_array_callback_num_seconds = complex_to_complex_1d_j_fft_array_callback(in_arr, out_check_arr, warmup, iter);
+    std::cout << std::setw(colWidth) << "cufft_1d_j_array_callback "
+              << std::setw(colWidth) << 1000 * cufft_1d_j_array_callback_num_seconds
+              << std::endl;
+    nvtxRangePop();
+    dataRecorder.record("transpose", "false");
+    dataRecorder.record("callback", "true");
+    dataRecorder.record("avgtime(s)", cufft_1d_j_array_callback_num_seconds);
+
+    dataRecorder.newRow();
+    nvtxRangePushA("cufft_1d_j_array_transpose");
+    double cufft_1d_j_array_transpose_num_seconds = complex_to_complex_1d_j_fft_array_transpose(in_arr, out_arr, warmup, iter);
+    std::cout << std::setw(colWidth) << "cufft_1d_j_array_transpose "
+              << std::setw(colWidth) << 1000 * cufft_1d_j_array_transpose_num_seconds
+              << std::endl;
+    nvtxRangePop();
+    check_close(out_check_arr, out_arr, NUM_ELEMENTS, "Mismatch between cufft_1d_j_array_callback and cufft_1d_j_array_transpose");
+    dataRecorder.record("transpose", "true");
+    dataRecorder.record("callback", "false");
+    dataRecorder.record("avgtime(s)", cufft_1d_j_array_transpose_num_seconds);
+
+
+    dataRecorder.newRow();
+    nvtxRangePushA("cufft_1d_j_array_excluding_transpose");
+    double cufft_1d_j_array_excluding_transpose_num_seconds = complex_to_complex_1d_j_fft_array_transpose(in_arr, out_arr, warmup, iter, false);
+    std::cout << std::setw(colWidth) << "cufft_1d_j_array_excluding_transpose "
+              << std::setw(colWidth) << 1000 * cufft_1d_j_array_excluding_transpose_num_seconds
+              << std::endl;
+    dataRecorder.record("transpose", "false");
+    dataRecorder.record("callback", "false");
+    dataRecorder.record("avgtime(s)", cufft_1d_j_array_excluding_transpose_num_seconds);
+    nvtxRangePop();
+
+    dataRecorder.newRow();
+    nvtxRangePushA("cufft_1d_j_array");
+    double cufft_1d_j_array_num_seconds = complex_to_complex_1d_j_fft_array(in_arr, out_arr, warmup, iter);
+    std::cout << std::setw(colWidth) << "cufft_1d_j_array "
+              << std::setw(colWidth) << 1000 * cufft_1d_j_array_num_seconds
+              << std::endl;
+    nvtxRangePop();
+    check_close(out_check_arr, out_arr, NUM_ELEMENTS, "Mismatch between cufft_1d_j_array and cufft_1d_j_array_transpose");
+  }
+
+  // time cufft for bricks
+  std::string axis = "i";
+  for(const auto &e : {BDIM_i, BDIM_j, BDIM_k, BDIM_m, BDIM_n}) {
+    dataRecorder.setDefaultValue("brickdim_" + axis, e);
+    axis[0]++;
+  }
+  dataRecorder.setDefaultValue("Layout", "bricks");
+  if(run_1d_j_brick)
+  {
+// re-zero out out_arr
+#pragma omp parallel
+    for(unsigned i = 0; i < NUM_ELEMENTS; ++i) out_arr[i] = 0.0;
+    dataRecorder.newRow();
+    nvtxRangePushA("cufft_1d_j_brick_transpose");
+    double cufft_1d_j_brick_transpose_num_seconds = complex_to_complex_1d_j_fft_brick_transpose(in_arr, out_arr, warmup, iter);
+    std::cout << std::setw(colWidth) << "cufft_1d_j_brick_transpose"
+              << std::setw(colWidth) << 1000 * cufft_1d_j_brick_transpose_num_seconds
+              << std::endl;
+    nvtxRangePop();
+    dataRecorder.record("transpose", "true");
+    dataRecorder.record("callback", "true");
+    dataRecorder.record("avgtime(s)", cufft_1d_j_brick_transpose_num_seconds);
+
+    // run correctness check
+    if(run_1d_j_array)
+    {
+      check_close(out_check_arr, out_arr, NUM_ELEMENTS, "Mismatch between 1d_j_array and 1d_j_brick_transpose");
+    }
+// re-zero out out_arr
+#pragma omp parallel
+    for(unsigned i = 0; i < NUM_ELEMENTS; ++i) out_arr[i] = 0.0;
+    dataRecorder.newRow();
+    nvtxRangePushA("cufft_1d_j_brick");
+    double cufft_1d_j_brick_num_seconds = complex_to_complex_1d_j_fft_brick(in_arr, out_arr, warmup, iter);
+    std::cout << std::setw(colWidth) << "cufft_1d_j_brick "
+              << std::setw(colWidth) << 1000 * cufft_1d_j_brick_num_seconds
+              << std::endl;
+    nvtxRangePop();
+    // run correctness check
+    if(run_1d_j_array)
+    {
+      check_close(out_check_arr, out_arr, NUM_ELEMENTS, "Mismatch between 1d_j_array and 1d_j_brick");
+    }
+    dataRecorder.record("transpose", "false");
+    dataRecorder.record("callback", "true");
+    dataRecorder.record("avgtime(s)", cufft_1d_j_brick_num_seconds);
+  }
+}
+
 int main(int argc, char **argv)
 {
-  if(argc > 4) throw std::runtime_error("too many arguments");
+  if(argc > 5) throw std::runtime_error("too many arguments");
   bool run_1d_j_array = true,
        run_1d_j_brick = true;
-  int warmup = CU_WARMUP, iter = CU_ITER;
+  int warmup = CU_WARMUP, iter = CU_ITER, num_trials = 30;
   if(argc >= 2) warmup = std::stoi(argv[1]);
   if(argc >= 3) iter = std::stoi(argv[2]);
-  if(argc >= 4) 
+  if(argc >= 4) num_trials = std::stoi(argv[3]);
+  if(argc >= 5)
   {
-    char to_run = argv[3][0];
+    char to_run = argv[4][0];
     if(to_run == 'a') run_1d_j_brick = false;
     else if(to_run == 'b') run_1d_j_array = false;
     else throw std::runtime_error("Unrecognized argument, expected 'a' or 'b'");
@@ -735,101 +840,9 @@ int main(int argc, char **argv)
   std::cout << std::setw(colWidth) << "method"
             << std::setw(colWidth) << "time(ms)" 
             << std::endl;
-  // time cufft for arrays
-  dataRecorder.setDefaultValue("Layout", "array");
-  if(run_1d_j_array)
-  {
-    dataRecorder.newRow();
-    nvtxRangePushA("cufft_1d_j_array_callback");
-    double cufft_1d_j_array_callback_num_seconds = complex_to_complex_1d_j_fft_array_callback(in_arr, out_check_arr, warmup, iter);
-    std::cout << std::setw(colWidth) << "cufft_1d_j_array_callback "
-              << std::setw(colWidth) << 1000 * cufft_1d_j_array_callback_num_seconds
-              << std::endl;
-    nvtxRangePop();
-    dataRecorder.record("transpose", "false");
-    dataRecorder.record("callback", "true");
-    dataRecorder.record("avgtime(s)", cufft_1d_j_array_callback_num_seconds);
 
-    dataRecorder.newRow();
-    nvtxRangePushA("cufft_1d_j_array_transpose");
-    double cufft_1d_j_array_transpose_num_seconds = complex_to_complex_1d_j_fft_array_transpose(in_arr, out_arr, warmup, iter);
-    std::cout << std::setw(colWidth) << "cufft_1d_j_array_transpose "
-              << std::setw(colWidth) << 1000 * cufft_1d_j_array_transpose_num_seconds
-              << std::endl;
-    nvtxRangePop();
-    check_close(out_check_arr, out_arr, NUM_ELEMENTS, "Mismatch between cufft_1d_j_array_callback and cufft_1d_j_array_transpose");
-    dataRecorder.record("transpose", "true");
-    dataRecorder.record("callback", "false");
-    dataRecorder.record("avgtime(s)", cufft_1d_j_array_transpose_num_seconds);
-
-
-    dataRecorder.newRow();
-    nvtxRangePushA("cufft_1d_j_array_excluding_transpose");
-    double cufft_1d_j_array_excluding_transpose_num_seconds = complex_to_complex_1d_j_fft_array_transpose(in_arr, out_arr, warmup, iter, false);
-    std::cout << std::setw(colWidth) << "cufft_1d_j_array_excluding_transpose "
-              << std::setw(colWidth) << 1000 * cufft_1d_j_array_excluding_transpose_num_seconds
-              << std::endl;
-    nvtxRangePop();
-
-    dataRecorder.newRow();
-    nvtxRangePushA("cufft_1d_j_array");
-    double cufft_1d_j_array_num_seconds = complex_to_complex_1d_j_fft_array(in_arr, out_arr, warmup, iter);
-    std::cout << std::setw(colWidth) << "cufft_1d_j_array "
-              << std::setw(colWidth) << 1000 * cufft_1d_j_array_num_seconds
-              << std::endl;
-    nvtxRangePop();
-    check_close(out_check_arr, out_arr, NUM_ELEMENTS, "Mismatch between cufft_1d_j_array and cufft_1d_j_array_transpose");
-    dataRecorder.record("transpose", "false");
-    dataRecorder.record("callback", "false");
-    dataRecorder.record("avgtime(s)", cufft_1d_j_array_num_seconds);
-  }
-
-  // time cufft for bricks
-  axis = "i";
-  for(const auto &e : {BDIM_i, BDIM_j, BDIM_k, BDIM_m, BDIM_n}) {
-    dataRecorder.setDefaultValue("brickdim_" + axis, e);
-    axis[0]++;
-  }
-  dataRecorder.setDefaultValue("Layout", "bricks");
-  if(run_1d_j_brick)
-  {
-    // re-zero out out_arr
-    #pragma omp parallel
-    for(unsigned i = 0; i < NUM_ELEMENTS; ++i) out_arr[i] = 0.0;
-    dataRecorder.newRow();
-    nvtxRangePushA("cufft_1d_j_brick_transpose");
-    double cufft_1d_j_brick_transpose_num_seconds = complex_to_complex_1d_j_fft_brick_transpose(in_arr, out_arr, warmup, iter);
-    std::cout << std::setw(colWidth) << "cufft_1d_j_brick_transpose"
-              << std::setw(colWidth) << 1000 * cufft_1d_j_brick_transpose_num_seconds
-              << std::endl;
-    nvtxRangePop();
-    dataRecorder.record("transpose", "true");
-    dataRecorder.record("callback", "true");
-    dataRecorder.record("avgtime(s)", cufft_1d_j_brick_transpose_num_seconds);
-
-    // run correctness check
-    if(run_1d_j_array)
-    {
-      check_close(out_check_arr, out_arr, NUM_ELEMENTS, "Mismatch between 1d_j_array and 1d_j_brick_transpose");
-    }
-    // re-zero out out_arr
-    #pragma omp parallel
-    for(unsigned i = 0; i < NUM_ELEMENTS; ++i) out_arr[i] = 0.0;
-    dataRecorder.newRow();
-    nvtxRangePushA("cufft_1d_j_brick");
-    double cufft_1d_j_brick_num_seconds = complex_to_complex_1d_j_fft_brick(in_arr, out_arr, warmup, iter);
-    std::cout << std::setw(colWidth) << "cufft_1d_j_brick "
-              << std::setw(colWidth) << 1000 * cufft_1d_j_brick_num_seconds
-              << std::endl;
-    nvtxRangePop();
-    // run correctness check
-    if(run_1d_j_array)
-    {
-      check_close(out_check_arr, out_arr, NUM_ELEMENTS, "Mismatch between 1d_j_array and 1d_j_brick");
-    }
-    dataRecorder.record("transpose", "false");
-    dataRecorder.record("callback", "true");
-    dataRecorder.record("avgtime(s)", cufft_1d_j_brick_num_seconds);
+  for(int i = 0; i < num_trials; ++i) {
+    runTrials(dataRecorder, in_arr, out_arr, out_check_arr, run_1d_j_array, run_1d_j_brick, warmup, iter);
   }
 
   // free memory
