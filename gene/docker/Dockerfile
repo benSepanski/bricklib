@@ -101,7 +101,7 @@ RUN git clone https://github.com/KhronosGroup/OpenCL-CLHPP.git && \
 WORKDIR ${HOME}
 RUN git clone https://github.com/benSepanski/bricklib.git `# (While waiting for PR to work its way through bitbucket, pull from fork)` && \
     cd bricklib && \
-    git checkout tags/sc22_artifact1.1
+    git checkout tags/sc22_artifact1.2
 WORKDIR bricklib
 RUN cmake -S . -B build \
         -DCMAKE_BUILD_TYPE=Release \
