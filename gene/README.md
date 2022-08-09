@@ -13,12 +13,11 @@ at one of the author's [website](https://www.cs.utexas.edu/~bmsepan/projects/hig
 
 This directory builds three benchmarks:
 * `single-gene-6d`: Runs the stencil experiments on a single GPU for both GENE and Bricks implementations
-* `mpi-gene6d`: Runs the 2D stencil experiment across multiple GPUs for both GENE and Bricks implementations
 * `fft-gene-6d`: Computes a 1-dimensional FFT along the j-axis for both array and Bricks layouts using cuFFT
 
 ## Setup
 
-For our SC 2022 submission, we have automated the setup using [Docker](https://www.docker.com)
+For our SC 2022 MCHPC submission, we have automated the setup using [Docker](https://www.docker.com)
 and [Shifter](https://docs.nersc.gov/development/shifter/) through NERSC.
 The Dockerfile is located in the `docker` directory, if you wish to see the setup for yourself.
 To replicate the results, please follow [the Shifter setup instructions](#setup-using-shifter-on-perlmutter)
@@ -186,25 +185,6 @@ fft-gene-6d 5 100 a  # Run array layout only
 fft-gene-6d 5 100 b  # Run bricks layout only
 ```
 
-#### MPI Scaling for 2D Stencil
-
-To run the `mpi-gene6d` benchmark you need to specify the array extents
-and the number of MPI ranks along each axis.
-Using the shifter setup, you'll need to run the benchmark from outside the container to use more than one MPI rank.
-For example, you can run the benchmark with a global `I x J x K x L x M x N` grid
-of shape `72 x 32 x 24 x 24 x 32 x 2` (including ghost zones) split across
-2 MPI ranks in the k axis and 2 MPI ranks in the l axis by running
-```bash
-# Shifter build: (NB: Don't use ${BRICKS_SHIFTER_ARGS} here! It will run from ENTRYPOINT instead of mpi-gene6d)
-srun -n 4 shifter --module=gpu --module=cuda-mpich mpi-gene6d -d 72,32,24,24,32,2 -p 1,1,2,2,1,1
-# Manual build:
-srun -n 4 mpi-gene6d -d 72,32,8,8,32,2 -p 1,1,2,2,1,1
-```
-To see further command line options, run
-```bash
-mpi-gene6d -h
-```
-
 ### Batch jobs
 
 To run the batch jobs, we're going to first need to [build the slurm scripts](#building-the-slurm-scripts).
@@ -250,13 +230,11 @@ BRICKS_ACCOUNT=<account> BRICKS_EMAIL=<email> make
 This will create several files in the `generated-scripts` directory.
 * `generated-scripts/single-stencil.h`: Run the `single-gene-6d` benchmark.
 * `generated-scripts/fft.h`: Run the `fft-gene-6d` benchmark.
-* `generated-scripts/mpi_*.sh`: Submit several jobs to the `mpi-gene6d` benchmark. There are different scripts for the different number of MPI Ranks, and weak vs. strong scaling. Each script submits a [job arrays](https://docs.nersc.gov/jobs/examples/#job-arrays). To see the actual slurm scripts, look at `generated-scripts/mpi_slurm_scripts/*.slurm`. 
 
 You can see customization options for the slurm scripts by running
 ```bash
 python3 brick_shape_slurm_gen.py -h
 python3 fft_slurm_gen.py -h
-python3 mpi_slurm_gen.py -h
 ```
 
 #### Submitting the jobs
@@ -271,12 +249,7 @@ outside the container.
 ```bash
 sbatch generated-scripts/single-stencil.h
 sbatch generated-scripts/fft.h
-for mpi_job_array_submit_script in generated-scripts/mpi_* ; do
-    ./${mpi_job_array_submit_script}
-done
 ```
-Note that submitting the MPI jobs will trigger a few builds into the `cmake-builds` directory
-the first time you submit.
 
 #### Finding the results
 
@@ -286,9 +259,6 @@ All data will be stored in `.csv`s in  `${BRICKS_WORKSPACE}`.
   * `brick_shape_out.csv` Results from our timing
   * `ptx_info_brick_shape.csv` Some results extracted from the `.ptx` files
 * FFT: `fft_results`
-* MPI: Stored in the `${BRICKS_WORKSPACE}/mpiData/` directory.
-  * Strong: `mpiData/mpi_<numgpus>.csv`
-  * Weak: `mpiData/mpi_<numgpus>_exascale_gene_domain.csv`
 
 You can plot the data using [RStudio](https://www.rstudio.com)
 with the scripts included with our data used in the submission at
